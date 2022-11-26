@@ -13,6 +13,7 @@ export default function Counter() {
     >
       <button
         style={styles.btn}
+        className={"select-none"}
         onMouseOver="this.style.backgroundColor='#F8F8F8'"
         onClick={() => setCount(count - 1)}
       >
@@ -29,18 +30,19 @@ export default function Counter() {
 const styles = {
   btn: {
     all: "unset",
-    backgroundColor: "skyBlue",
-    width: "3rem",
-    height: "2rem",
+    backgroundColor: "rgba(125,212,122,1)",
+    width: "1.5rem",
+    height: "1.5rem",
     display: "block",
     cursor: "pointer",
+    borderRadius: "1rem",
     textAlign: "center",
   },
   p: {
     all: "unset",
-    width: "2rem",
-    height: "2rem",
-    marginTop: "5px",
+    width: "1.5rem",
+    height: "1.5rem",
+    marginTop: "0px",
     textAlign: "center",
     textShadow: "2px -1px 2px",
   },

@@ -1,67 +1,81 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
-export default function Card() {
-  return (
-    <div style={styles.card}>
-      <div style={styles.imge}>
-        <img src="logo192.png" alt="card-img" />
-      </div>
-      <h4 style={styles.h}>React</h4>
-      <p>Beginer Course</p>
+export default function Card({ name, price, discount, image, index }) {
+  const [count, setCount] = useState(1);
+  useEffect(() => {
+    count < 1 ? setCount(1) : setCount(count);
+  }, [count]);
+  return price ? (
+    <div
+      className={
+        "items-center justify-center text-center w-64  rounded-lg p-1 pr-2 pl-2 overflow-hidden "
+      }
+    >
+      <Link to={"product/" + index}>
+        <div className="w-full h-32 overflow-hidden mb-1 duration-700 ">
+          <img
+            className=" object-fill h-32 w-80  hover:scale-125 hover:object-cover duration-500 "
+            src={image}
+            alt="card-img"
+          />
+        </div>
+      </Link>
+      <h4 className={"bg-red-300 text-sm p-1 m-1"}>{name}</h4>
 
-      <price style={styles.price}>
-        <mainprice
-          style={{ backgroundColor: "black", color: "white", width: "40%" }}
+      <price
+        className={
+          "flex justify-between pl-2 pr-2 backdrop:blur-sm m-1 bg-slate-500 p-1 rounded-xl text-white shadow-md shadow-gray-800 "
+        }
+      >
+        <mainprice className="bg-black pl-2 pr-2">{price}$</mainprice>
+
+        <div
+          style={{
+            display: "flex",
+          }}
         >
-          10$
-        </mainprice>
-        <pricediscount
-          style={{ backgroundColor: "rgb(0,240,255)", width: "40%" }}
-        >
-          8$
-        </pricediscount>
+          <button
+            style={styles.btn}
+            className={"select-none"}
+            onMouseOver="this.style.backgroundColor='#F8F8F8'"
+            onClick={() => setCount(count - 1)}
+          >
+            -
+          </button>
+          <p style={styles.p}>{count}</p>
+          <button style={styles.btn} onClick={() => setCount(count + 1)}>
+            +
+          </button>
+        </div>
+        <pricediscount>{count * price}$</pricediscount>
       </price>
+      <div className="text-white">
+        discount price= {count * (price - (price * discount) / 100)}$
+      </div>
+      <button className="text-white bg-sky-600 w-full hover:bg-pink-300">
+        Add to cart
+      </button>
     </div>
-  );
+  ) : null;
 }
 const styles = {
-  price: {
-    display: "flex",
-    justifyContent: "space-around",
-    width: "80%",
-    borderRadius: "3rem",
-    boxShadow: "0px 0px 4px 0px rgba(0, 0, 0, .5)",
-  },
-  card: {
-    backgroundColor: "rgba(255,200,202,1)",
-    width: "15rem",
-    height: "20rem",
-    display: "flex",
-    flexDirection: "column",
+  btn: {
+    all: "unset",
+    backgroundColor: "rgba(125,212,122,1)",
+    width: "1.5rem",
+    height: "1.5rem",
+    display: "block",
     cursor: "pointer",
+    borderRadius: "1rem",
     textAlign: "center",
-    overflow: "hidden",
-    justifyContent: "start",
-    backdropFilter: "blur(10px)",
-    alignItems: "center",
-    borderRadius: "1rem",
-    boxShadow: "1px px 4px 2px rgba(0, 0, 0, .2)",
   },
-
-  imge: {
-    backgroundColor: "pink",
-    height: "12rem",
-    borderRadius: "1rem",
-    width: "15rem",
-    boxShadow: "2px 2px 2px rgba(255, 0, 0, .2)",
-  },
-  h: {
-    margin: "0",
-    padding: ".5rem",
-    boxShadow: "0px 0px 1px 0px rgba(0, 0, 0, .5)",
-    width: "14rem",
-    marginTop: ".2rem",
-    backgroundColor: "transparent",
-    borderRadius: ".5rem",
+  p: {
+    all: "unset",
+    width: "1.5rem",
+    height: "1.5rem",
+    marginTop: "0px",
+    textAlign: "center",
+    textShadow: "2px -1px 2px",
   },
 };

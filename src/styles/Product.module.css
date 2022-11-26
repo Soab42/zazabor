@@ -1,0 +1,36 @@
+.main {
+  display: grid;
+  width: 100vw;
+  background-color: wheat;
+  text-align: center;
+  font-family: cursive;
+}
+.upper {
+  display: flex;
+  height: 70vh;
+  width: 100%;
+  justify-content: center;
+}
+.left {
+  background-color: rgb(194, 15, 15);
+  width: 25%;
+}
+.right {
+  background-color: pink;
+  width: 70%;
+  display: flex;
+}
+.details {
+  width: 100%;
+  background-color: #fff;
+}
+.card {
+  width: 40%;
+}
+.middle {
+  height: 35vh;
+  background-color: rebeccapurple;
+}
+.bottom {
+  height: 60vh;
+}
