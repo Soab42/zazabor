@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useParams } from "react-router-dom";
-import Cart from "../components/Cart";
+
 import { cart } from "../product/cartlist";
 import { productlist } from "../product/productname";
 import Middle from "./Middle";
@@ -12,14 +12,14 @@ export default function Prod() {
   const [cartdata, setCartdata] = useState([]);
   const price = product.price - (product.price * product.discount) / 100;
   const add = () => {
-    setCartdata([{ name: product.name, price: price, pieace: count }]);
     cartdata ? cart.push(cartdata) : cart.push(null);
   };
   const listid2 = productlist.length - 1 > id ? Number(id) + 1 : 0;
   const listid = 1 > id ? productlist.length - 1 : Number(id) - 1;
   useEffect(() => {
     count > 0 ? setCount(count) : setCount(1);
-  }, [count, cartdata]);
+    setCartdata({ name: product.name, price: price, pieace: count });
+  }, [count, cartdata, price, product.name]);
   return (
     <>
       <div className="flex">
@@ -100,7 +100,6 @@ export default function Prod() {
             </Link>
           </div>
         </div>
-        <Cart />
       </div>
 
       <div>

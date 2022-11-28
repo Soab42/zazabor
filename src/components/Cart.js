@@ -7,21 +7,22 @@ export default function Cart() {
   useEffect(() => {
     setCartobject(cart);
   }, []);
+  console.log(cart.values([0]));
   return (
-    <div className="bg-pink-200 w-96 text-center capitalize">
+    <div className="bg-pink-200 w-full text-center capitalize">
       <div className="text-lg font-thin bg-slate-500 text-white ">
         this is cart section
       </div>
 
-      <div className="list  text-sm">
+      <div className="list  text-sm font-thin">
         <table className="w-full">
           <thead>
-            <th className="ring-1 ">sl</th>
-            <th className="ring-1 ">name</th>
-            <th className="ring-1">price</th>
-            <th className="ring-1 w-32">counter</th>
-            <th className="ring-1 ">amount</th>
-            <th className="ring-1 ">action</th>
+            <th className=" ">sl</th>
+            <th className=" ">name</th>
+            <th className=" ">price</th>
+            <th className=" ">counter</th>
+            <th className=" ">amount</th>
+            <th className=" ">action</th>
           </thead>
           {cartobject.map((x, index) => (
             <Cartline
