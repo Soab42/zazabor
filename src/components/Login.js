@@ -1,6 +1,6 @@
 import React from "react";
-import Mode from "./Mode";
-import Reg from "./Reg";
+import { Link } from "react-router-dom";
+
 export default function Login() {
   return (
     <div>
@@ -35,12 +35,6 @@ export default function Login() {
         >
           Login
         </button>
-        <p className="flex gap-2">
-          Don't Have an account?{" "}
-          <Mode name={"Register"}>
-            <Reg />
-          </Mode>
-        </p>
       </form>
     </div>
   );

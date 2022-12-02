@@ -1,15 +1,18 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useParams } from "react-router-dom";
+import { imagelist } from "../product/img";
 
 import { cart } from "../product/cartlist";
 import { productlist } from "../product/productname";
 import Middle from "./Middle";
+
 export default function Prod() {
   const { id } = useParams();
   const product = productlist[Number(id)];
   const [count, setCount] = useState(1);
   const [cartdata, setCartdata] = useState([]);
+  const [index, setIndex] = useState(0);
   const price = product.price - (product.price * product.discount) / 100;
   const add = () => {
     cartdata ? cart.push(cartdata) : cart.push(null);
@@ -19,17 +22,88 @@ export default function Prod() {
   useEffect(() => {
     count > 0 ? setCount(count) : setCount(1);
     setCartdata({ name: product.name, price: price, pieace: count });
-  }, [count, cartdata, price, product.name]);
+  }, [count, cartdata, price, product.name, index]);
   return (
     <>
-      <div className="flex">
-        <div className="w-1/3 p-2" style={{ height: "80vh" }}>
-          <img
-            className="image ring-2 ring-black shadow-lg shadow-black"
-            src={product.image}
-            alt={product.name}
-          />
+      <div className="w-full md:flex gap-3 ">
+        {/* image section............ */}
+        <div className=" w-3/5 p-1 h-96 relative cursor-pointer">
+          <div className=" w-full p-1 h-96 overflow-hidden -z-40">
+            <img
+              className="w-full object-contain  shadow-md h-full hover:scale-150  duration-700 "
+              src={imagelist[index]}
+              alt={product.name}
+            />
+          </div>
+          <div className="overflow-hidden m-1">
+            <div
+              className="overflow-scroll h-12 
+              w-4/5 gap-2 ml-20
+            flex p-1"
+            >
+              {/* left button carosel */}
+              <div
+                onClick={() => {
+                  setIndex(index < 1 ? imagelist.length - 1 : index - 1);
+                }}
+                className="absolute h-10  w-10 text-white text-center pt-3 pl-3 left-5 hover:ring-pink-600 hover:rotate-180 duration-700 rounded-full"
+              >
+                <div className="h-2 rounded-lg rotate-45 w-4 bg-black dark:bg-white"></div>
+                <div className="h-2 -rotate-45 rounded-lg bg-pink-600   w-4"></div>
+              </div>
+              {/* right button carosel */}
+
+              <div
+                onClick={() => {
+                  setIndex(index > imagelist.length - 2 ? 0 : index + 1);
+                }}
+                className="absolute h-10   w-10 text-white  right-5 text-center pt-3 pl-3 hover:ring-pink-600 rotate-180 rounded-full hover:rotate-0 duration-700"
+              >
+                <div className="h-2 rounded-lg rotate-45 w-4 bg-black dark:bg-white"></div>
+                <div className="h-2 -rotate-45 rounded-lg bg-pink-600  w-4 "></div>
+              </div>
+              {imagelist.map((x, index) => (
+                <img
+                  className="image hover:opacity-70 object-cover ring-2 ring-black"
+                  src={x}
+                  alt=""
+                  onClick={() => setIndex(index)}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="flex justify-around ">
+            <zoom className=" text-white p-1 text-center flex justify-between px-2 font-thin shadow-sm gap-1">
+              zoom :
+              <div className="hover:opacity-60 shadow-sm shadow-teal-800 px-2">
+                100
+              </div>
+              <div className="hover:opacity-60 shadow-sm shadow-teal-800 px-2">
+                200
+              </div>
+              <div className="hover:opacity-60 shadow-sm shadow-teal-800 px-2">
+                300
+              </div>
+            </zoom>
+            <move className="p-1  text-center flex shadow-sm gap-1">
+              move :
+              <div className="hover:opacity-60 shadow-sm shadow-teal-800 px-2">
+                left
+              </div>
+              <div className="hover:opacity-60 shadow-sm shadow-teal-800 px-2">
+                right
+              </div>
+              <div className="hover:opacity-60 shadow-sm shadow-teal-800 px-2">
+                top
+              </div>
+              <div className="hover:opacity-60 shadow-sm shadow-teal-800 px-2">
+                bottom
+              </div>
+            </move>
+          </div>
         </div>
+        {/* product title section............ */}
+
         <div className="w-1/3">
           <h1 className="text-3xl font-thin text-blue-800 uppercase">
             {product.name}
@@ -44,7 +118,41 @@ export default function Prod() {
                 ))
               : null}
           </div>
-          <div className="w-full h-16 bg-slate-400 text-white font-bold text-center grid mt-10">
+          {/* priceing.................................. */}
+          <div className="w-full h-24 bg-teal-400 text-white font-bold text-center grid mt-5 overflow-hidden">
+            <div className="flex justify-between p-1 ">
+              {/* size setiings............... */}
+              <div className="flex font-thin gap-2 ">
+                <button
+                  type="radio"
+                  className=" w-10 backdrop-blur-lg shadow-md uppercase text-sm text-black "
+                >
+                  sm
+                </button>
+                <button className=" w-10 backdrop-blur-lg shadow-md text-black uppercase text-sm ">
+                  m
+                </button>
+                <button className=" w-10 backdrop-blur-lg shadow-md uppercase text-sm  text-black">
+                  xl
+                </button>
+                <button className=" w-10 uppercase text-sm  backdrop-blur-lg shadow-md text-black">
+                  xxl
+                </button>
+              </div>
+              {/* color selection............... */}
+              <div>
+                <div className="flex font-thin gap-2">
+                  <button type="radio" className=" w-10 bg-black text-black ">
+                    -
+                  </button>
+                  <button className=" h-full w-10 bg-pink-400 text-pink-400">
+                    -
+                  </button>
+                  <button className=" w-10 bg-red-500 "></button>
+                  <button className=" w-10 bg-green-400 text-black"></button>
+                </div>
+              </div>
+            </div>
             <price className="p-1 bg-red-300">
               Main Price: {product.price}$
             </price>
@@ -52,7 +160,7 @@ export default function Prod() {
               Discount Price:{price} $
             </price>
           </div>
-          <div className="mt-5 flex">
+          <div className="mt-5 flex justify-between mb-4">
             <counter className="">
               <button
                 className="btn w-10 text-xl shadow-sm shadow-black"
@@ -87,7 +195,7 @@ export default function Prod() {
             <Link
               to={`/product/${listid}`}
               className="text-xm w-20 h-8 flex  hover:bg-green-400 hover:shadow-md
-               cursor-pointer  bg-blue-400 justify-center p-1 ml-5 shadow-md shadow-black rounded-2xl duration-700"
+               cursor-pointer  bg-blue-400 justify-center p-1  shadow-md shadow-black rounded-2xl duration-700"
             >
               prev
             </Link>
@@ -101,8 +209,8 @@ export default function Prod() {
           </div>
         </div>
       </div>
-
-      <div>
+      {/* detail section...................... */}
+      <div className="mt-5">
         <Middle />
       </div>
     </>

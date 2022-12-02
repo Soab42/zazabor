@@ -16,6 +16,6 @@
      active:opacity-5 cursor-pointer;
   }
   .image {
-    @apply object-cover h-full  rounded-md;
+    @apply object-cover h-full;
   }
 }

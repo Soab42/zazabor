@@ -1,6 +1,7 @@
 import React from "react";
 
 import Modal from "react-modal";
+import { Link } from "react-router-dom";
 
 const customStyles = {
   overlay: {
@@ -64,6 +65,12 @@ export default function Mode({ name, children }) {
           <div className="w-4 h-1 bg-black -rotate-45 -translate-x-.5 -translate-y-1"></div>
         </button>
         {children}
+        <p className="flex gap-2 capitalize">
+          Don't Have an account?
+          <Link onClick={closeModal} to={"/reg"}>
+            register
+          </Link>
+        </p>
       </Modal>
     </div>
   );
