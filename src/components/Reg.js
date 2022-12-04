@@ -1,13 +1,37 @@
 import React, { useRef } from "react";
+import {
+  createUserWithEmailAndPassword,
+  getAuth,
+  updateProfile,
+} from "firebase/auth";
+import { app } from "../firebase";
+import { redirect } from "react-router-dom";
 
 export default function Reg() {
-  const email = useRef();
-  const pass = useRef();
-  const user = useRef();
+  const emailref = useRef();
+  const passref = useRef();
+  const userref = useRef();
+
   function onsubmit(e) {
     e.preventDefault();
-    console.log(email.current.value);
+    console.log(app);
+    async function signup() {
+      const auth = getAuth(app);
+      await createUserWithEmailAndPassword(
+        auth,
+        emailref.current.value,
+        passref.current.value
+      );
+
+      await updateProfile(auth.currentUser, {
+        displayName: userref.current.value,
+      });
+    }
+    signup();
+    alert("sign up succes");
+    redirect("/");
   }
+
   return (
     <div className="grid justify-center">
       <div className="text-center capitalize text-bold text-xl text-blue-300">
@@ -20,7 +44,7 @@ export default function Reg() {
             className=" bg-black opacity-50  h-10 w-full  shadow-md shadow-black outline-none pl-4
     "
             type={"email"}
-            ref={email}
+            ref={emailref}
             required
           />
         </label>
@@ -32,7 +56,7 @@ export default function Reg() {
     "
             required
             type={"password"}
-            ref={pass}
+            ref={passref}
           />
         </label>
         <label>
@@ -42,7 +66,7 @@ export default function Reg() {
     "
             required
             type={"text"}
-            ref={user}
+            ref={userref}
           />
         </label>
 

@@ -21,6 +21,10 @@ demo {
 html {
   scroll-behavior: smooth;
 }
+.number-wrapper::after,
+.number-wrapper::before {
+  visibility: hidden;
+}
 
 @tailwind base;
 @tailwind components;

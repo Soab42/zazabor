@@ -10,12 +10,11 @@ export default function Carosel() {
   //   setColors(colors > imagelist.length - 2 ? 0 : Number(colors + 1));
   // };
   const change = () => {
-    setColors(colors + 1);
+    setColors(colors > imagelist.length - 2 ? 0 : colors + 1);
   };
 
-  setInterval(change, 4000);
+  // setInterval(change, 4000);
 
-  console.log(colors);
   return (
     <div>
       <div className={"h-96 duration-700 overflow-hidden mb-2"}>

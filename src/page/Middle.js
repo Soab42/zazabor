@@ -3,8 +3,8 @@ import { NavHashLink } from "react-router-hash-link";
 
 export default function Middle() {
   return (
-    <div className="flex">
-      <div className="grid w-2/3">
+    <div className="md:flex text-center">
+      <div className="grid md:w-2/3">
         <nav className="bg-white flex p-2 justify-around">
           <NavHashLink
             className={
@@ -40,21 +40,18 @@ export default function Middle() {
           </NavHashLink>
         </nav>
         <spacificaion
-          className=" h-screen bg-red-200 text-white"
+          className=" h-64  bg-red-200 text-white"
           id="specification"
         >
           specification
         </spacificaion>
-        <description
-          className=" h-screen bg-red-300 text-white"
-          id="description"
-        >
+        <description className=" h-64  bg-red-300 text-white" id="description">
           description
         </description>
-        <quistion id="quistion" className=" h-screen bg-red-400 text-white">
+        <quistion id="quistion" className=" h-64  bg-red-400 text-white">
           quistion
         </quistion>
-        <review id="reviews" className=" h-screen bg-red-500 text-white">
+        <review id="reviews" className=" h-64 bg-red-500 text-white">
           review
         </review>
       </div>

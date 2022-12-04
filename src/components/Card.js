@@ -10,7 +10,7 @@ export default function Card({ name, price, discount, image, index }) {
     <Link to={"product/" + index}>
       <div
         className={
-          "items-center justify-center text-center w-full  rounded-lg p-1  overflow-hidden bg-red-200"
+          "items-center justify-center text-center w-full  rounded-lg p-1  overflow-hidden bg-red-200 text-black"
         }
       >
         <div className="w-full h-44 overflow-hidden mb-1 duration-700">

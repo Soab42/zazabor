@@ -10,14 +10,6 @@ const firebaseConfig = {
     "https://zaza-bor-default-rtdb.asia-southeast1.firebasedatabase.app",
 
   projectId: "zaza-bor",
-
-  storageBucket: "zaza-bor.appspot.com",
-
-  messagingSenderId: "467249732865",
-
-  appId: "1:467249732865:web:52e84d2d3b52e6aac90f00",
-
-  measurementId: "G-YQM9KTD8KS",
 };
 
 // Initialize Firebase

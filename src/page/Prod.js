@@ -27,7 +27,7 @@ export default function Prod() {
     <>
       <div className="w-full md:flex gap-3 ">
         {/* image section............ */}
-        <div className=" w-3/5 p-1 h-96 relative cursor-pointer">
+        <div className=" md:w-3/5 p-1 md:h-96 relative ">
           <div className=" w-full p-1 h-96 overflow-hidden -z-40">
             <img
               className="w-full object-contain  shadow-md h-full hover:scale-150  duration-700 "
@@ -38,7 +38,7 @@ export default function Prod() {
           <div className="overflow-hidden m-1">
             <div
               className="overflow-scroll h-12 
-              w-4/5 gap-2 ml-20
+              w-4/5 gap-2 md:ml-20 sm:ml-16 ml-10
             flex p-1"
             >
               {/* left button carosel */}
@@ -46,7 +46,7 @@ export default function Prod() {
                 onClick={() => {
                   setIndex(index < 1 ? imagelist.length - 1 : index - 1);
                 }}
-                className="absolute h-10  w-10 text-white text-center pt-3 pl-3 left-5 hover:ring-pink-600 hover:rotate-180 duration-700 rounded-full"
+                className="absolute h-10  w-10 text-white ring-1 text-center pt-3 pl-3 md:left-5 -left-1 hover:ring-pink-600 hover:rotate-180 duration-700 rounded-full"
               >
                 <div className="h-2 rounded-lg rotate-45 w-4 bg-black dark:bg-white"></div>
                 <div className="h-2 -rotate-45 rounded-lg bg-pink-600   w-4"></div>
@@ -57,7 +57,7 @@ export default function Prod() {
                 onClick={() => {
                   setIndex(index > imagelist.length - 2 ? 0 : index + 1);
                 }}
-                className="absolute h-10   w-10 text-white  right-5 text-center pt-3 pl-3 hover:ring-pink-600 rotate-180 rounded-full hover:rotate-0 duration-700"
+                className="absolute h-10 ring-1  w-10 text-white  md:right-5 -right-1 text-center pt-3 pl-3 hover:ring-pink-600 rotate-180 rounded-full hover:rotate-0 duration-700"
               >
                 <div className="h-2 rounded-lg rotate-45 w-4 bg-black dark:bg-white"></div>
                 <div className="h-2 -rotate-45 rounded-lg bg-pink-600  w-4 "></div>
@@ -72,8 +72,8 @@ export default function Prod() {
               ))}
             </div>
           </div>
-          <div className="flex justify-around ">
-            <zoom className=" text-white p-1 text-center flex justify-between px-2 font-thin shadow-sm gap-1">
+          <div className="md:flex grid justify-around ">
+            <zoom className=" dark:text-white p-1 text-center flex justify-between px-2 font-thin shadow-sm gap-1">
               zoom :
               <div className="hover:opacity-60 shadow-sm shadow-teal-800 px-2">
                 100
@@ -85,7 +85,7 @@ export default function Prod() {
                 300
               </div>
             </zoom>
-            <move className="p-1  text-center flex shadow-sm gap-1">
+            <move className="p-1  text-center flex font-thin shadow-sm gap-1">
               move :
               <div className="hover:opacity-60 shadow-sm shadow-teal-800 px-2">
                 left
@@ -104,7 +104,7 @@ export default function Prod() {
         </div>
         {/* product title section............ */}
 
-        <div className="w-1/3">
+        <div className="md:w-1/3">
           <h1 className="text-3xl font-thin text-blue-800 uppercase">
             {product.name}
           </h1>
@@ -119,45 +119,45 @@ export default function Prod() {
               : null}
           </div>
           {/* priceing.................................. */}
-          <div className="w-full h-24 bg-teal-400 text-white font-bold text-center grid mt-5 overflow-hidden">
-            <div className="flex justify-between p-1 ">
+          <div className="w-full p-1 bg-teal-400 text-white font-bold text-center grid mt-5 overflow-hidden justify-center">
+            <div className=" grid gap-2 justify-between p-1">
               {/* size setiings............... */}
-              <div className="flex font-thin gap-2 ">
+              <div className="flex font-thin gap-2 w-96  ">
                 <button
                   type="radio"
-                  className=" w-10 backdrop-blur-lg shadow-md uppercase text-sm text-black "
+                  className=" w-1/4 backdrop-blur-lg shadow-md uppercase text-sm text-black "
                 >
                   sm
                 </button>
-                <button className=" w-10 backdrop-blur-lg shadow-md text-black uppercase text-sm ">
+                <button className=" w-1/4 backdrop-blur-lg shadow-md text-black uppercase text-sm ">
                   m
                 </button>
-                <button className=" w-10 backdrop-blur-lg shadow-md uppercase text-sm  text-black">
+                <button className=" w-1/4 backdrop-blur-lg shadow-md uppercase text-sm  text-black">
                   xl
                 </button>
-                <button className=" w-10 uppercase text-sm  backdrop-blur-lg shadow-md text-black">
+                <button className=" w-1/4 uppercase text-sm  backdrop-blur-lg shadow-md text-black">
                   xxl
                 </button>
               </div>
               {/* color selection............... */}
               <div>
                 <div className="flex font-thin gap-2">
-                  <button type="radio" className=" w-10 bg-black text-black ">
+                  <button type="radio" className=" w-1/4 bg-black text-black ">
                     -
                   </button>
-                  <button className=" h-full w-10 bg-pink-400 text-pink-400">
+                  <button className=" h-full w-1/4 bg-pink-400 text-pink-400">
                     -
                   </button>
-                  <button className=" w-10 bg-red-500 "></button>
-                  <button className=" w-10 bg-green-400 text-black"></button>
+                  <button className=" w-1/4 bg-red-500 "></button>
+                  <button className=" w-1/4 bg-green-400 text-black"></button>
                 </div>
               </div>
             </div>
-            <price className="p-1 bg-red-300">
+            <price className="p-1 backdrop-blur-lg shadow-md text-black hover:opacity-50">
               Main Price: {product.price}$
             </price>
-            <price className=" bg-green-300 text-black p-1">
-              Discount Price:{price} $
+            <price className="p-1 backdrop-blur-lg shadow-md text-black hover:opacity-50">
+              Discount Price:{price}$
             </price>
           </div>
           <div className="mt-5 flex justify-between mb-4">

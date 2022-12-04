@@ -6,6 +6,10 @@ import Layout from "./components/Layout";
 import Cart from "./components/Cart";
 import Reg from "./components/Reg";
 import Carosel from "./components/Carosel";
+import Profile from "./components/Profile";
+import Addproduct from "./page/Addproduct";
+import Editproduct from "./page/Editproduct";
+import Productlist from "./page/Productlist";
 function App() {
   return (
     <Router>
@@ -17,6 +21,10 @@ function App() {
           <Route path="/cart" element={<Cart />} />
           <Route path="/carosel" element={<Carosel />} />
           <Route path="/reg" element={<Reg />} />
+          <Route path="/profile" element={<Profile />} />
+          <Route path="/admin" element={<Addproduct />} />
+          <Route path="/productlist" element={<Productlist />} />
+          <Route path="/edit/:key" element={<Editproduct />} />
         </Routes>
       </Layout>
     </Router>
