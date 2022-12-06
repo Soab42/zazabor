@@ -9,7 +9,7 @@ import { app } from "../firebase";
 import Logout from "./Logout";
 import CardGiftcardIcon from "@mui/icons-material/CardGiftcard";
 import { List, MenuOpen } from "@mui/icons-material";
-import { MenuList } from "@mui/material";
+
 export default function Layout({ children }) {
   const [cartdata, setCartdata] = useState(cart);
   const [currentUser, setCurrentUser] = useState();
@@ -52,7 +52,7 @@ export default function Layout({ children }) {
         {/* navigation............................. */}
         <nav
           className="bg-transparent backdrop-blur-sm w-1/2 absolute h-screen top-12 left-0 duration-700 md:hidden"
-          style={!show ? { translate: "-18rem" } : null}
+          style={!show ? { translate: "-25rem" } : null}
           onClick={() => setShow(false)}
         >
           <div

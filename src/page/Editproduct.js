@@ -1,19 +1,20 @@
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { getDatabase, query, ref, get, set } from "firebase/database";
+import { getDatabase, query, ref, get, update } from "firebase/database";
 import { app } from "../firebase";
 
 export default function Editproduct() {
-  const { key } = useParams();
+  const { key, key2 } = useParams();
   const [product, setProduct] = useState([]);
   const [id, setid] = useState();
   const [name, setname] = useState();
   const [catagory, setcatagory] = useState();
   const [price, setprice] = useState();
   const [discount, setdiscount] = useState();
-  const [image, setimage] = useState();
+  // const [image, setimage] = useState();
   const db = getDatabase();
-  const dataref = ref(db, "productlist/" + key);
+  const dataref = ref(db, "productlist/" + key + "/" + key2);
+
   useEffect(() => {
     async function fetchProducts() {
       // database related works
@@ -24,8 +25,9 @@ export default function Editproduct() {
       try {
         // request firebase database
         const snapshot = await get(prodQuery);
+
         if (snapshot.exists()) {
-          setProduct(snapshot.val());
+          setProduct(Object.values(snapshot.val()));
         }
       } catch (err) {
         console.log(err);
@@ -35,11 +37,14 @@ export default function Editproduct() {
     fetchProducts();
   }, [key]);
   useEffect(() => {
-    setid(product.id);
-    setcatagory(product.catagory);
-    setdiscount(product.discount);
-    setprice(product.price);
-    setname(product.name);
+    product.map((x) => {
+      setid(x.id);
+      setcatagory(x.catagory);
+      setdiscount(x.discount);
+      setprice(x.price);
+      setname(x.name);
+    });
+
     // setimage(product.image);
   }, [product]);
   const submit = (e) => {
@@ -50,9 +55,9 @@ export default function Editproduct() {
       price: price,
       catagory: catagory,
       discount: discount,
-      imgUrl: image,
+      // imgUrl: image,
     };
-    set(dataref, data)
+    update(dataref, data)
       .then((data) => {
         //success callback
         alert("success" + data);
@@ -111,7 +116,7 @@ export default function Editproduct() {
             />
           </label>
 
-          <label className="flex gap-2 justify-between  items-center">
+          {/* <label className="flex gap-2 justify-between  items-center">
             <p>product image</p>
             <input
               value={image}
@@ -119,7 +124,7 @@ export default function Editproduct() {
               type={"file"}
               className="outline-none pl-2 font-thin text-sm bg-inherit shadow-sm shadow-black"
             />
-          </label>
+          </label> */}
           <button type="submit" className="bg-green-300 text-black">
             Update product
           </button>

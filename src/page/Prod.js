@@ -126,6 +126,7 @@ export default function Prod() {
                 <button
                   type="radio"
                   className=" w-1/4 backdrop-blur-lg shadow-md uppercase text-sm text-black "
+                  value={36}
                 >
                   sm
                 </button>

@@ -1,26 +1,27 @@
-import React, { useRef } from "react";
-import { getDatabase, push, ref } from "firebase/database";
+import React, { useRef, useState } from "react";
+import { getDatabase, ref, set } from "firebase/database";
 export default function Addproduct() {
   const id = useRef();
-  const name = useRef();
-  const catagory = useRef();
+
+  const [catagory, setcatagory] = useState();
+  const [name, setname] = useState();
   const price = useRef();
   const discount = useRef();
   const image = useRef();
   const db = getDatabase();
-  const dataref = ref(db, "productlist");
-  console.log(dataref);
+  const dataref = ref(db, "productlist/" + catagory + "/" + name);
+
   const submit = (e) => {
     e.preventDefault();
     const data = {
       id: id.current.value,
-      name: name.current.value,
+      name: name,
       price: price.current.value,
-      catagory: catagory.current.value,
+      catagory: catagory,
       discount: discount.current.value,
       imgUrl: image.current.value,
     };
-    push(dataref, data)
+    set(dataref, data)
       .then((data) => {
         //success callback
         alert("success" + data);
@@ -45,14 +46,14 @@ export default function Addproduct() {
         <label className="flex gap-2 justify-between  items-center">
           <p>product name</p>
           <input
-            ref={name}
+            onChange={(v) => setname(v.target.value)}
             className="outline-none pl-2 font-thin text-sm bg-inherit shadow-sm shadow-black"
           />
         </label>
         <label className="flex gap-2 justify-between  items-center">
           <p>product catagory </p>
           <input
-            ref={catagory}
+            onChange={(v) => setcatagory(v.target.value)}
             className="outline-none pl-2 font-thin text-sm bg-inherit shadow-sm shadow-black"
           />
         </label>

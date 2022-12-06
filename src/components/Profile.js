@@ -9,7 +9,7 @@ import { app } from "../firebase";
 import DriveFileRenameOutlineIcon from "@mui/icons-material/DriveFileRenameOutline";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 export default function Profile() {
-  const inputref = useRef(null);
+  const inputref = useRef();
   const auth = getAuth(app);
   const user = auth.currentUser;
   const [name, setName] = useState(`${user.displayName}`);
@@ -19,9 +19,7 @@ export default function Profile() {
   const [nedit, setNedit] = useState(true);
   const [eedit, setEedit] = useState(true);
   const [pedit, setPedit] = useState(true);
-  useEffect(() => {
-    inputref.current.focus();
-  }, []);
+  console.log(user);
   const updatename = () => {
     updateProfile(auth.currentUser, {
       displayName: name,

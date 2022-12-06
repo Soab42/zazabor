@@ -5,7 +5,6 @@ import {
   updateProfile,
 } from "firebase/auth";
 import { app } from "../firebase";
-import { redirect } from "react-router-dom";
 
 export default function Reg() {
   const emailref = useRef();
@@ -14,7 +13,7 @@ export default function Reg() {
 
   function onsubmit(e) {
     e.preventDefault();
-    console.log(app);
+
     async function signup() {
       const auth = getAuth(app);
       await createUserWithEmailAndPassword(
@@ -29,7 +28,6 @@ export default function Reg() {
     }
     signup();
     alert("sign up succes");
-    redirect("/");
   }
 
   return (

@@ -1,9 +1,9 @@
 /* eslint-disable react/jsx-props-no-spreading */
-import { Navigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import { Navigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 
 export default function PrivateRoute({ children }) {
-    const { currentUser } = useAuth();
+  const { currentUser } = useAuth();
 
-    return !currentUser ? children : <Navigate to="/" />;
+  return !currentUser ? children : <Navigate to="/" />;
 }
