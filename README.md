@@ -34,6 +34,15 @@ A Picasa-style photo gallery for the desktop, with GPU-accelerated deep zoom and
 | Viewer | ← → to browse, +/− or wheel to zoom, 0 to fit, 1–8 for 100%–12,800%, R to rotate, I for info, F for fullscreen, S for a slideshow |
 | Slideshow | Space to pause, ← → to skip, M to mute, S for settings, C for captions, Esc to exit |
 
+## Install on Linux (no root needed)
+
+```sh
+scripts/install-linux.sh            # builds, then installs into ~/.local with a menu entry
+scripts/install-linux.sh --uninstall
+```
+
+This adds SliderPro to your applications menu and to "Open With" for images. To build `.deb`/`.rpm` packages instead, run `npm run tauri build`.
+
 ## Development
 
 Requirements: Rust (stable), Node.js 20+, and on Linux the WebKitGTK 4.1 development packages ([Tauri prerequisites](https://tauri.app/start/prerequisites/)).
