@@ -1,5 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { displayRenderSize, fileUrl, loadImage, previewUrl } from "../api";
+import { displayRenderSize, loadImage, previewUrl } from "../api";
 import type { Photo } from "../library/model";
 import { clamp, formatDate, h, stripExtension } from "../ui/dom";
 import { icon } from "../ui/icons";
@@ -7,8 +7,7 @@ import { Canvas2DRenderer } from "./canvas2d";
 import { GLRenderer } from "./gl";
 import { hashString, letterboxBars, motionEase, mulberry32, planMotion, type Motion } from "./motion";
 import type { Renderer, SlideFrame, SlideTexture } from "./renderer";
-import { MusicPlayer } from "./audio";
-import { resolveMusic } from "./music";
+import { MusicChannel, onPreviewChange, resolveMusic } from "./music";
 import { GRADES, pickTransition, themeOf, TRANSITION_IDS, type SlideshowSettings, type TransitionKind } from "./settings";
 import { SettingsForm, type SlideshowScope } from "./setup";
 
@@ -87,7 +86,8 @@ export class Player {
   private renderSize = 2560;
   private wasFullscreen = true;
   private wakeLock: WakeLockSentinel | null = null;
-  private music: MusicPlayer | null = null;
+  private music = new MusicChannel("show");
+  private unsubscribePreview: () => void;
   private muted = false;
   /** Tempo of the playing soundtrack when known (built-in tracks), for cutting on the beat. */
   private bpm: number | null = null;
@@ -128,12 +128,15 @@ export class Player {
 
     this.titleCard = this.buildTitleCard();
     this.form = new SettingsForm(this.settings, (key) => this.onSettingChanged(key), this.order.slice(this.startPos, this.startPos + 6).map((i) => this.photos[i]));
-    this.panel.append(h("div", { class: "ss-panel-head" }, h("span", null, "Slideshow settings")), this.form.el);
+    this.panel.append(h("div", { class: "ss-panel-head" }, h("span", null, "Slideshow settings")), this.form.preview.el, this.form.el);
     this.buildHud();
     this.el.append(this.canvas, this.titleCard, this.caption, this.pausedBadge, this.panel, this.hud);
     this.el.addEventListener("pointermove", () => this.wake());
     this.canvas.addEventListener("click", this.onCanvasClick);
     new ResizeObserver(() => this.resize()).observe(this.el);
+    this.unsubscribePreview = onPreviewChange((active) => {
+      if (this.playingMusic && !this.paused) this.music.volume(active ? this.targetVolume * 0.15 : this.targetVolume, 300);
+    });
   }
 
   private get settings() {
@@ -179,6 +182,7 @@ export class Player {
     clearTimeout(this.idleTimer);
     this.wakeLock?.release().catch(() => {});
     this.stopMusic();
+    this.unsubscribePreview();
     const photo = (this.trans ?? this.cur)?.slide.photo ?? this.photos[this.order[this.startPos]] ?? null;
     this.el.classList.add("closing");
     if (!this.wasFullscreen) await getCurrentWindow().setFullscreen(false).catch(() => {});
@@ -298,7 +302,7 @@ export class Player {
    */
   private beatDelay(duration: number) {
     const music = this.music;
-    if (!this.settings.beatSync || !this.bpm || !music?.playing) return 0;
+    if (!this.settings.beatSync || !this.bpm || !music.playing) return 0;
     const grid = (60 / this.bpm) * themeOf(this.settings.theme).beatsPerCut;
     const middle = music.position + duration / 2000;
     return (Math.ceil(middle / grid) * grid - middle) * 1000;
@@ -561,9 +565,9 @@ export class Player {
     this.playButton.replaceChildren(icon(this.paused ? "play" : "pause", 20));
     this.playButton.title = this.paused ? "Play (Space)" : "Pause (Space)";
     this.pausedBadge.hidden = !this.paused;
-    if (this.music) {
-      if (this.paused) void this.music.pause();
-      else void this.music.resume(this.targetVolume);
+    if (this.playingMusic) {
+      if (this.paused) this.music.pause();
+      else this.music.resume(this.targetVolume);
     }
     this.wake();
   }
@@ -575,7 +579,7 @@ export class Player {
       this.stopMusic();
       this.loadMusic();
     }
-    if (key === "musicVolume") this.music?.fadeTo(this.targetVolume, 0.2);
+    if (key === "musicVolume") this.music.volume(this.targetVolume, 200);
   }
 
   // ---- music ------------------------------------------------------------------------------
@@ -590,37 +594,31 @@ export class Player {
     this.muteButton.hidden = !choice;
     this.bpm = null;
     if (!choice) return;
-    // Created before any await, while the user's click or key press still counts as a gesture.
-    const music = new MusicPlayer();
-    this.music = music;
     try {
       const resolved = await resolveMusic(choice);
       if (!resolved) throw new Error("soundtrack not found");
-      await music.load(fileUrl(resolved.path));
-      if (this.destroyed || this.music !== music) return;
+      if (this.destroyed || this.playingMusic !== choice) return;
+      await this.music.play(resolved.path, this.paused ? 0 : this.targetVolume, 2500);
+      if (this.destroyed || this.playingMusic !== choice) return;
       this.bpm = resolved.bpm;
-      music.start();
-      if (this.paused) await music.pause(0);
-      else music.fadeTo(this.targetVolume, 2.5);
+      if (this.paused) this.music.pause(0);
     } catch (err) {
       console.warn(`Could not play ${choice}:`, err);
-      if (this.music === music) this.music = null;
-      void music.dispose(0);
+      this.muteButton.hidden = true;
     }
   }
 
   private stopMusic() {
-    const music = this.music;
-    this.music = null;
+    this.playingMusic = null;
     this.bpm = null;
-    void music?.dispose();
+    this.music.stop();
   }
 
   private toggleMute() {
-    if (!this.music) return;
+    if (!this.playingMusic) return;
     this.muted = !this.muted;
     this.muteButton.replaceChildren(icon(this.muted ? "mute" : "volume", 19));
-    this.music.fadeTo(this.targetVolume, 0.3);
+    this.music.volume(this.targetVolume, 300);
     this.wake();
   }
 }

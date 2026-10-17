@@ -19,6 +19,18 @@ use crate::scan::{extension, is_audio, is_image};
 static CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
 static THUMB_POOL: OnceLock<ThreadPool> = OnceLock::new();
 static PREVIEW_POOL: OnceLock<ThreadPool> = OnceLock::new();
+static TILE_POOL: OnceLock<ThreadPool> = OnceLock::new();
+
+/// Background decoding must not starve the interface of CPU time.
+fn lower_thread_priority(nice: i32) {
+    #[cfg(unix)]
+    // SAFETY: setpriority only adjusts the scheduling priority of the calling thread.
+    unsafe {
+        libc::setpriority(libc::PRIO_PROCESS, 0, nice);
+    }
+    #[cfg(not(unix))]
+    let _ = nice;
+}
 
 pub fn init(cache_dir: PathBuf) {
     let _ = fs::create_dir_all(&cache_dir);
@@ -26,15 +38,19 @@ pub fn init(cache_dir: PathBuf) {
     let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
     // Thumbnails and large renders get separate pools so a scroll through thousands of
     // thumbnails never delays the photo the user is actually looking at.
-    let pool = |threads: usize, name: &'static str| {
+    let pool = |threads: usize, name: &'static str, nice: i32| {
         rayon::ThreadPoolBuilder::new()
             .num_threads(threads)
             .thread_name(move |i| format!("{name}-{i}"))
+            .start_handler(move |_| lower_thread_priority(nice))
             .build()
             .expect("failed to build thread pool")
     };
-    let _ = THUMB_POOL.set(pool(cores.saturating_sub(2).max(2), "thumb"));
-    let _ = PREVIEW_POOL.set(pool(2, "preview"));
+    // Few, low-priority thumbnail workers: big photos need lots of memory to decode.
+    let _ = THUMB_POOL.set(pool((cores / 2).clamp(2, 6), "thumb", 10));
+    let _ = PREVIEW_POOL.set(pool(2, "preview", 5));
+    // Tiles are what the user is looking at right now.
+    let _ = TILE_POOL.set(pool(3, "tile", 0));
 }
 
 pub fn cache_dir() -> Option<&'static PathBuf> {
@@ -46,6 +62,7 @@ pub fn handle(request: Request<Vec<u8>>, responder: UriSchemeResponder) {
     let pool = match route.as_str() {
         "thumb" => THUMB_POOL.get(),
         "preview" => PREVIEW_POOL.get(),
+        "tile" | "full" => TILE_POOL.get(),
         _ => None,
     };
     let work = move || responder.respond(respond(&route, &request));
@@ -63,11 +80,13 @@ fn respond(route: &str, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
     }
     let query = request.uri().query().unwrap_or("");
     let mut path: Option<PathBuf> = None;
-    let mut size: u32 = 0;
+    let (mut size, mut tx, mut ty) = (0u32, 0u32, 0u32);
     for (key, value) in url::form_urlencoded::parse(query.as_bytes()) {
         match key.as_ref() {
             "p" => path = Some(PathBuf::from(value.into_owned())),
             "s" => size = value.parse().unwrap_or(0),
+            "x" => tx = value.parse().unwrap_or(0),
+            "y" => ty = value.parse().unwrap_or(0),
             _ => {}
         }
     }
@@ -81,10 +100,14 @@ fn respond(route: &str, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
                 .and_then(|(file, mime)| read(&file).map(|bytes| (bytes, mime))),
             None => Err("cache unavailable".into()),
         },
+        "full" if is_image(&path) => imaging::full_image(&path).map(|image| {
+            (format!(r#"{{"width":{},"height":{}}}"#, image.width(), image.height()).into_bytes(), "application/json")
+        }),
+        "tile" if is_image(&path) => imaging::tile(&path, tx, ty, size).map(|bytes| (bytes, "application/octet-stream")),
         "file" if is_image(&path) || is_audio(&path) => {
             read(&path).map(|bytes| (bytes, mime_for(&path)))
         }
-        "thumb" | "preview" | "file" => {
+        "thumb" | "preview" | "file" | "full" | "tile" => {
             return error(StatusCode::FORBIDDEN, "unsupported file type")
         }
         _ => return error(StatusCode::NOT_FOUND, "unknown route"),

@@ -1,9 +1,13 @@
 import { clamp } from "../ui/dom";
 import { Canvas2DDrawer, GLDrawer, GRID_ABOVE, type DrawItem, type ZoomDrawer } from "./drawers";
 import { easeMove, easeWheel } from "./easing";
+import type { Tile, TiledImage } from "./tiles";
 
 export interface ZoomLayer {
-  image: CanvasImageSource;
+  /** A whole rendition (thumbnail or preview)… */
+  image?: CanvasImageSource;
+  /** …or the full-resolution photo as backend tiles. */
+  tiles?: TiledImage;
   /** Pixel size in drawImage's coordinate space. */
   width: number;
   height: number;
@@ -25,7 +29,8 @@ export const MAX_SCALE = 128;
 const CRISP_ABOVE = 2.5;
 const WHEEL_MS = 240;
 const MOVE_MS = 320;
-const CROSSFADE_MS = 170;
+/** A new photo fades up from the background; the previous one is never drawn over it. */
+const FADE_IN_MS = 140;
 
 type TweenPath =
   /** Keep the image point (ix, iy) under the screen point (ax, ay). */
@@ -36,10 +41,6 @@ type TweenPath =
 /** Scale is interpolated in log space so every step of a zoom feels equally fast. */
 type Tween = TweenPath & { start: number; duration: number; ease: (t: number) => number; fromLog: number; toLog: number };
 
-interface Outgoing {
-  items: DrawItem[];
-  start: number;
-}
 
 /**
  * GPU-accelerated pan/zoom view. Zoom changes are cubic-bezier tweens anchored under the
@@ -66,10 +67,12 @@ export class ZoomView {
   private velocity: { x: number; y: number } | null = null;
   private drag: { id: number; x: number; y: number; t: number; vx: number; vy: number } | null = null;
   private pointer: { x: number; y: number } | null = null;
-  private outgoing: Outgoing | null = null;
+  private fadeInStart = 0;
   private frame = 0;
   private lastTime = 0;
   private dirty = false;
+  /** Visible tiles of the full-resolution layer still on their way (0 when sharp). */
+  private missingTiles = 0;
   private probe = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!;
 
   /** Called after any change to zoom, position or layers. */
@@ -107,9 +110,10 @@ export class ZoomView {
 
   // ---- public API -------------------------------------------------------------------
 
-  /** Starts a new image of the given upright size; the previous one crossfades away. */
+  /** Starts a new image of the given upright size; it fades in quickly. */
   setImage(width: number, height: number) {
-    this.beginCrossfade();
+    for (const layer of this.layers) this.retire(layer);
+    this.fadeInStart = performance.now();
     this.layers = [];
     this.uprightW = Math.max(1, width);
     this.uprightH = Math.max(1, height);
@@ -123,14 +127,12 @@ export class ZoomView {
   addLayer(layer: ZoomLayer) {
     for (const old of this.layers.filter((l) => l.density === layer.density)) this.retire(old);
     this.layers = [...this.layers.filter((l) => l.density !== layer.density), layer].sort((a, b) => a.density - b.density);
-    // Upload big layers between frames, before a zoom needs them.
-    if (layer.density >= 0.999) setTimeout(() => this.layers.includes(layer) && this.drawer.prepare(layer.image), 30);
+    if (layer.tiles) layer.tiles.onLoad = () => this.invalidate();
     this.invalidate();
   }
 
   clear() {
     for (const layer of this.layers) this.retire(layer);
-    this.finishCrossfade();
     this.layers = [];
     this.uprightW = this.uprightH = 0;
     this.invalidate();
@@ -168,9 +170,9 @@ export class ZoomView {
     return this.fitMode;
   }
 
-  /** Whether the full-resolution layer is what is currently being drawn. */
+  /** Whether the full-resolution layer is drawn, with every visible tile loaded. */
   get showingOriginal() {
-    return this.pickLayer()?.density === 1;
+    return this.pickLayer()?.density === 1 && this.missingTiles === 0;
   }
 
   get needsOriginal() {
@@ -394,7 +396,11 @@ export class ZoomView {
     if (vx < 0 || vy < 0 || vx >= w || vy >= h) return null;
     const readout: Readout = { x: Math.floor(vx), y: Math.floor(vy), color: null };
     const original = this.layers.find((l) => l.density === 1);
-    if (original) {
+    if (original?.tiles) {
+      const p = this.rotationMatrix().multiply(original.toUpright).inverse().transformPoint(new DOMPoint(readout.x + 0.5, readout.y + 0.5));
+      const rgb = original.tiles.pixel(Math.floor(p.x), Math.floor(p.y));
+      if (rgb) readout.color = `#${((1 << 24) | (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]).toString(16).slice(1).toUpperCase()}`;
+    } else if (original?.image) {
       const toSource = this.rotationMatrix().multiply(original.toUpright).inverse();
       const p = toSource.transformPoint(new DOMPoint(readout.x + 0.5, readout.y + 0.5));
       const sx = Math.floor(p.x);
@@ -471,8 +477,8 @@ export class ZoomView {
       this.dirty = true;
     }
 
-    if (this.outgoing) {
-      if (now - this.outgoing.start >= CROSSFADE_MS) this.finishCrossfade();
+    if (this.fadeInStart) {
+      if (now - this.fadeInStart >= FADE_IN_MS) this.fadeInStart = 0;
       else animating = true;
       this.dirty = true;
     }
@@ -494,19 +500,64 @@ export class ZoomView {
 
   private currentItems(alpha = 1): DrawItem[] {
     const layer = this.pickLayer();
+    this.missingTiles = 0;
     if (!layer) return [];
-    const matrix = this.screenMatrix().multiply(this.rotationMatrix()).multiply(layer.toUpright);
-    return [{ layer, matrix, alpha }];
+    const toScreen = (l: ZoomLayer) => this.screenMatrix().multiply(this.rotationMatrix()).multiply(l.toUpright);
+    const matrix = toScreen(layer);
+    if (!layer.tiles) return [{ layer, matrix, alpha }];
+    // The sharpest whole rendition stays underneath until every visible tile has arrived.
+    const items: DrawItem[] = [];
+    const under = [...this.layers].reverse().find((l) => l.image);
+    if (under) items.push({ layer: under, matrix: toScreen(under), alpha });
+    items.push({ layer, matrix, alpha, tiles: this.visibleTiles(layer.tiles, matrix) });
+    return items;
+  }
+
+  /** Loaded tiles under the viewport; requests the missing ones, nearest the centre first. */
+  private visibleTiles(source: TiledImage, matrix: DOMMatrix): Tile[] {
+    const inverse = matrix.inverse();
+    const W = this.drawerWidth();
+    const H = this.drawerHeight();
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [px, py] of [[0, 0], [W, 0], [0, H], [W, H]]) {
+      const p = inverse.transformPoint(new DOMPoint(px, py));
+      x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y);
+      x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y);
+    }
+    const size = source.tileSize;
+    const tx0 = Math.max(0, Math.floor(x0 / size)), ty0 = Math.max(0, Math.floor(y0 / size));
+    const tx1 = Math.min(source.cols - 1, Math.floor(x1 / size)), ty1 = Math.min(source.rows - 1, Math.floor(y1 / size));
+    const cx = (x0 + x1) / 2 / size, cy = (y0 + y1) / 2 / size;
+    const cells: [number, number][] = [];
+    for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) cells.push([tx, ty]);
+    cells.sort((a, b) => Math.hypot(a[0] + 0.5 - cx, a[1] + 0.5 - cy) - Math.hypot(b[0] + 0.5 - cx, b[1] + 0.5 - cy));
+    const ready: Tile[] = [];
+    const missing: [number, number][] = [];
+    for (const [tx, ty] of cells) {
+      const tile = source.get(tx, ty);
+      if (tile) ready.push(tile);
+      else missing.push([tx, ty]);
+    }
+    this.missingTiles = missing.length;
+    if (missing.length) source.want(missing);
+    return ready;
+  }
+
+  private drawerWidth() {
+    return Math.round(this.vw * this.dpr);
+  }
+
+  private drawerHeight() {
+    return Math.round(this.vh * this.dpr);
   }
 
   private render(now = performance.now()) {
-    const items = this.currentItems();
-    if (this.outgoing) {
-      // New photo underneath at full strength, the old one fading out over it.
-      const fade = 1 - Math.min(1, (now - this.outgoing.start) / CROSSFADE_MS);
-      const eased = fade * fade * (3 - 2 * fade);
-      items.push(...this.outgoing.items.map((item) => ({ ...item, alpha: eased })));
+    let alpha = 1;
+    if (this.fadeInStart) {
+      const t = Math.min(1, (now - this.fadeInStart) / FADE_IN_MS);
+      alpha = t * t * (3 - 2 * t);
     }
+    const items = this.currentItems(alpha);
     const k = this.scale * this.dpr;
     this.drawer.draw(items, {
       crisp: k >= CRISP_ABOVE,
@@ -515,27 +566,12 @@ export class ZoomView {
     });
   }
 
-  private beginCrossfade() {
-    this.finishCrossfade();
-    const items = this.currentItems();
-    if (!items.length) {
-      for (const layer of this.layers) this.retire(layer);
+  private retire(layer: ZoomLayer) {
+    if (layer.tiles) {
+      layer.tiles.dispose();
       return;
     }
-    // Keep the drawn layer alive for the fade; free the others now.
-    for (const layer of this.layers) if (layer !== items[0].layer) this.retire(layer);
-    this.outgoing = { items, start: performance.now() };
-  }
-
-  private finishCrossfade() {
-    if (!this.outgoing) return;
-    for (const item of this.outgoing.items) this.retire(item.layer);
-    this.outgoing = null;
-  }
-
-  private retire(layer: ZoomLayer) {
-    const stillUsed = this.layers.some((l) => l !== layer && l.image === layer.image) ||
-      this.outgoing?.items.some((i) => i.layer !== layer && i.layer.image === layer.image);
-    if (!stillUsed) this.drawer.release(layer.image);
+    const image = layer.image;
+    if (image && !this.layers.some((l) => l !== layer && l.image === image)) this.drawer.release(image);
   }
 }

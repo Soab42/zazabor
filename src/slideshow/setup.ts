@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { BuiltinTrack, MusicFile } from "../api";
 import type { Photo } from "../library/model";
@@ -5,7 +6,10 @@ import { basename, h } from "../ui/dom";
 import { icon } from "../ui/icons";
 import { builtinTracks, isPreviewing, previewMusic, stopPreview, yourMusic } from "./music";
 import { TransitionPreview } from "./preview";
-import { applyTheme, BUILTIN_MUSIC, LOOKS, THEMES, TRANSITION_GROUPS, type Framing, type SlideshowSettings, type TransitionChoice, type TransitionKind } from "./settings";
+import {
+  applyTheme, BUILTIN_MUSIC, LOOKS, THEMES, TRANSITION_GROUPS,
+  type Framing, type SlideshowSettings, type TransitionChoice, type TransitionKind,
+} from "./settings";
 
 export interface SlideshowScope {
   /** Shown in the setup dialog, e.g. “Selected photos”. */
@@ -18,13 +22,23 @@ export interface SlideshowScope {
 
 const AUDIO_EXTENSIONS = ["mp3", "ogg", "oga", "opus", "flac", "wav", "m4a", "aac"];
 
-/** Live-editing controls for slideshow settings; used by the setup dialog and the in-show panel. */
+const TABS = ["Style", "Transitions", "Timing", "Look", "Music"] as const;
+type Tab = (typeof TABS)[number];
+/** Reopening the settings returns to the tab used last. */
+let lastTab: Tab = "Style";
+
+/**
+ * Live-editing slideshow settings in tabs, with a transition preview the host places (`preview`).
+ * Used by the setup dialog and the in-show panel.
+ */
 export class SettingsForm {
   readonly el = h("div", { class: "settings-form" });
+  readonly preview: TransitionPreview;
   private syncers: (() => void)[] = [];
   private tracks: BuiltinTrack[] = [];
   private songs: MusicFile[] = [];
-  private preview: TransitionPreview;
+  private tabs = new Map<Tab, [HTMLButtonElement, HTMLElement]>();
+  private renderMusic: () => void = () => {};
 
   constructor(
     private readonly settings: SlideshowSettings,
@@ -32,35 +46,43 @@ export class SettingsForm {
     samples: Photo[] = [],
   ) {
     this.preview = new TransitionPreview(settings, samples);
-    this.el.append(
-      this.group("Theme", this.themePicker()),
-      this.group("Transitions", this.transitionLibrary()),
-      this.group("Timing",
+    const panes: Record<Tab, HTMLElement[]> = {
+      Style: [this.themePicker()],
+      Transitions: [this.transitionLibrary()],
+      Timing: [
         this.slider("Each photo", "duration", 2, 20, 0.5, (v) => `${v.toFixed(1)} s`),
-        this.slider("Transition length", "transitionTime", 0.3, 3, 0.1, (v) => `${v.toFixed(1)} s`),
-      ),
-      this.group("Motion",
+        this.slider("Transition", "transitionTime", 0.3, 3, 0.1, (v) => `${v.toFixed(1)} s`),
         this.slider("Ken Burns", "kenBurns", 0, 1, 0.05, (v) => (v === 0 ? "Off" : `${Math.round(v * 100)}%`)),
-        this.segmented("Framing", "framing", [["smart", "Smart"], ["fill", "Fill"], ["fit", "Fit"]],
-          "Smart fills the screen when a photo's shape is close to it, and otherwise shows the whole photo over a blurred backdrop."),
-      ),
-      this.group("Look",
+        this.segmented("Framing", "framing", [["smart", "Smart"], ["fill", "Fill"], ["fit", "Fit"]]),
+        this.framingHint(),
+        this.toggle("Shuffle", "shuffle"),
+        this.toggle("Loop", "loop"),
+      ],
+      Look: [
         this.select("Color grade", "look", LOOKS),
         this.slider("Film grain", "grain", 0, 1, 0.05, (v) => (v === 0 ? "Off" : `${Math.round(v * 100)}%`)),
         this.slider("Vignette", "vignette", 0, 1, 0.05, (v) => (v === 0 ? "Off" : `${Math.round(v * 100)}%`)),
         this.toggle("Cinema letterbox (2.39:1)", "letterbox"),
         this.toggle("Opening title card", "titleCard"),
         this.toggle("Captions", "captions"),
-      ),
-      this.group("Playback",
-        this.toggle("Shuffle", "shuffle"),
-        this.toggle("Loop", "loop"),
-      ),
-      this.group("Music",
-        this.musicRow(),
+      ],
+      Music: [
+        this.musicList(),
         this.slider("Volume", "musicVolume", 0, 1, 0.05, (v) => `${Math.round(v * 100)}%`),
-        this.toggle("Cut on the beat", "beatSync")),
-    );
+        this.toggle("Cut on the beat", "beatSync"),
+      ],
+    };
+    const bar = h("div", { class: "sf-tabs", role: "tablist" });
+    const body = h("div", { class: "sf-panes" });
+    for (const tab of TABS) {
+      const button = h("button", { type: "button", class: "sf-tab", role: "tab", onclick: () => this.showTab(tab) }, tab);
+      const pane = h("div", { class: `sf-pane sf-pane-${tab.toLowerCase()}`, role: "tabpanel" }, ...panes[tab]);
+      this.tabs.set(tab, [button, pane]);
+      bar.append(button);
+      body.append(pane);
+    }
+    this.el.append(bar, body);
+    this.showTab(lastTab);
   }
 
   /** Starts or stops the animated preview (it costs GPU time while visible). */
@@ -79,17 +101,22 @@ export class SettingsForm {
     for (const fn of this.syncers) fn();
   }
 
+  private showTab(tab: Tab) {
+    lastTab = tab;
+    for (const [name, [button, pane]] of this.tabs) {
+      button.classList.toggle("active", name === tab);
+      button.setAttribute("aria-selected", String(name === tab));
+      pane.hidden = name !== tab;
+    }
+  }
+
   private changed(key: keyof SlideshowSettings) {
     this.sync();
     this.onChange(key);
   }
 
-  private group(title: string, ...rows: HTMLElement[]) {
-    return h("fieldset", { class: "sf-group" }, h("legend", null, title), ...rows);
-  }
-
-  private row(label: string, control: HTMLElement, value?: HTMLElement, hint?: string) {
-    return h("label", { class: "sf-row", title: hint ?? null }, h("span", { class: "sf-label" }, label), control, value ?? null);
+  private row(label: string, control: HTMLElement, value?: HTMLElement) {
+    return h("label", { class: "sf-row" }, h("span", { class: "sf-label" }, label), control, value ?? null);
   }
 
   private slider(label: string, key: "duration" | "transitionTime" | "kenBurns" | "grain" | "vignette" | "musicVolume",
@@ -120,7 +147,7 @@ export class SettingsForm {
     return this.row(label, select);
   }
 
-  private segmented(label: string, key: "framing", options: [Framing, string][], hint: string) {
+  private segmented(label: string, key: "framing", options: [Framing, string][]) {
     const group = h("div", { class: "segmented" });
     const buttons = options.map(([value, text]) => {
       const button = h("button", { type: "button" }, text);
@@ -134,7 +161,19 @@ export class SettingsForm {
     const sync = () => buttons.forEach(([value, button]) => button.classList.toggle("active", this.settings[key] === value));
     this.syncers.push(sync);
     sync();
-    return this.row(label, group, undefined, hint);
+    return this.row(label, group);
+  }
+
+  private framingHint() {
+    const hint = h("p", { class: "sf-hint" });
+    const text: Record<Framing, string> = {
+      smart: "Landscapes fill the screen. Portraits start whole over a frosted backdrop, then slowly zoom toward faces.",
+      fill: "Every photo fills the screen; edges are cropped and the camera pans across them.",
+      fit: "Every photo stays whole over a frosted backdrop, with a gentle push-in.",
+    };
+    this.syncers.push(() => (hint.textContent = text[this.settings.framing]));
+    this.syncers[this.syncers.length - 1]();
+    return hint;
   }
 
   private toggle(label: string, key: "letterbox" | "titleCard" | "captions" | "shuffle" | "loop" | "beatSync") {
@@ -146,32 +185,6 @@ export class SettingsForm {
     this.syncers.push(() => (input.checked = this.settings[key]));
     input.checked = this.settings[key];
     return h("label", { class: "sf-row sf-toggle" }, h("span", { class: "sf-label" }, label), input);
-  }
-
-  private transitionLibrary() {
-    const chips = new Map<TransitionChoice, HTMLButtonElement>();
-    const chip = (id: TransitionChoice, label: string, extra = "") => {
-      const button = h("button", { type: "button", class: `tchip${extra}` }, label);
-      button.addEventListener("click", () => {
-        this.settings.transition = id;
-        this.changed("transition");
-      });
-      if (id !== "theme" && id !== "random") {
-        button.addEventListener("pointerenter", () => this.preview.show(id as TransitionKind));
-        button.addEventListener("pointerleave", () => this.preview.show(null));
-      }
-      chips.set(id, button);
-      return button;
-    };
-    const library = h("div", { class: "tlib" },
-      h("div", { class: "tlib-row" }, chip("theme", "Match theme", " special"), chip("random", "Surprise me (all 50)", " special")));
-    for (const group of TRANSITION_GROUPS) {
-      library.append(h("div", { class: "tlib-group" }, h("span", { class: "tlib-label" }, group.label),
-        h("div", { class: "tlib-row" }, ...group.items.map(([id, label]) => chip(id, label)))));
-    }
-    this.syncers.push(() => chips.forEach((button, id) => button.classList.toggle("active", this.settings.transition === id)));
-    this.syncers[this.syncers.length - 1]();
-    return h("div", { class: "tsection" }, this.preview.el, library);
   }
 
   private themePicker() {
@@ -191,68 +204,123 @@ export class SettingsForm {
     return grid;
   }
 
-  private musicRow() {
-    const CUSTOM = "\u0000custom";
-    const select = h("select");
-    const preview = h("button", { type: "button", class: "icon-btn small preview-btn", title: "Listen to a few seconds" }, icon("play", 14));
-    const options = () => {
-      const current = this.settings.music;
-      select.replaceChildren(h("option", { value: "" }, "No music"));
-      const builtIn = h("optgroup", { label: "SliderPro soundtracks" });
-      for (const track of this.tracks) builtIn.append(h("option", { value: `${BUILTIN_MUSIC}${track.id}` }, `${track.vibe} — ${track.title}`));
-      select.append(builtIn);
-      if (this.songs.length) {
-        const mine = h("optgroup", { label: "Your music" });
-        for (const song of this.songs) mine.append(h("option", { value: song.path, title: song.path }, `${song.name}${song.folder ? `  ·  ${song.folder}` : ""}`));
-        select.append(mine);
+  /** Category pills over a small set of chips; hovering a chip previews it. */
+  private transitionLibrary() {
+    const chips = new Map<TransitionChoice, HTMLButtonElement>();
+    const chip = (id: TransitionChoice, label: string, extra = "") => {
+      const button = h("button", { type: "button", class: `tchip${extra}` }, label);
+      button.addEventListener("click", () => {
+        this.settings.transition = id;
+        this.changed("transition");
+      });
+      if (id !== "theme" && id !== "random") {
+        button.addEventListener("pointerenter", () => this.preview.show(id as TransitionKind));
+        button.addEventListener("pointerleave", () => this.preview.show(null));
       }
-      if (current && !current.startsWith(BUILTIN_MUSIC) && !this.songs.some((s) => s.path === current)) {
-        select.append(h("option", { value: current }, basename(current)));
-      }
-      select.append(h("option", { value: CUSTOM }, "Choose a file…"));
-      select.value = current ?? "";
-      preview.disabled = !current;
-      preview.replaceChildren(icon(isPreviewing(current) ? "pause" : "play", 14));
+      chips.set(id, button);
+      return button;
     };
-    select.addEventListener("change", async () => {
-      stopPreview();
-      if (select.value !== CUSTOM) {
-        this.settings.music = select.value || null;
-        this.changed("music");
-        return;
-      }
-      const file = await open({ multiple: false, directory: false, title: "Choose slideshow music", filters: [{ name: "Audio", extensions: AUDIO_EXTENSIONS }] });
-      if (typeof file === "string") {
-        this.settings.music = file;
-        this.changed("music");
-      } else {
-        options();
-      }
+    const categories = h("div", { class: "tcats" });
+    const rows = TRANSITION_GROUPS.map((group) => h("div", { class: "tlib-row", hidden: true }, ...group.items.map(([id, label]) => chip(id, label))));
+    const pills = TRANSITION_GROUPS.map((group, i) => {
+      const pill = h("button", { type: "button", class: "tcat" }, group.label);
+      pill.addEventListener("click", () => showCategory(i));
+      categories.append(pill);
+      return pill;
     });
-    preview.addEventListener("click", async () => {
-      const choice = this.settings.music;
-      if (isPreviewing(choice)) {
-        stopPreview();
-        options();
-        return;
+    const showCategory = (index: number) => {
+      rows.forEach((row, i) => (row.hidden = i !== index));
+      pills.forEach((pill, i) => pill.classList.toggle("active", i === index));
+    };
+    const selected = TRANSITION_GROUPS.findIndex((g) => g.items.some(([id]) => id === this.settings.transition));
+    showCategory(Math.max(0, selected));
+    this.syncers.push(() => chips.forEach((button, id) => button.classList.toggle("active", this.settings.transition === id)));
+    this.syncers[this.syncers.length - 1]();
+    return h(
+      "div",
+      { class: "tlib" },
+      h("div", { class: "tlib-row" }, chip("theme", "Match theme", " special"), chip("random", "Surprise me (all 50)", " special")),
+      categories,
+      ...rows,
+      h("p", { class: "sf-hint" }, "Hover a transition to preview it; click to use it for the whole show."),
+    );
+  }
+
+  /** Every soundtrack as a row with its own ▶ preview, then the user's songs. */
+  private musicList() {
+    const list = h("div", { class: "music-list" });
+    const row = (choice: string | null, title: string, detail: string) => {
+      const selected = (this.settings.music ?? null) === choice;
+      const playing = choice !== null && isPreviewing(choice);
+      const listen = h("button", { type: "button", class: "ml-play", title: playing ? "Stop" : "Listen", disabled: choice === null },
+        icon(playing ? "pause" : "play", 13));
+      listen.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (isPreviewing(choice)) {
+          stopPreview();
+        } else {
+          listen.replaceChildren(icon("pause", 13));
+          if (!(await previewMusic(choice, this.renderMusic))) listen.title = "This file can't be played on this computer";
+        }
+        this.renderMusic();
+      });
+      const item = h("div", { class: `ml-row${selected ? " active" : ""}`, role: "option", tabIndex: 0 },
+        listen, h("span", { class: "ml-title" }, title), h("span", { class: "ml-detail" }, detail),
+        selected ? h("span", { class: "ml-check" }, icon("check", 14)) : null);
+      const choose = () => {
+        this.settings.music = choice;
+        this.changed("music");
+      };
+      item.addEventListener("click", choose);
+      item.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          choose();
+        }
+      });
+      return item;
+    };
+    const actions = h(
+      "div",
+      { class: "ml-actions" },
+      h("button", { type: "button", class: "btn small", onclick: () => this.chooseFile() }, icon("folder", 14), "Choose a file…"),
+      h("button", { type: "button", class: "btn small", title: "Songs you put here appear in this list", onclick: () => invoke("open_music_folder").catch(() => {}) }, icon("music", 14), "Open Music folder"),
+      h("button", { type: "button", class: "btn small", title: "Opens YouTube's Audio Library in your browser. Its tracks are free to download and use; save them to your Music folder.", onclick: () => invoke("open_audio_library").catch(() => {}) }, icon("play", 13), "Free music on YouTube"),
+      h("button", { type: "button", class: "icon-btn small", title: "Look for new songs", onclick: async () => {
+        this.songs = await yourMusic(true);
+        this.renderMusic();
+      } }, icon("refresh", 14)),
+    );
+    this.renderMusic = () => {
+      const current = this.settings.music;
+      list.replaceChildren(row(null, "No music", ""));
+      list.append(h("div", { class: "ml-head" }, "SliderPro soundtracks"));
+      for (const track of this.tracks) list.append(row(`${BUILTIN_MUSIC}${track.id}`, track.title, track.vibe));
+      const own = current && !current.startsWith(BUILTIN_MUSIC) && !this.songs.some((s) => s.path === current) ? [current] : [];
+      if (this.songs.length || own.length) {
+        list.append(h("div", { class: "ml-head" }, "Your music"));
+        for (const path of own) list.append(row(path, basename(path), "chosen file"));
+        for (const song of this.songs) list.append(row(song.path, song.name, song.folder));
       }
-      preview.replaceChildren(icon("pause", 14));
-      const ok = await previewMusic(choice, options);
-      if (!ok) {
-        preview.title = "This file can't be played on this computer";
-        options();
-      }
-    });
+    };
     Promise.all([builtinTracks(), yourMusic()]).then(([tracks, songs]) => {
       this.tracks = tracks;
       this.songs = songs;
-      options();
+      this.renderMusic();
     });
-    this.syncers.push(options);
-    options();
-    return h("div", { class: "sf-row sf-music" }, h("span", { class: "sf-label" }, "Soundtrack"), select, preview);
+    this.syncers.push(() => this.renderMusic());
+    this.renderMusic();
+    return h("div", { class: "music-section" }, list, actions);
   }
 
+  private async chooseFile() {
+    stopPreview();
+    const file = await open({ multiple: false, directory: false, title: "Choose slideshow music", filters: [{ name: "Audio", extensions: AUDIO_EXTENSIONS }] });
+    if (typeof file === "string") {
+      this.settings.music = file;
+      this.changed("music");
+    }
+  }
 }
 
 function estimate(photos: number, settings: SlideshowSettings) {
@@ -299,7 +367,7 @@ export function openSetupDialog(scopes: SlideshowScope[], settings: SlideshowSet
         e.preventDefault();
         e.stopPropagation();
         finish(null);
-      } else if (e.key === "Enter" && !(e.target instanceof HTMLSelectElement)) {
+      } else if (e.key === "Enter" && !(e.target instanceof HTMLSelectElement) && !(e.target as HTMLElement)?.closest?.(".ml-row")) {
         e.preventDefault();
         e.stopPropagation();
         finish(scopes[chosen]);
@@ -311,15 +379,21 @@ export function openSetupDialog(scopes: SlideshowScope[], settings: SlideshowSet
     document.addEventListener("keydown", onKey, true);
 
     const play = h("button", { class: "btn primary large", onclick: () => finish(scopes[chosen]) }, icon("play", 16), "Play");
+    const side = h(
+      "div",
+      { class: "setup-side" },
+      form.preview.el,
+      scopes.length > 1 ? h("div", { class: "setup-scopes" }, h("div", { class: "ml-head" }, "Play"), scopeList) : null,
+    );
     const dialog = h(
       "div",
       { class: "modal setup", role: "dialog", "aria-label": "Slideshow" },
       h("header", { class: "modal-head" },
         h("div", null, h("h2", null, "Slideshow"), summary),
         h("button", { class: "icon-btn", title: "Cancel (Esc)", onclick: () => finish(null) }, icon("close"))),
-      h("div", { class: "modal-body" }, scopes.length > 1 ? h("fieldset", { class: "sf-group" }, h("legend", null, "Play"), scopeList) : null, form.el),
+      h("div", { class: "setup-body" }, side, form.el),
       h("footer", { class: "modal-foot" },
-        h("span", { class: "muted small" }, "Space pauses · ← → skip · Esc ends the show"),
+        h("span", { class: "muted small" }, "Space pauses · ← → skip · S opens these settings during the show"),
         h("div", { class: "spacer" }),
         h("button", { class: "btn", onclick: () => finish(null) }, "Cancel"),
         play),

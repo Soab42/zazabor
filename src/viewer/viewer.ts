@@ -1,6 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
-  api, browserDecodable, displayRenderSize, fileUrl, loadImage, previewUrl, thumbUrl, type PhotoInfo,
+  api, displayRenderSize, fullUrl, loadImage, previewUrl, thumbUrl,
 } from "../api";
 import { saveConfig, type Config } from "../config";
 import type { Photo } from "../library/model";
@@ -11,7 +11,8 @@ import { icon } from "../ui/icons";
 import { Filmstrip } from "./filmstrip";
 import { computeHistogram } from "./histogram";
 import { InfoPanel } from "./info";
-import { canvasAppliesOrientation, orientationMatrix, swapsAxes } from "./orient";
+import { swapsAxes } from "./orient";
+import { TiledImage } from "./tiles";
 import { ZoomView, type ZoomLayer } from "./zoom";
 
 export interface ViewerHandlers {
@@ -55,7 +56,6 @@ export class Viewer {
   private photos: Photo[] = [];
   private index = 0;
   private token = 0;
-  private fullCache = new Map<string, Promise<HTMLImageElement>>();
   private previewCache = new Map<string, Promise<HTMLImageElement>>();
   private navigatorImage: HTMLImageElement | null = null;
   private immersive = false;
@@ -284,68 +284,70 @@ export class Viewer {
     if (!this.film.el.hidden) this.film.setCurrent(index);
     this.loading.hidden = true;
 
-    const [info, engineOrients, thumb] = await Promise.all([
+    const preview = this.loadPreview(photo);
+    const [info, quick] = await Promise.all([
       api.photoInfo(photo.path).catch((err) => {
         console.warn(`No info for ${photo.path}:`, err);
         return null;
       }),
-      canvasAppliesOrientation(),
-      loadImage(thumbUrl(photo.path, photo.mtime, 512)).catch(() => null),
+      // A cached preview arrives almost at once; show it directly instead of a blurry thumbnail.
+      Promise.race([preview.catch(() => null), new Promise<null>((r) => setTimeout(() => r(null), 120))]),
     ]);
     if (!current()) return;
+    const first = quick ?? (await loadImage(thumbUrl(photo.path, photo.mtime, 512)).catch(() => null));
+    if (!current()) return;
 
-    const orientation = info?.orientation ?? 1;
     let width = info?.width ?? 0;
     let height = info?.height ?? 0;
-    if (swapsAxes(orientation)) [width, height] = [height, width];
+    if (swapsAxes(info?.orientation ?? 1)) [width, height] = [height, width];
     const sizeKnown = width > 0 && height > 0;
     if (!sizeKnown) {
-      width = thumb?.naturalWidth || 1;
-      height = thumb?.naturalHeight || 1;
+      width = first?.naturalWidth || 1;
+      height = first?.naturalHeight || 1;
     }
 
     this.zoom.setImage(width, height);
-    this.navigatorImage = thumb;
-    if (thumb) {
-      this.zoom.addLayer(this.scaledLayer(thumb, width, height));
-      this.info.setHistogram(computeHistogram(thumb, thumb.naturalWidth, thumb.naturalHeight));
+    this.navigatorImage = first;
+    if (first) {
+      this.zoom.addLayer(this.scaledLayer(first, width, height));
+      this.info.setHistogram(computeHistogram(first, first.naturalWidth, first.naturalHeight));
     } else {
       this.info.setHistogram(null);
     }
     this.info.update(photo, info, sizeKnown ? width : 0, sizeKnown ? height : 0);
 
-    const preview = this.loadPreview(photo).then((img) => {
-      if (!current()) return;
+    const sharp = preview.then((img) => {
+      if (!current() || img === first) return;
       const layer = this.scaledLayer(img, width, height);
-      // A preview as large as the original adds nothing: the original is on its way.
       if (layer.density < 0.999) this.zoom.addLayer(layer);
       this.info.setHistogram(computeHistogram(img, img.naturalWidth, img.naturalHeight));
     }, () => {});
 
+    // The backend decodes the full-resolution photo once; zooming in then streams tiles of it.
     const loadingTimer = window.setTimeout(() => {
       if (current()) this.loading.hidden = false;
     }, 350);
-    this.loadFull(photo)
-      .then((img) => {
+    fetch(fullUrl(photo.path, photo.mtime))
+      .then((response) => (response.ok ? (response.json() as Promise<{ width: number; height: number }>) : Promise.reject(new Error(String(response.status)))))
+      .then((full) => {
         if (!current()) return;
-        if (!sizeKnown) {
-          // Without metadata the thumbnail only gave us the aspect ratio; rebase on the real size.
-          width = img.naturalWidth;
-          height = img.naturalHeight;
-          this.zoom.setImage(width, height);
-          if (thumb) this.zoom.addLayer(this.scaledLayer(thumb, width, height));
-          this.info.update(photo, info, width, height);
-        }
-        this.zoom.addLayer(this.originalLayer(img, photo, info, engineOrients, width, height));
+        const tiles = new TiledImage(photo.path, photo.mtime, full.width, full.height);
+        this.zoom.addLayer({
+          tiles,
+          width: full.width,
+          height: full.height,
+          toUpright: new DOMMatrix([width / full.width, 0, 0, height / full.height, 0, 0]),
+          density: 1,
+        });
       })
       .catch((err) => {
-        if (current()) console.error(`Could not open ${photo.path}:`, err);
+        if (current()) console.error(`Could not open ${photo.path} at full resolution:`, err);
       })
       .finally(() => {
         clearTimeout(loadingTimer);
         if (current()) {
           this.loading.hidden = true;
-          preview.then(() => current() && this.preloadNeighbors());
+          sharp.then(() => current() && this.preloadNeighbors());
         }
       });
   }
@@ -357,28 +359,10 @@ export class Viewer {
     return { image: img, width: w, height: h, toUpright: new DOMMatrix([width / w, 0, 0, height / h, 0, 0]), density: w / width };
   }
 
-  private originalLayer(img: HTMLImageElement, photo: Photo, info: PhotoInfo | null, engineOrients: boolean, width: number, height: number): ZoomLayer {
-    const orientation = info?.orientation ?? 1;
-    // Rendered by the backend (formats the webview can't decode): already upright.
-    const upright = !browserDecodable(photo.path) || orientation === 1 || engineOrients || !info;
-    if (upright) {
-      const w = img.naturalWidth;
-      const h = img.naturalHeight;
-      return { image: img, width: w, height: h, toUpright: new DOMMatrix([width / w, 0, 0, height / h, 0, 0]), density: 1 };
-    }
-    return { image: img, width: info.width, height: info.height, toUpright: orientationMatrix(orientation, info.width, info.height), density: 1 };
-  }
-
   private loadPreview(photo: Photo) {
     const url = previewUrl(photo.path, photo.mtime, displayRenderSize());
-    return remember(this.previewCache, url, () => loadImage(url));
-  }
-
-  private loadFull(photo: Photo) {
-    const url = browserDecodable(photo.path) ? fileUrl(photo.path, photo.mtime) : previewUrl(photo.path, photo.mtime, 0);
-    const promise = remember(this.fullCache, url, () => loadImage(url));
-    // Failed loads must not stay cached.
-    promise.catch(() => this.fullCache.delete(url));
+    const promise = remember(this.previewCache, url, () => loadImage(url));
+    promise.catch(() => this.previewCache.delete(url));
     return promise;
   }
 
@@ -390,7 +374,6 @@ export class Viewer {
       loadImage(thumbUrl(photo.path, photo.mtime, 512)).catch(() => {});
       this.loadPreview(photo).catch(() => {});
     }
-    if (next) this.loadFull(next).catch(() => {});
   }
 
   // ---- zoom chrome -----------------------------------------------------------------------

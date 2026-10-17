@@ -75,6 +75,13 @@ export const thumbUrl = (path: string, mtime: number, size: number) =>
 export const previewUrl = (path: string, mtime: number, size: number) =>
   `${BASE}preview?s=${size}&${query(path, mtime)}`;
 
+/** Decodes the full-resolution image on the backend (for tiles); answers with its size. */
+export const fullUrl = (path: string, mtime: number) => `${BASE}full?${query(path, mtime)}`;
+
+/** One tile of the full-resolution image as raw RGBA (see TiledImage). */
+export const tileUrl = (path: string, mtime: number, x: number, y: number, size: number) =>
+  `${BASE}tile?s=${size}&x=${x}&y=${y}&${query(path, mtime)}`;
+
 /** The original file bytes. */
 export const fileUrl = (path: string, mtime?: number) => `${BASE}file?${query(path, mtime)}`;
 

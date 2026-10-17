@@ -1,5 +1,6 @@
 mod imaging;
 mod lock;
+mod music;
 mod protocol;
 mod scan;
 
@@ -68,6 +69,36 @@ async fn discover_music(app: tauri::AppHandle) -> Result<Vec<scan::MusicFile>, S
     tauri::async_runtime::spawn_blocking(move || scan::discover_music(&roots))
         .await
         .map_err(|e| e.to_string())
+}
+
+/// YouTube's Audio Library: free music the user may download and use.
+const AUDIO_LIBRARY_URL: &str = "https://www.youtube.com/audiolibrary";
+
+fn open_with_system(target: &std::ffi::OsStr) -> Result<(), String> {
+    let opener = if cfg!(target_os = "macos") { "open" } else if cfg!(windows) { "explorer" } else { "xdg-open" };
+    std::process::Command::new(opener)
+        .arg(target)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// Opens the user's Music folder (creating it if needed), where downloaded songs belong.
+#[tauri::command]
+fn open_music_folder(app: tauri::AppHandle) -> Result<(), String> {
+    let dir = app
+        .path()
+        .audio_dir()
+        .or_else(|_| app.path().home_dir().map(|h| h.join("Music")))
+        .map_err(|e| e.to_string())?;
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    open_with_system(dir.as_os_str())
+}
+
+/// Opens YouTube's Audio Library (royalty-free music) in the default browser.
+#[tauri::command]
+fn open_audio_library() -> Result<(), String> {
+    open_with_system(std::ffi::OsStr::new(AUDIO_LIBRARY_URL))
 }
 
 /// The result of the previous discovery, so the gallery can appear instantly.
@@ -193,8 +224,16 @@ pub fn run() {
             scan_folder,
             discover_photos,
             discover_music,
+            open_music_folder,
+            open_audio_library,
             cached_photos,
             builtin_tracks,
+            music::music_play,
+            music::music_pause,
+            music::music_resume,
+            music::music_volume,
+            music::music_stop,
+            music::music_position,
             lock::lock_status,
             lock::lock_now,
             lock::unlock,

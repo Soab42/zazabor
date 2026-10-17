@@ -8,6 +8,7 @@ use std::fs::{self, File};
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use xxhash_rust::xxh3::xxh3_64;
 
 use crate::scan::{extension, unix_seconds};
@@ -101,7 +102,8 @@ fn decode_any(path: &Path) -> Result<DynamicImage, String> {
 /// (0 keeps the full resolution).
 pub fn render(path: &Path, max_dim: u32) -> Result<DynamicImage, String> {
     let orientation = read_orientation(path);
-    let decoded = if is_jpeg(path) {
+    // DCT scaling only pays off when shrinking; full-size decodes use the faster decoder.
+    let decoded = if is_jpeg(path) && max_dim > 0 {
         decode_jpeg_scaled(path, max_dim).map(Ok).unwrap_or_else(|| decode_any(path))
     } else {
         decode_any(path)
@@ -113,7 +115,9 @@ pub fn render(path: &Path, max_dim: u32) -> Result<DynamicImage, String> {
     Ok(if max_dim <= THUMB_LIMIT {
         img.thumbnail(max_dim, max_dim)
     } else {
-        img.resize(max_dim, max_dim, FilterType::Lanczos3)
+        // The decoder already shrank JPEGs to within 2× of the target, so Catmull-Rom is as
+        // sharp as Lanczos here and noticeably faster on very large photos.
+        img.resize(max_dim, max_dim, FilterType::CatmullRom)
     })
 }
 
@@ -177,6 +181,75 @@ pub fn cached_render(
         return Err(e);
     }
     Ok((out, mime))
+}
+
+struct FullImage {
+    key: String,
+    image: Arc<DynamicImage>,
+}
+
+/// The photo currently shown at full resolution; tiles are cut from it.
+static FULL: Mutex<Option<FullImage>> = Mutex::new(None);
+
+/// The upright, full-resolution image (8-bit RGB or RGBA), decoded once and kept for tiling.
+pub fn full_image(path: &Path) -> Result<Arc<DynamicImage>, String> {
+    let meta = fs::metadata(path).map_err(|e| e.to_string())?;
+    let key = format!("{}|{}|{}", path.display(), meta.len(), unix_seconds(meta.modified()));
+    // Held while decoding, so simultaneous tile requests wait instead of decoding again.
+    let mut slot = FULL.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(full) = slot.as_ref().filter(|f| f.key == key) {
+        return Ok(full.image.clone());
+    }
+    // Free the previous photo before decoding the next.
+    *slot = None;
+    let decoded = render(path, 0)?;
+    let image = match decoded {
+        DynamicImage::ImageRgb8(_) | DynamicImage::ImageRgba8(_) => decoded,
+        other if other.color().has_alpha() => DynamicImage::ImageRgba8(other.to_rgba8()),
+        other => DynamicImage::ImageRgb8(other.to_rgb8()),
+    };
+    let image = Arc::new(image);
+    *slot = Some(FullImage { key, image: image.clone() });
+    Ok(image)
+}
+
+/// One `size`×`size` tile of the full image as RGBA bytes, with a 1-pixel apron wherever a
+/// neighbouring tile exists so that smoothed edges blend seamlessly. A 16-byte header holds
+/// the data width and height and the tile's offset within the data (u32, little-endian).
+pub fn tile(path: &Path, tx: u32, ty: u32, size: u32) -> Result<Vec<u8>, String> {
+    let image = full_image(path)?;
+    let (w, h) = (image.width() as usize, image.height() as usize);
+    let size = size.clamp(64, 2048) as usize;
+    let (x0, y0) = (tx as usize * size, ty as usize * size);
+    if x0 >= w || y0 >= h {
+        return Err("tile out of range".into());
+    }
+    let (x1, y1) = ((x0 + size).min(w), (y0 + size).min(h));
+    let (ax0, ay0) = (x0.saturating_sub(1), y0.saturating_sub(1));
+    let (ax1, ay1) = ((x1 + 1).min(w), (y1 + 1).min(h));
+    let (dw, dh) = (ax1 - ax0, ay1 - ay0);
+    let mut out = Vec::with_capacity(16 + dw * dh * 4);
+    for value in [dw, dh, x0 - ax0, y0 - ay0] {
+        out.extend_from_slice(&(value as u32).to_le_bytes());
+    }
+    match image.as_ref() {
+        DynamicImage::ImageRgb8(rgb) => {
+            let raw = rgb.as_raw();
+            for y in ay0..ay1 {
+                for px in raw[(y * w + ax0) * 3..(y * w + ax1) * 3].chunks_exact(3) {
+                    out.extend_from_slice(&[px[0], px[1], px[2], 255]);
+                }
+            }
+        }
+        DynamicImage::ImageRgba8(rgba) => {
+            let raw = rgba.as_raw();
+            for y in ay0..ay1 {
+                out.extend_from_slice(&raw[(y * w + ax0) * 4..(y * w + ax1) * 4]);
+            }
+        }
+        _ => return Err("unexpected pixel format".into()),
+    }
+    Ok(out)
 }
 
 #[derive(Serialize)]
@@ -304,5 +377,31 @@ mod tests {
         let ccw = apply_orientation(img, 8);
         assert_eq!(ccw.dimensions(), (1, 2));
         assert_eq!(ccw.get_pixel(0, 1).0[0], 255);
+    }
+}
+
+#[cfg(test)]
+mod tile_tests {
+    use super::*;
+
+    #[test]
+    fn tiles_carry_an_apron_and_the_right_pixels() {
+        let dir = std::env::temp_dir().join(format!("sliderpro-tiles-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("grid.png");
+        // 600×300: pixel (x, y) is (x % 256, y % 256, 7).
+        let img = RgbImage::from_fn(600, 300, |x, y| image::Rgb([(x % 256) as u8, (y % 256) as u8, 7]));
+        img.save(&path).unwrap();
+
+        let bytes = tile(&path, 1, 0, 512).unwrap();
+        let header: Vec<u32> = bytes[..16].chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect();
+        // Tile (1, 0) covers x 512..600; it gets a left apron but no right or top one.
+        assert_eq!(header, vec![89, 300, 1, 0]);
+        let data = &bytes[16..];
+        let at = |dx: usize, dy: usize| &data[(dy * 89 + dx) * 4..(dy * 89 + dx) * 4 + 4];
+        assert_eq!(at(1, 0), &[(512 % 256) as u8, 0, 7, 255]); // first pixel of the tile
+        assert_eq!(at(0, 5), &[(511 % 256) as u8, 5, 7, 255]); // apron from the neighbour
+        assert!(tile(&path, 2, 0, 512).is_err());
+        let _ = fs::remove_dir_all(dir);
     }
 }

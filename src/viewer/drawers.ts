@@ -1,3 +1,4 @@
+import type { Tile } from "./tiles";
 import type { ZoomLayer } from "./zoom";
 
 export interface DrawItem {
@@ -5,6 +6,8 @@ export interface DrawItem {
   /** Source pixels → canvas pixels. */
   matrix: DOMMatrix;
   alpha: number;
+  /** For tiled layers: the loaded tiles to draw. */
+  tiles?: Tile[];
 }
 
 export interface DrawOptions {
@@ -33,12 +36,13 @@ const VERTEX = `#version 300 es
 in vec2 aPos;
 uniform mat3 uToClip;
 uniform vec4 uTile;      // x, y, width, height in source pixels
+uniform vec4 uUv;        // the texture region holding that rectangle
 out vec2 vSrc;
 out vec2 vUv;
 void main() {
   vec2 src = uTile.xy + aPos * uTile.zw;
   vSrc = src;
-  vUv = aPos;
+  vUv = uUv.xy + aPos * uUv.zw;
   vec3 p = uToClip * vec3(src, 1.0);
   gl_Position = vec4(p.xy, 0.0, 1.0);
 }`;
@@ -68,7 +72,7 @@ void main() {
   outColor = vec4(color * uAlpha, uAlpha);
 }`;
 
-interface Tile {
+interface ImageTile {
   texture: WebGLTexture;
   x: number;
   y: number;
@@ -83,7 +87,10 @@ export class GLDrawer implements ZoomDrawer {
   private vao: WebGLVertexArrayObject;
   private smooth: WebGLSampler;
   private sharp: WebGLSampler;
-  private tiles = new Map<CanvasImageSource, Tile[]>();
+  private tiles = new Map<CanvasImageSource, ImageTile[]>();
+  /** Textures for backend tiles, with the frame each was last drawn in. */
+  private tileTextures = new Map<Tile, { texture: WebGLTexture; frame: number }>();
+  private frameCount = 0;
   private maxTile: number;
   private width = 1;
   private height = 1;
@@ -107,7 +114,7 @@ export class GLDrawer implements ZoomDrawer {
     gl.bindAttribLocation(this.program, 0, "aPos");
     gl.linkProgram(this.program);
     if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) throw new Error(`Viewer shader: ${gl.getProgramInfoLog(this.program)}`);
-    for (const name of ["uToClip", "uTile", "uTex", "uAlpha", "uGrid", "uDevicePerSource", "uDpr"]) {
+    for (const name of ["uToClip", "uTile", "uUv", "uTex", "uAlpha", "uGrid", "uDevicePerSource", "uDpr"]) {
       this.u[name] = gl.getUniformLocation(this.program, name);
     }
     this.vao = gl.createVertexArray()!;
@@ -143,13 +150,41 @@ export class GLDrawer implements ZoomDrawer {
     this.tiles.delete(image);
   }
 
+  private tileTexture(tile: Tile): WebGLTexture {
+    const cached = this.tileTextures.get(tile);
+    if (cached) {
+      cached.frame = this.frameCount;
+      return cached.texture;
+    }
+    const gl = this.gl;
+    const texture = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, tile.dataW, tile.dataH, 0, gl.RGBA, gl.UNSIGNED_BYTE, tile.data);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    this.tileTextures.set(tile, { texture, frame: this.frameCount });
+    return texture;
+  }
+
+  /** Frees textures of tiles that haven't been drawn for a while. */
+  private evictTiles() {
+    if (this.tileTextures.size <= 160) return;
+    for (const [tile, entry] of this.tileTextures) {
+      if (this.frameCount - entry.frame > 90) {
+        this.gl.deleteTexture(entry.texture);
+        this.tileTextures.delete(tile);
+      }
+    }
+  }
+
   /** Uploads an image as one texture, or several when it exceeds the GPU's size limit. */
-  private tilesFor(image: CanvasImageSource): Tile[] {
+  private tilesFor(image: CanvasImageSource): ImageTile[] {
     const cached = this.tiles.get(image);
     if (cached) return cached;
     const gl = this.gl;
     const { width, height } = sourceSize(image);
-    const tiles: Tile[] = [];
+    const tiles: ImageTile[] = [];
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
     for (let y = 0; y < height; y += this.maxTile) {
@@ -177,6 +212,7 @@ export class GLDrawer implements ZoomDrawer {
 
   draw(items: DrawItem[], options: DrawOptions) {
     const gl = this.gl;
+    this.frameCount++;
     gl.viewport(0, 0, this.width, this.height);
     gl.clearColor(...BACKGROUND, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
@@ -203,6 +239,17 @@ export class GLDrawer implements ZoomDrawer {
       gl.uniform1f(this.u.uAlpha, item.alpha);
       gl.uniform1f(this.u.uGrid, exact ? options.grid : 0);
       gl.uniform1f(this.u.uDevicePerSource, devicePerSource);
+      if (item.tiles) {
+        for (const tile of item.tiles) {
+          gl.bindTexture(gl.TEXTURE_2D, this.tileTexture(tile));
+          gl.uniform4f(this.u.uTile, tile.x, tile.y, tile.w, tile.h);
+          gl.uniform4f(this.u.uUv, tile.offX / tile.dataW, tile.offY / tile.dataH, tile.w / tile.dataW, tile.h / tile.dataH);
+          gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        }
+        continue;
+      }
+      if (!item.layer.image) continue;
+      gl.uniform4f(this.u.uUv, 0, 0, 1, 1);
       for (const tile of this.tilesFor(item.layer.image)) {
         gl.bindTexture(gl.TEXTURE_2D, tile.texture);
         gl.uniform4f(this.u.uTile, tile.x, tile.y, tile.w, tile.h);
@@ -210,6 +257,7 @@ export class GLDrawer implements ZoomDrawer {
       }
     }
     gl.disable(gl.BLEND);
+    this.evictTiles();
   }
 }
 
@@ -229,6 +277,7 @@ export class Canvas2DDrawer implements ZoomDrawer {
   private ctx: CanvasRenderingContext2D;
   private checker: CanvasPattern | null = null;
   private checkerDpr = 0;
+  private tileCanvases = new WeakMap<Tile, HTMLCanvasElement>();
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext("2d")!;
@@ -255,8 +304,18 @@ export class Canvas2DDrawer implements ZoomDrawer {
     ctx.globalAlpha = 1;
   }
 
-  private drawItem({ layer, matrix, alpha }: DrawItem, options: DrawOptions, W: number, H: number) {
+  private drawItem({ layer, matrix, alpha, tiles }: DrawItem, options: DrawOptions, W: number, H: number) {
     const ctx = this.ctx;
+    if (tiles) {
+      ctx.globalAlpha = alpha;
+      ctx.imageSmoothingEnabled = !options.crisp;
+      ctx.setTransform(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f);
+      for (const tile of tiles) ctx.drawImage(this.tileCanvas(tile), tile.offX, tile.offY, tile.w, tile.h, tile.x, tile.y, tile.w, tile.h);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      return;
+    }
+    if (!layer.image) return;
+    const image = layer.image;
     // Bounds of the image on screen.
     const corners = [[0, 0], [layer.width, 0], [0, layer.height], [layer.width, layer.height]].map(([x, y]) => matrix.transformPoint(new DOMPoint(x, y)));
     const x0 = Math.max(0, Math.min(...corners.map((p) => p.x)));
@@ -284,7 +343,7 @@ export class Canvas2DDrawer implements ZoomDrawer {
     ctx.imageSmoothingEnabled = !(options.crisp && layer.density === 1);
     ctx.imageSmoothingQuality = "high";
     ctx.setTransform(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f);
-    ctx.drawImage(layer.image, sx0, sy0, sx1 - sx0, sy1 - sy0, sx0, sy0, sx1 - sx0, sy1 - sy0);
+    ctx.drawImage(image, sx0, sy0, sx1 - sx0, sy1 - sy0, sx0, sy0, sx1 - sx0, sy1 - sy0);
     if (options.grid > 0 && layer.density === 1) this.drawGrid(matrix, sx0, sy0, sx1, sy1, options.grid);
   }
 
@@ -303,6 +362,19 @@ export class Canvas2DDrawer implements ZoomDrawer {
     ctx.lineWidth = 1;
     ctx.strokeStyle = `rgba(128, 128, 132, ${alpha})`;
     ctx.stroke();
+  }
+
+  private tileCanvas(tile: Tile) {
+    let canvas = this.tileCanvases.get(tile);
+    if (!canvas) {
+      canvas = document.createElement("canvas");
+      canvas.width = tile.dataW;
+      canvas.height = tile.dataH;
+      const pixels = new ImageData(new Uint8ClampedArray(tile.data.buffer as ArrayBuffer, tile.data.byteOffset, tile.data.byteLength), tile.dataW, tile.dataH);
+      canvas.getContext("2d")!.putImageData(pixels, 0, 0);
+      this.tileCanvases.set(tile, canvas);
+    }
+    return canvas;
   }
 
   private checkerPattern(dpr: number) {

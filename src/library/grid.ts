@@ -50,6 +50,7 @@ export class Grid {
   private pinnedGroup: number | null = null;
   private anchor: string | null = null;
   readonly selection = new Set<string>();
+  private lastClick: { path: string; time: number } | null = null;
   focus: string | null = null;
 
   constructor(
@@ -67,10 +68,7 @@ export class Grid {
       this.el.addEventListener(type, () => (this.pinnedGroup = null), { passive: true });
     }
     this.el.addEventListener("click", (e) => this.onClick(e));
-    this.el.addEventListener("dblclick", (e) => {
-      const photo = this.photoAt(e.target);
-      if (photo) this.open(photo);
-    });
+
   }
 
   get photos(): readonly Photo[] {
@@ -273,6 +271,15 @@ export class Grid {
       return;
     }
     const photo = this.photoAt(target);
+    // A second click on the same photo opens it. WebKit's own dblclick is unreliable right
+    // after the page under the pointer changes, so the timing is tracked here.
+    const now = performance.now();
+    if (photo && !e.shiftKey && !e.ctrlKey && !e.metaKey && this.lastClick?.path === photo.path && now - this.lastClick.time < 450) {
+      this.lastClick = null;
+      this.open(photo);
+      return;
+    }
+    this.lastClick = photo ? { path: photo.path, time: now } : null;
     if (!photo) {
       if (!target?.closest(".group-header") && this.selection.size && !e.ctrlKey && !e.shiftKey) {
         this.selection.clear();

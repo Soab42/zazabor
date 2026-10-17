@@ -68,7 +68,7 @@ export function planMotion(imageAspect: number, frameAspect: number, framing: Fr
   // and extreme panoramas are shown whole over a blurred backdrop.
   const fit = framing === "fit" ||
     (framing === "smart" && (ratio > PANORAMA_LIMIT || (!landscape && ratio < 1 / SMART_CROP_LIMIT)));
-  if (fit) return planFit(ratio, s, random);
+  if (fit) return planFit(ratio, s, random, framing === "smart" && ratio < 1);
 
   const base = coverCrop(ratio);
   const elongated = ratio > SMART_CROP_LIMIT || (!landscape && ratio < 1 / SMART_CROP_LIMIT);
@@ -102,18 +102,35 @@ export function planMotion(imageAspect: number, frameAspect: number, framing: Fr
   return { mode: "fill", from, to, backFrom: from, backTo: to };
 }
 
-function planFit(ratio: number, s: number, random: () => number): Motion {
+/**
+ * The whole photo over a frosted backdrop. "Fit" pushes in gently and keeps all of it in view;
+ * "smart" (cinematic) gives portraits a bigger move, drifting toward the upper part of the
+ * frame where faces usually are.
+ */
+function planFit(ratio: number, s: number, random: () => number, cinematic: boolean): Motion {
   // Size the photo to leave a margin of backdrop around it.
-  const margin = 0.9;
+  const margin = 0.88;
   const w = ratio >= 1 ? margin : margin * ratio;
   const h = ratio >= 1 ? margin / ratio : margin;
-  const push = 1 + 0.07 * s;
-  const zoomIn = random() < 0.7;
+  const drift = (random() - 0.5) * 0.04 * s;
+  if (cinematic) {
+    const k1 = 1 + 0.55 * s;
+    // As the photo grows past the frame, slide it down so its upper part stays in view.
+    const place = (k: number, toward: number): Rect => {
+      const overflow = Math.max(0, h * k - 1);
+      return { x: 0.5 - (w * k) / 2 + drift * toward, y: 0.5 - (h * k) / 2 + overflow * 0.35, w: w * k, h: h * k };
+    };
+    const base = coverCrop(ratio);
+    const back = (z: number) => rectAround(0.5, 0.42, base.w / z, base.h / z);
+    return { mode: "fit", from: place(1, 0), to: place(k1, 1), backFrom: back(1.05), backTo: back(1.05 + 0.3 * s) };
+  }
+  const push = 1 + 0.16 * s;
+  const zoomIn = random() < 0.75;
   const [k0, k1] = zoomIn ? [1, push] : [push, 1];
-  const place = (k: number): Rect => ({ x: 0.5 - (w * k) / 2, y: 0.5 - (h * k) / 2, w: w * k, h: h * k });
+  const place = (k: number, toward: number): Rect => ({ x: 0.5 - (w * k) / 2 + drift * toward, y: 0.5 - (h * k) / 2, w: w * k, h: h * k });
   const base = coverCrop(ratio);
   const back = (z: number) => rectAround(0.5, 0.5, base.w / z, base.h / z);
-  return { mode: "fit", from: place(k0), to: place(k1), backFrom: back(1.08), backTo: back(1.08 + 0.12 * s) };
+  return { mode: "fit", from: place(k0, 0), to: place(k1, 1), backFrom: back(1.08), backTo: back(1.08 + 0.2 * s) };
 }
 
 /** Gentle ease: mostly constant speed (as Ken Burns motion should be) with softened ends. */

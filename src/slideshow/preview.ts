@@ -23,9 +23,20 @@ export class TransitionPreview {
   private swapped = false;
   private frame = 0;
   private shownLabel = "";
+  private started = false;
+  private disposed = false;
 
-  constructor(private readonly settings: SlideshowSettings, photos: Photo[]) {
+  constructor(private readonly settings: SlideshowSettings, private readonly photos: Photo[]) {
     this.el.append(this.canvas, this.label);
+  }
+
+  /**
+   * Compiling the transition shaders takes a moment, so it happens only once the surrounding
+   * dialog has painted; the dialog itself opens instantly.
+   */
+  private init() {
+    if (this.started || this.disposed) return;
+    this.started = true;
     try {
       this.renderer = new GLRenderer(this.canvas);
       this.renderer.resize(512, 288);
@@ -33,6 +44,9 @@ export class TransitionPreview {
       this.el.hidden = true;
       return;
     }
+    this.el.classList.add("ready");
+    if (this.frame === -1) this.frame = requestAnimationFrame(this.tick);
+    const photos = this.photos;
     const picks = photos.length > 1 ? [photos[0], photos[Math.min(photos.length - 1, 1 + Math.floor(photos.length / 3))]] : photos;
     Promise.all(picks.map((p) => loadImage(thumbUrl(p.path, p.mtime, 512))))
       .then((images) => (images.length ? images : []))
@@ -52,15 +66,22 @@ export class TransitionPreview {
   }
 
   play() {
-    if (!this.frame && this.renderer) this.frame = requestAnimationFrame(this.tick);
+    if (!this.started) {
+      // -1 marks "play once ready".
+      this.frame = -1;
+      requestAnimationFrame(() => setTimeout(() => this.init(), 40));
+      return;
+    }
+    if (this.frame <= 0 && this.renderer) this.frame = requestAnimationFrame(this.tick);
   }
 
   pause() {
-    cancelAnimationFrame(this.frame);
+    if (this.frame > 0) cancelAnimationFrame(this.frame);
     this.frame = 0;
   }
 
   dispose() {
+    this.disposed = true;
     this.pause();
     for (const slide of this.slides) slide.texture.dispose();
     this.slides = [];

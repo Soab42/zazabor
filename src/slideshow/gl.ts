@@ -32,22 +32,7 @@ uniform vec4 uRect;       // fill: crop in image uv. fit: photo placement in fra
 uniform vec4 uBack;       // fit: backdrop crop in image uv
 uniform vec2 uBand;       // frame top and height, in screen uv (letterbox)
 uniform vec2 uFramePx;    // frame size in pixels
-uniform float uBlurLod;
-uniform float uImageAspect;
-
-// A soft, smooth blur: many taps on a golden-angle spiral, weighted toward the centre.
-vec3 backdrop(vec2 uv) {
-  vec3 sum = vec3(0.0);
-  float total = 0.0;
-  for (int i = 0; i < 32; i++) {
-    float a = float(i) * 2.39996;
-    float k = sqrt((float(i) + 0.5) / 32.0);
-    float w = exp(-k * k * 2.0);
-    sum += textureLod(uImage, uv + vec2(cos(a) / uImageAspect, sin(a)) * k * 0.03, uBlurLod).rgb * w;
-    total += w;
-  }
-  return sum / total;
-}
+uniform sampler2D uBlur;  // the slide, Gaussian-blurred once at upload
 
 void main() {
   vec2 f = vec2(vUv.x, (vUv.y - uBand.x) / uBand.y);
@@ -55,8 +40,9 @@ void main() {
     outColor = vec4(texture(uImage, uRect.xy + f * uRect.zw).rgb, 1.0);
     return;
   }
-  vec3 back = backdrop(uBack.xy + f * uBack.zw);
-  back = mix(vec3(luma(back)), back, 0.92) * 0.72;
+  // Frosted glass: the blurred photo, a touch more saturated and gently dimmed.
+  vec3 back = texture(uBlur, uBack.xy + f * uBack.zw).rgb;
+  back = mix(vec3(luma(back)), back, 1.15) * 0.78 + 0.03;
   // Soft contact shadow around the photo.
   vec2 outside = max(max(uRect.xy - f, f - (uRect.xy + uRect.zw)), 0.0) * uFramePx;
   back *= 1.0 - 0.45 * exp(-length(outside) / (0.03 * uFramePx.y));
@@ -834,10 +820,45 @@ void main() {
   outColor = vec4(clamp(c, 0.0, 1.0), 1.0);
 }`;
 
+
+/** Offscreen passes run in texture space (no y flip), so outputs keep the slide's orientation. */
+const DOWNSAMPLE = `${COMMON}
+uniform sampler2D uSrc;
+uniform vec2 uSize;
+void main() { outColor = vec4(texture(uSrc, gl_FragCoord.xy / uSize).rgb, 1.0); }`;
+
+/** One direction of a separable Gaussian blur. */
+const GAUSSIAN = `${COMMON}
+uniform sampler2D uSrc;
+uniform vec2 uSize;
+uniform vec2 uDir;
+uniform float uSigma;
+void main() {
+  vec2 uv = gl_FragCoord.xy / uSize;
+  vec3 sum = vec3(0.0);
+  float total = 0.0;
+  for (int i = -12; i <= 12; i++) {
+    float w = exp(-float(i * i) / (2.0 * uSigma * uSigma));
+    sum += texture(uSrc, uv + uDir * float(i) / uSize).rgb * w;
+    total += w;
+  }
+  outColor = vec4(sum / total, 1.0);
+}`;
+
+/** Transitions that sample blurred (mip) levels of the composed frames. */
+const NEEDS_FRAME_MIPS = new Set([2, 18, 31, 48]);
+
 class GLTexture implements SlideTexture {
-  constructor(private gl: WebGL2RenderingContext, readonly handle: WebGLTexture, readonly width: number, readonly height: number) {}
+  constructor(
+    private gl: WebGL2RenderingContext,
+    readonly handle: WebGLTexture,
+    readonly blur: WebGLTexture,
+    readonly width: number,
+    readonly height: number,
+  ) {}
   dispose() {
     this.gl.deleteTexture(this.handle);
+    this.gl.deleteTexture(this.blur);
   }
 }
 
@@ -854,6 +875,9 @@ export class GLRenderer implements Renderer {
   private gl: WebGL2RenderingContext;
   private compose: { program: WebGLProgram; u: Uniforms };
   private final: { program: WebGLProgram; u: Uniforms };
+  private downsample: { program: WebGLProgram; u: Uniforms };
+  private gaussian: { program: WebGLProgram; u: Uniforms };
+  private scratchFbo: WebGLFramebuffer;
   private vao: WebGLVertexArrayObject;
   private targets: [Target, Target] | null = null;
   private width = 1;
@@ -869,7 +893,10 @@ export class GLRenderer implements Renderer {
     const ext = gl.getExtension("EXT_texture_filter_anisotropic");
     if (ext) this.anisotropy = { ext, max: Math.min(8, gl.getParameter(ext.MAX_TEXTURE_MAX_ANISOTROPY_EXT) as number) };
     this.vao = gl.createVertexArray()!;
-    this.compose = this.program(COMPOSE, ["uImage", "uMode", "uRect", "uBack", "uBand", "uFramePx", "uBlurLod", "uImageAspect"]);
+    this.compose = this.program(COMPOSE, ["uImage", "uBlur", "uMode", "uRect", "uBack", "uBand", "uFramePx"]);
+    this.downsample = this.program(DOWNSAMPLE, ["uSrc", "uSize"]);
+    this.gaussian = this.program(GAUSSIAN, ["uSrc", "uSize", "uDir", "uSigma"]);
+    this.scratchFbo = gl.createFramebuffer()!;
     this.final = this.program(FINAL, [
       "uA", "uB", "uKind", "uP", "uDir", "uSeed", "uRes", "uTime", "uFade", "uBars", "uGrain", "uVignette",
       "uLift", "uGamma", "uGain", "uSat", "uContrast", "uShadowTint", "uHighTint",
@@ -936,7 +963,56 @@ export class GLRenderer implements Renderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     if (this.anisotropy) gl.texParameterf(gl.TEXTURE_2D, this.anisotropy.ext.TEXTURE_MAX_ANISOTROPY_EXT, this.anisotropy.max);
     const [w, h] = image instanceof HTMLImageElement ? [image.naturalWidth, image.naturalHeight] : [image.width, image.height];
-    return new GLTexture(gl, texture, w, h);
+    return new GLTexture(gl, texture, this.blurred(texture, w / h), w, h);
+  }
+
+  private colorTexture(width: number, height: number) {
+    const gl = this.gl;
+    const texture = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return texture;
+  }
+
+  /**
+   * A small, heavily Gaussian-blurred copy of a slide for the frosted backdrop behind fitted
+   * photos. Computed once per slide, so drawing it costs a single texture read per pixel.
+   */
+  private blurred(source: WebGLTexture, aspect: number): WebGLTexture {
+    const gl = this.gl;
+    const long = 320;
+    const w = aspect >= 1 ? long : Math.max(16, Math.round(long * aspect));
+    const h = aspect >= 1 ? Math.max(16, Math.round(long / aspect)) : long;
+    const a = this.colorTexture(w, h);
+    const b = this.colorTexture(w, h);
+    const pass = (program: { program: WebGLProgram; u: Uniforms }, from: WebGLTexture, to: WebGLTexture, dir?: [number, number]) => {
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, to, 0);
+      gl.useProgram(program.program);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, from);
+      gl.uniform1i(program.u.uSrc, 0);
+      gl.uniform2f(program.u.uSize, w, h);
+      if (dir) {
+        gl.uniform2f(program.u.uDir, dir[0], dir[1]);
+        gl.uniform1f(program.u.uSigma, 5.5);
+      }
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    };
+    gl.bindVertexArray(this.vao);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.scratchFbo);
+    gl.viewport(0, 0, w, h);
+    pass(this.downsample, source, a);
+    for (let i = 0; i < 2; i++) {
+      pass(this.gaussian, a, b, [1, 0]);
+      pass(this.gaussian, b, a, [0, 1]);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.deleteTexture(b);
+    return a;
   }
 
   render(state: FrameState) {
@@ -945,8 +1021,10 @@ export class GLRenderer implements Renderer {
     const [ta, tb] = this.targets!;
     gl.bindVertexArray(this.vao);
     gl.viewport(0, 0, this.width, this.height);
-    if (state.a) this.composeInto(ta, state.a, state.bars);
-    if (state.b) this.composeInto(tb, state.b, state.bars);
+    // Only a few transitions read blurred levels of the frames; skip the mip chain otherwise.
+    const mips = !!state.b && NEEDS_FRAME_MIPS.has(state.transition);
+    if (state.a) this.composeInto(ta, state.a, state.bars, mips);
+    if (state.b) this.composeInto(tb, state.b, state.bars, mips);
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, this.width, this.height);
@@ -979,7 +1057,7 @@ export class GLRenderer implements Renderer {
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
-  private composeInto(target: Target, frame: SlideFrame, bars: number) {
+  private composeInto(target: Target, frame: SlideFrame, bars: number, mips: boolean) {
     const gl = this.gl;
     const texture = frame.texture as GLTexture;
     const { program, u } = this.compose;
@@ -988,6 +1066,9 @@ export class GLRenderer implements Renderer {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, texture.handle);
     gl.uniform1i(u.uImage, 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, texture.blur);
+    gl.uniform1i(u.uBlur, 1);
     const motion = frame.motion;
     const rect: Rect = lerpRect(motion.from, motion.to, frame.t);
     const back: Rect = lerpRect(motion.backFrom, motion.backTo, frame.t);
@@ -997,13 +1078,12 @@ export class GLRenderer implements Renderer {
     gl.uniform4f(u.uBack, back.x, back.y, back.w, back.h);
     gl.uniform2f(u.uBand, bars, bandHeight);
     gl.uniform2f(u.uFramePx, this.width, this.height * bandHeight);
-    // A gentle blur: the backdrop stays recognisable as the same photo.
-    gl.uniform1f(u.uBlurLod, Math.max(0, Math.log2(Math.max(texture.width, texture.height) / 400)));
-    gl.uniform1f(u.uImageAspect, texture.width / texture.height);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
-    // Mipmaps let the blur transitions sample soft versions of the frame.
-    gl.bindTexture(gl.TEXTURE_2D, target.texture);
-    gl.generateMipmap(gl.TEXTURE_2D);
+    if (mips) {
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, target.texture);
+      gl.generateMipmap(gl.TEXTURE_2D);
+    }
   }
 
   private disposeTargets() {
@@ -1018,6 +1098,9 @@ export class GLRenderer implements Renderer {
     this.disposeTargets();
     this.gl.deleteProgram(this.compose.program);
     this.gl.deleteProgram(this.final.program);
+    this.gl.deleteProgram(this.downsample.program);
+    this.gl.deleteProgram(this.gaussian.program);
+    this.gl.deleteFramebuffer(this.scratchFbo);
     this.gl.deleteVertexArray(this.vao);
     this.gl.getExtension("WEBGL_lose_context")?.loseContext();
   }
