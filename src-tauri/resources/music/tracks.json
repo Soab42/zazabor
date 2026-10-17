@@ -1,0 +1,37 @@
+[
+  {
+    "id": "cinematic",
+    "title": "First Light",
+    "file": "cinematic.ogg",
+    "bpm": 72,
+    "seconds": 106.667
+  },
+  {
+    "id": "action",
+    "title": "Overdrive",
+    "file": "action.ogg",
+    "bpm": 128,
+    "seconds": 120.0
+  },
+  {
+    "id": "adventure",
+    "title": "Far Horizons",
+    "file": "adventure.ogg",
+    "bpm": 100,
+    "seconds": 115.2
+  },
+  {
+    "id": "dreamy",
+    "title": "Afterglow",
+    "file": "dreamy.ogg",
+    "bpm": 76,
+    "seconds": 101.053
+  },
+  {
+    "id": "memories",
+    "title": "Polaroid Summer",
+    "file": "memories.ogg",
+    "bpm": 84,
+    "seconds": 91.429
+  }
+]
