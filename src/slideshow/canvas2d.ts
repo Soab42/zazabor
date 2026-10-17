@@ -11,8 +11,8 @@ class ImageTexture implements SlideTexture {
     this.width = (image instanceof HTMLImageElement ? image.naturalWidth : image?.width) ?? 1;
     this.height = (image instanceof HTMLImageElement ? image.naturalHeight : image?.height) ?? 1;
     this.blurred = document.createElement("canvas");
-    this.blurred.width = 48;
-    this.blurred.height = Math.max(1, Math.round((48 * this.height) / this.width));
+    this.blurred.width = 160;
+    this.blurred.height = Math.max(1, Math.round((160 * this.height) / this.width));
     if (image) this.blurred.getContext("2d")!.drawImage(image, 0, 0, this.blurred.width, this.blurred.height);
   }
   dispose() {}
@@ -93,7 +93,7 @@ export class Canvas2DRenderer implements Renderer {
       const back = lerpRect(motion.backFrom, motion.backTo, t);
       const b = texture.blurred;
       l.drawImage(b, back.x * b.width, back.y * b.height, back.w * b.width, back.h * b.height, 0, top, W, bandH);
-      l.fillStyle = "rgba(0, 0, 0, 0.6)";
+      l.fillStyle = "rgba(0, 0, 0, 0.28)";
       l.fillRect(0, top, W, bandH);
       l.save();
       l.shadowColor = "rgba(0, 0, 0, 0.6)";

@@ -210,6 +210,108 @@ def power_stab(symbol, dur=0.32):
     return out * env * 0.3
 
 
+
+def karplus(midi, dur, brightness=0.5, decay=0.996):
+    """Plucked string (Karplus-Strong), computed a whole period at a time."""
+    period = max(2, int(round(SR / hz(midi))))
+    total = int((dur + 0.25) * SR)
+    y = np.zeros(total + period)
+    excite = noise(period)
+    # Fewer high harmonics in the pluck for a softer string.
+    for _ in range(int((1 - brightness) * 6)):
+        excite = 0.5 * (excite + np.roll(excite, 1))
+    y[:period] = excite - excite.mean()
+    last = 0.0
+    for start in range(period, total + period, period):
+        prev = y[start - period:start]
+        shifted = np.concatenate(([last], prev[:-1]))
+        last = prev[-1]
+        block = decay * 0.5 * (prev + shifted)
+        end = min(start + period, len(y))
+        y[start:end] = block[: end - start]
+    out = y[period:period + total]
+    t = times(total)
+    out *= np.where(t > dur, np.exp(-(t - dur) / 0.05), 1.0)
+    return out * 0.6
+
+
+def epiano(midi, dur, vel=0.6):
+    """FM electric piano: a bell-ish tine over a warm body."""
+    total = int((dur + 0.6) * SR)
+    t = times(total)
+    f = hz(midi)
+    index = (1.2 + 2.2 * vel) * np.exp(-t / 0.35)
+    body = np.sin(2 * np.pi * f * t + index * np.sin(2 * np.pi * f * t))
+    tine = np.sin(2 * np.pi * f * 14 * t) * np.exp(-t / 0.03) * 0.25 * vel
+    env = np.exp(-t / (1.6 * (261.6 / f) ** 0.3)) * np.clip(t / 0.003, 0, 1)
+    env *= np.where(t > dur, np.exp(-(t - dur) / 0.12), 1.0)
+    tremolo = 1 + 0.08 * np.sin(2 * np.pi * 4.5 * t)
+    return (body + tine) * env * tremolo * vel * 0.35
+
+
+def supersaw(symbol, dur, low, cutoff=3200, attack=0.01, release=0.15):
+    notes = voicing(symbol, low, 4)
+    env = envelope(dur, attack=attack, decay=0.3, sustain=0.8, release=release)
+    out = np.zeros(len(env))
+    for m in notes:
+        out += additive(hz(m), len(env), cutoff, detune=(-18, -9, -3, 3, 9, 18))
+    return out * env * 0.22
+
+
+def upright_bass(midi, dur):
+    total = int((dur + 0.2) * SR)
+    t = times(total)
+    f = hz(midi)
+    tone = np.sin(2 * np.pi * f * t) + 0.35 * np.sin(4 * np.pi * f * t) + 0.12 * np.sin(6 * np.pi * f * t)
+    thump = spectral_filter(noise(total), high=900) * np.exp(-t / 0.012) * 0.6
+    env = np.exp(-t / 0.55) * np.clip(t / 0.004, 0, 1) * np.where(t > dur, np.exp(-(t - dur) / 0.05), 1.0)
+    return (tone + thump) * env * 0.55
+
+
+def ride():
+    total = int(1.6 * SR)
+    t = times(total)
+    partials = sum(np.sin(2 * np.pi * f * t + rng.uniform(0, 6.28)) for f in (3120, 4240, 5340, 6720, 8130, 9560))
+    ping = partials / 6 * np.exp(-t / 0.5)
+    wash = spectral_filter(noise(total), low=5000) * np.exp(-t / 0.35) * 0.5
+    return (ping * 0.6 + wash) * np.clip(t / 0.001, 0, 1) * 0.3
+
+
+def brush_swish(length):
+    total = int(length * SR)
+    t = times(total)
+    shape = np.sin(np.pi * np.clip(t / length, 0, 1)) ** 2
+    return spectral_filter(noise(total), low=2500, high=9000) * shape * 0.12
+
+
+def clap():
+    total = int(0.3 * SR)
+    t = times(total)
+    bursts = sum(np.where((t >= d) & (t < d + 0.008), 1.0, 0.0) for d in (0.0, 0.011, 0.022))
+    body = spectral_filter(noise(total), low=900, high=4500)
+    return body * (bursts * 0.8 + np.exp(-t / 0.09) * np.clip((t - 0.022) / 0.002, 0, 1)) * 0.55
+
+
+def gated_snare():
+    """The big 80s snare: a snare hit into a burst of reverb that cuts off abruptly."""
+    total = int(0.42 * SR)
+    t = times(total)
+    gate = np.where(t < 0.32, 1.0, np.exp(-(t - 0.32) / 0.01))
+    room = spectral_filter(noise(total), low=600, high=7000) * gate * 0.45
+    out = room
+    hit = snare()
+    out[: len(hit)] += hit[: len(out)] * 0.9
+    return out * 0.85
+
+
+def vinyl(length):
+    total = int(length * SR)
+    hiss = spectral_filter(noise(total), low=1500, high=7000) * 0.012
+    clicks = np.zeros(total)
+    for pos in rng.integers(0, total - 200, size=int(length * 6)):
+        clicks[pos:pos + 60] += rng.normal(0, 1, 60) * np.exp(-np.arange(60) / 8) * rng.uniform(0.05, 0.3)
+    return hiss + spectral_filter(clicks, low=800)
+
 def noise(count):
     return rng.normal(size=count)
 
@@ -618,12 +720,199 @@ def memories():
     return song.render()
 
 
-TRACKS = [
-    ("cinematic", "First Light", 72, cinematic),
-    ("action", "Overdrive", 128, action),
-    ("adventure", "Far Horizons", 100, adventure),
-    ("dreamy", "Afterglow", 76, dreamy),
-    ("memories", "Polaroid Summer", 84, memories),
+
+def lofi():
+    """Lo-Fi Sunday — dusty, swung beats under mellow electric-piano chords."""
+    song = Song(bpm=82, bars=32, rt60=1.8)
+    chords = ["Fmaj7", "Em7", "Dm7", "Cmaj7"]
+    swing = 0.12
+    melody = [("E5", 0, 1.5), ("G5", 1.5, 0.5), ("A5", 2, 1), ("G5", 3, 1), ("E5", 4, 2), ("D5", 6, 1), ("C5", 7, 1),
+              ("D5", 8, 1.5), ("E5", 9.5, 0.5), ("G5", 10, 2), ("E5", 12, 1), ("D5", 13, 1), ("C5", 14, 2)]
+    for bar in range(32):
+        beat = bar * 4
+        symbol = chords[bar % 4]
+        drums = 4 <= bar < 30
+        for offset, vel in ((0, 0.62), (1.75 + swing / 2, 0.48)):
+            for m in voicing(symbol, n("E3"), 4):
+                song.add(epiano(m, 1.6 * song.beat_len, vel), beat + offset, 0.5, rng.uniform(-0.3, 0.3), verb=0.25, duck=True)
+        root = bass_note(symbol, n("C2"))
+        song.add(upright_bass(root, 1.8 * song.beat_len) * 1.2, beat, 0.55, 0, verb=0.05)
+        song.add(upright_bass(root + 7, 0.8 * song.beat_len) * 1.2, beat + 2.5 + swing, 0.4, 0, verb=0.05)
+        if drums:
+            song.kick(beat, 0.75, punch=0.4)
+            song.kick(beat + 2.5 + swing, 0.55, punch=0.4)
+            for k in (1, 3):
+                song.add(spectral_filter(snare(), high=4500), beat + k + 0.04, 0.5, 0.05, verb=0.2)
+            for k in range(8):
+                song.add(spectral_filter(hat(), high=9000), beat + k * 0.5 + (swing if k % 2 else 0), 0.22 if k % 2 else 0.3, 0.35, verb=0.05)
+        if 16 <= bar < 28 and bar % 4 == 0:
+            for note, offset, length in melody:
+                song.add(bell(n(note), 1.8, 0.4, ratio=1.0, index=0.8), beat + offset, 0.3, -0.2, verb=0.35)
+    song.add(vinyl(32 * 4 * song.beat_len + 1), 0, 1.0, 0, verb=0)
+    mix = song.render(duck_depth=0.3)
+    # Roll off the top end for that worn-tape warmth.
+    return np.stack([spectral_filter(ch, high=8500) for ch in mix])
+
+
+def synthwave():
+    """Neon Drive — 80s synthwave: gated snares, pulsing octave bass, shimmering arps."""
+    song = Song(bpm=100, bars=48, rt60=2.4)
+    chords = ["Am", "F", "C", "G"]
+    riff = [("E5", 0, 1.5), ("D5", 1.5, 0.5), ("C5", 2, 1), ("D5", 3, 1), ("E5", 4, 3), ("G5", 7, 1),
+            ("A5", 8, 1.5), ("G5", 9.5, 0.5), ("E5", 10, 2), ("D5", 12, 1.5), ("C5", 13.5, 0.5), ("D5", 14, 2)]
+    for bar in range(48):
+        beat = bar * 4
+        section = bar // 16
+        symbol = chords[bar % 4]
+        intro = bar < 4
+        for m in voicing(symbol, n("A3"), 4):
+            song.add(strings(m, 4.2 * song.beat_len, cutoff=1800, attack=0.5, release=0.9, voices=(-12, -5, 0, 5, 12)), beat, 0.06, rng.uniform(-0.7, 0.7), verb=0.45, duck=True)
+        root = bass_note(symbol, n("A1"))
+        for k in range(8):
+            song.add(synth_bass(root + (12 if k % 2 else 0), 0.45 * song.beat_len, cutoff=900), beat + k * 0.5, 0.42, 0, verb=0.02)
+        tones = voicing(symbol, n("A4"), 4)
+        for k in range(16):
+            song.add(pluck(tones[[0, 1, 2, 3, 2, 1, 2, 3][k % 8]], 0.14, 2200, harmonics="saw"), beat + k * 0.25, 0.14, 0.5 if k % 2 else -0.5, verb=0.35, duck=True)
+        if not intro:
+            for k in range(4):
+                song.kick(beat + k, 0.9)
+            for k in (1, 3):
+                song.add(gated_snare(), beat + k, 0.65, 0, verb=0.15)
+            for k in range(16):
+                song.add(hat(), beat + k * 0.25, 0.16 if k % 2 else 0.24, 0.3, verb=0.05)
+        if section >= 1 and bar % 4 == 0 and not (32 <= bar < 36):
+            for note, offset, length in riff:
+                song.add(lead(n(note), length * song.beat_len), beat + offset, 0.3, -0.1, verb=0.45)
+    for downbeat in (16, 32):
+        song.add(crash(3.0), downbeat * 4, 0.55, 0.3, verb=0.4)
+    return song.render(duck_depth=0.4)
+
+
+def acoustic():
+    """Good Days — a sunny ukulele strum with claps and a whistled tune."""
+    song = Song(bpm=112, bars=32, rt60=1.4)
+    chords = ["G", "D", "Em", "C"]
+    strum = [(0, 1, 0.9), (1, 1, 0.6), (1.5, -1, 0.5), (2.5, -1, 0.55), (3, 1, 0.7), (3.5, -1, 0.5)]
+    tune = [("B5", 0, 1), ("D6", 1, 1), ("B5", 2, 0.5), ("A5", 2.5, 0.5), ("G5", 3, 1), ("A5", 4, 1.5), ("F#5", 5.5, 0.5),
+            ("D5", 6, 2), ("E5", 8, 1), ("G5", 9, 1), ("B5", 10, 1), ("A5", 11, 1), ("G5", 12, 3)]
+    for bar in range(32):
+        beat = bar * 4
+        symbol = chords[bar % 4]
+        notes = voicing(symbol, n("G4"), 4)
+        for offset, direction, vel in strum:
+            order = notes if direction > 0 else notes[::-1]
+            for i, m in enumerate(order):
+                song.add(karplus(m, 0.9 * song.beat_len, brightness=0.55 + 0.2 * vel), beat + offset + i * 0.012 / song.beat_len, 0.32 * vel, -0.25 + 0.15 * i, verb=0.2)
+        song.add(upright_bass(bass_note(symbol, n("G1")) + 12, 1.6 * song.beat_len), beat, 0.5, 0, verb=0.05)
+        song.add(upright_bass(bass_note(symbol, n("G1")) + 19, 1.6 * song.beat_len), beat + 2, 0.4, 0, verb=0.05)
+        if bar >= 4:
+            song.add(kick(0.5), beat, 0.45, verb=0.05)
+            song.add(kick(0.5), beat + 2, 0.35, verb=0.05)
+            for k in (1, 3):
+                song.add(clap(), beat + k, 0.5, 0.1, verb=0.2)
+            for k in range(8):
+                song.add(shaker(), beat + k * 0.5, 0.2 if k % 2 else 0.12, 0.4, verb=0.05)
+        if bar >= 8 and bar % 4 == 0:
+            for note, offset, length in tune:
+                env = envelope(length * song.beat_len * 0.9, attack=0.04, decay=0.2, sustain=0.8, release=0.1)
+                t = times(len(env))
+                whistle = np.sin(2 * np.pi * hz(n(note)) * t + 0.4 * np.sin(2 * np.pi * 5.5 * t)) * env
+                song.add(whistle, beat + offset, 0.14, 0.2, verb=0.35)
+                if bar >= 16:
+                    song.add(bell(n(note), 1.2, 0.35, ratio=2.0, index=1.0), beat + offset, 0.16, -0.3, verb=0.3)
+    return song.render()
+
+
+def house():
+    """Club Lights — a four-on-the-floor house groove with a breakdown and a drop."""
+    song = Song(bpm=124, bars=64, rt60=1.6)
+    chords = ["Fm", "Db", "Ab", "Eb"]
+    for bar in range(64):
+        beat = bar * 4
+        symbol = chords[bar % 4]
+        breakdown = 32 <= bar < 40
+        build = 40 <= bar < 48
+        if not breakdown:
+            for k in range(4):
+                song.kick(beat + k, 1.0)
+            for k in (1, 3):
+                song.add(clap(), beat + k, 0.55, 0.05, verb=0.2)
+            for k in range(4):
+                song.add(hat(True), beat + k + 0.5, 0.26, -0.3, verb=0.1)
+            if bar >= 8:
+                for k in range(16):
+                    song.add(hat(), beat + k * 0.25, 0.12 if k % 2 else 0.08, 0.35, verb=0.03)
+        root = bass_note(symbol, n("F1")) + 12
+        if not breakdown:
+            for k in range(4):
+                song.add(synth_bass(root, 0.42 * song.beat_len, cutoff=700), beat + k + 0.5, 0.55, 0, verb=0.02)
+        cutoff = 1200 if breakdown else 600 + 3200 * (bar - 40) / 8 if build else 3400
+        for k in (0, 1.5, 3):
+            if bar >= 4 or k == 0:
+                song.add(supersaw(symbol, 0.7 * song.beat_len, n("C4"), cutoff=cutoff), beat + k, 0.42, rng.uniform(-0.2, 0.2), verb=0.3, duck=True)
+        if breakdown:
+            # Keep the floor alive without drums: lush pads and a pulsing arpeggio.
+            for m in voicing(symbol, n("F3"), 4):
+                song.add(strings(m, 4.2 * song.beat_len, cutoff=2000, attack=0.4), beat, 0.24, rng.uniform(-0.6, 0.6), verb=0.5)
+            tones = voicing(symbol, n("F4"), 4)
+            for k in range(8):
+                song.add(pluck(tones[[0, 1, 2, 3, 2, 1, 2, 3][k]], 0.2, 1800), beat + k * 0.5, 0.34, -0.4 if k % 2 else 0.4, verb=0.4)
+    song.add(riser(8 * song.beat_len), 48 * 4 - 8, 0.85, 0, verb=0.3)
+    for downbeat in (16, 48):
+        song.add(crash(3.0), downbeat * 4, 0.6, 0.3, verb=0.3)
+        song.add(boom(), downbeat * 4, 0.8, 0, verb=0.3)
+    return song.render(duck_depth=0.6)
+
+
+def jazz():
+    """Café Noir — a swinging piano trio: walking bass, ride cymbal and brushes."""
+    song = Song(bpm=120, bars=32, rt60=1.3)
+    chords = ["Cm7", "F7", "Bbmaj7", "Gm7", "Cm7", "F7", "Bbmaj7", "Bbmaj7"]
+    swing = 2 / 3
+    head = [("D5", 0, 1), ("Eb5", 1, 0.66), ("F5", 1.66, 1.34), ("G5", 4, 1), ("A5", 5, 0.66), ("C6", 5.66, 1.34),
+            ("Bb5", 8, 2), ("A5", 10, 0.66), ("F5", 10.66, 1.34), ("G5", 12, 3)]
+    for bar in range(32):
+        beat = bar * 4
+        symbol = chords[bar % 8]
+        root, intervals, _ = chord(symbol)
+        tones = [n("C2") + ((root - n("C2")) % 12) + i for i in intervals]
+        nxt_root, _, _ = chord(chords[(bar + 1) % 8])
+        target = n("C2") + ((nxt_root - n("C2")) % 12)
+        walk = [tones[0], tones[1] if len(tones) > 1 else tones[0] + 4, tones[2], target - 1 if (bar % 2) else target + 1]
+        for k, m in enumerate(walk):
+            song.add(upright_bass(m + 12, 0.9 * song.beat_len), beat + k, 0.6, -0.1, verb=0.08)
+        # Ride: ding, ding-a, ding, ding-a (swung)
+        for k in range(4):
+            song.add(ride(), beat + k, 0.45 if k % 2 == 0 else 0.38, 0.4, verb=0.15)
+            if k % 2:
+                song.add(ride(), beat + k + swing, 0.26, 0.4, verb=0.15)
+        for k in (1, 3):
+            song.add(hat() * 0.8, beat + k, 0.25, 0.3, verb=0.05)
+        song.add(brush_swish(4 * song.beat_len), beat, 0.9, -0.2, verb=0.1)
+        # Piano comping on the offbeats, shell voicings.
+        shell = voicing(symbol, n("E3"), 4)[:4]
+        for offset in ((1 + swing, 3) if bar % 2 else (0 + swing, 2 + swing)):
+            for m in shell:
+                song.add(piano(m, 0.5 * song.beat_len, 0.5), beat + offset, 0.38, 0.2, verb=0.2)
+        if 8 <= bar < 24 and bar % 4 == 0:
+            for note, offset, length in head:
+                t = times(int(length * song.beat_len * SR))
+                vibes = bell(n(note), length * song.beat_len + 0.8, 0.5, ratio=4.0, index=0.6)
+                vibes *= 1 + 0.25 * np.sin(2 * np.pi * 5.0 * times(len(vibes)))
+                song.add(vibes, beat + offset, 0.32, -0.25, verb=0.3)
+    return song.render()
+
+TRACKS = [  # (id, title, vibe, bpm, composer)
+    ("cinematic", "First Light", "Cinematic", 72, cinematic),
+    ("action", "Overdrive", "Energetic", 128, action),
+    ("adventure", "Far Horizons", "Epic", 100, adventure),
+    ("dreamy", "Afterglow", "Ambient", 76, dreamy),
+    ("memories", "Polaroid Summer", "Nostalgic", 84, memories),
+    ("lofi", "Lo-Fi Sunday", "Chill", 82, lofi),
+    ("synthwave", "Neon Drive", "Retro 80s", 100, synthwave),
+    ("acoustic", "Good Days", "Happy", 112, acoustic),
+    ("house", "Club Lights", "Party", 124, house),
+    ("jazz", "Café Noir", "Jazz", 120, jazz),
 ]
 
 
@@ -649,17 +938,20 @@ def main():
     only = set(sys.argv[2:])
     os.makedirs(out_dir, exist_ok=True)
     manifest = []
-    for track_id, title, bpm, compose in TRACKS:
+    previous = {}
+    manifest_path = os.path.join(out_dir, "tracks.json")
+    if os.path.exists(manifest_path):
+        previous = {t["id"]: t for t in json.load(open(manifest_path))}
+    for track_id, title, vibe, bpm, compose in TRACKS:
         if only and track_id not in only:
-            manifest_path = os.path.join(out_dir, "tracks.json")
-            if os.path.exists(manifest_path):
-                manifest += [t for t in json.load(open(manifest_path)) if t["id"] == track_id]
+            if track_id in previous:
+                manifest.append({**previous[track_id], "title": title, "vibe": vibe})
             continue
         print(f"rendering {track_id}…", flush=True)
         audio = compose()
         file_name = f"{track_id}.ogg"
         write_ogg(audio, os.path.join(out_dir, file_name))
-        manifest.append({"id": track_id, "title": title, "file": file_name, "bpm": bpm,
+        manifest.append({"id": track_id, "title": title, "vibe": vibe, "file": file_name, "bpm": bpm,
                          "seconds": round(audio.shape[1] / SR, 3)})
     manifest.sort(key=lambda t: [x[0] for x in TRACKS].index(t["id"]))
     with open(os.path.join(out_dir, "tracks.json"), "w") as f:

@@ -52,6 +52,24 @@ async fn discover_photos(app: tauri::AppHandle) -> Result<Vec<scan::Folder>, Str
     .map_err(|e| e.to_string())
 }
 
+/// Songs on this computer (the Music folder, plus Downloads and Desktop near the top).
+#[tauri::command]
+async fn discover_music(app: tauri::AppHandle) -> Result<Vec<scan::MusicFile>, String> {
+    ensure_unlocked()?;
+    let mut roots: Vec<(PathBuf, usize)> = Vec::new();
+    if let Ok(music) = app.path().audio_dir() {
+        roots.push((music, 8));
+    }
+    if let Ok(home) = app.path().home_dir() {
+        roots.push((home.join("Music"), 8));
+        roots.push((home.join("Downloads"), 3));
+        roots.push((home.join("Desktop"), 2));
+    }
+    tauri::async_runtime::spawn_blocking(move || scan::discover_music(&roots))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// The result of the previous discovery, so the gallery can appear instantly.
 #[tauri::command]
 fn cached_photos(app: tauri::AppHandle) -> Option<String> {
@@ -174,6 +192,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             scan_folder,
             discover_photos,
+            discover_music,
             cached_photos,
             builtin_tracks,
             lock::lock_status,

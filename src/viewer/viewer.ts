@@ -214,6 +214,11 @@ export class Viewer {
     }
   }
 
+  /** Previous (-1) or next (+1) photo, e.g. from the mouse's side buttons. */
+  stepBy(delta: number) {
+    this.step(delta);
+  }
+
   private step(delta: number) {
     const next = clamp(this.index + delta, 0, this.photos.length - 1);
     if (next !== this.index) this.show(next);

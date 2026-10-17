@@ -349,6 +349,11 @@ export class Player {
     this.prefetch(pos);
   }
 
+  skipBy(dir: 1 | -1) {
+    this.skip(dir);
+    this.wake();
+  }
+
   private skip(dir: 1 | -1) {
     if (this.phase === "title") {
       this.skipTitle = true;

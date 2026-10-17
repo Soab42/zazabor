@@ -4,34 +4,79 @@
     "title": "First Light",
     "file": "cinematic.ogg",
     "bpm": 72,
-    "seconds": 106.667
+    "seconds": 106.667,
+    "vibe": "Cinematic"
   },
   {
     "id": "action",
     "title": "Overdrive",
     "file": "action.ogg",
     "bpm": 128,
-    "seconds": 120.0
+    "seconds": 120.0,
+    "vibe": "Energetic"
   },
   {
     "id": "adventure",
     "title": "Far Horizons",
     "file": "adventure.ogg",
     "bpm": 100,
-    "seconds": 115.2
+    "seconds": 115.2,
+    "vibe": "Epic"
   },
   {
     "id": "dreamy",
     "title": "Afterglow",
     "file": "dreamy.ogg",
     "bpm": 76,
-    "seconds": 101.053
+    "seconds": 101.053,
+    "vibe": "Ambient"
   },
   {
     "id": "memories",
     "title": "Polaroid Summer",
     "file": "memories.ogg",
     "bpm": 84,
-    "seconds": 91.429
+    "seconds": 91.429,
+    "vibe": "Nostalgic"
+  },
+  {
+    "id": "lofi",
+    "title": "Lo-Fi Sunday",
+    "vibe": "Chill",
+    "file": "lofi.ogg",
+    "bpm": 82,
+    "seconds": 93.659
+  },
+  {
+    "id": "synthwave",
+    "title": "Neon Drive",
+    "vibe": "Retro 80s",
+    "file": "synthwave.ogg",
+    "bpm": 100,
+    "seconds": 115.2
+  },
+  {
+    "id": "acoustic",
+    "title": "Good Days",
+    "vibe": "Happy",
+    "file": "acoustic.ogg",
+    "bpm": 112,
+    "seconds": 68.571
+  },
+  {
+    "id": "house",
+    "title": "Club Lights",
+    "vibe": "Party",
+    "file": "house.ogg",
+    "bpm": 124,
+    "seconds": 123.871
+  },
+  {
+    "id": "jazz",
+    "title": "Caf\u00e9 Noir",
+    "vibe": "Jazz",
+    "file": "jazz.ogg",
+    "bpm": 120,
+    "seconds": 64.0
   }
 ]

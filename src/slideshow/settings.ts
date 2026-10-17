@@ -138,7 +138,7 @@ export const THEMES = [
   },
   {
     id: "modern", label: "Modern", blurb: "Sleek 2026 motion: parallax slides, 3D cubes, liquid and chromatic zooms",
-    track: "adventure", beatsPerCut: 2,
+    track: "house", beatsPerCut: 2,
     transitions: [["slide", 14], ["cube", 12], ["liquid", 12], ["chromatic", 10], ["zoomspin", 10], ["cards", 10], ["sweep", 8], ["morph", 8], ["hexagon", 8], ["iris", 8]],
     look: { duration: 3.4, transitionTime: 1.0, kenBurns: 0.65, look: "natural", grain: 0.08, vignette: 0.2, letterbox: false },
   },
@@ -150,7 +150,7 @@ export const THEMES = [
   },
   {
     id: "neon", label: "Neon", blurb: "Glitches, VHS, datamosh and glowing neon edges",
-    track: "action", beatsPerCut: 1,
+    track: "synthwave", beatsPerCut: 1,
     transitions: [["neon", 16], ["glitch", 16], ["vhs", 14], ["datamosh", 14], ["pixelate", 12], ["chromatic", 12], ["hyperspace", 8], ["flash", 8]],
     look: { duration: 2.6, transitionTime: 0.7, kenBurns: 0.8, look: "tealorange", grain: 0.25, vignette: 0.5, letterbox: false },
   },
@@ -162,7 +162,7 @@ export const THEMES = [
   },
   {
     id: "travel", label: "Travel", blurb: "Postcard energy: cubes, flips, doors and parallax slides",
-    track: "adventure", beatsPerCut: 2,
+    track: "acoustic", beatsPerCut: 2,
     transitions: [["cube", 14], ["flip", 12], ["doors", 12], ["slide", 12], ["cards", 10], ["fold", 10], ["tiles", 10], ["push", 10], ["sweep", 8]],
     look: { duration: 3.8, transitionTime: 1.2, kenBurns: 0.7, look: "natural", grain: 0.1, vignette: 0.25, letterbox: false },
   },
@@ -186,13 +186,13 @@ export const THEMES = [
   },
   {
     id: "playful", label: "Playful", blurb: "Bouncy drops, dots, tiles, halftones and kaleidoscopes",
-    track: "action", beatsPerCut: 2,
+    track: "acoustic", beatsPerCut: 2,
     transitions: [["drop", 14], ["dots", 14], ["tiles", 12], ["halftone", 12], ["kaleido", 10], ["bulge", 10], ["swirl", 10], ["cards", 10], ["clock", 8]],
     look: { duration: 3, transitionTime: 0.9, kenBurns: 0.7, look: "natural", grain: 0.05, vignette: 0.15, letterbox: false },
   },
   {
     id: "noir", label: "Noir", blurb: "Black and white, moody: ink, slices and slow fades",
-    track: "cinematic", beatsPerCut: 2,
+    track: "jazz", beatsPerCut: 2,
     transitions: [["dip", 22], ["dissolve", 20], ["luma", 16], ["ink", 14], ["slices", 10], ["shutter", 10], ["clock", 8]],
     look: { duration: 5, transitionTime: 1.6, kenBurns: 0.5, look: "noir", grain: 0.45, vignette: 0.55, letterbox: true },
   },

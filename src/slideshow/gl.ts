@@ -35,14 +35,18 @@ uniform vec2 uFramePx;    // frame size in pixels
 uniform float uBlurLod;
 uniform float uImageAspect;
 
+// A soft, smooth blur: many taps on a golden-angle spiral, weighted toward the centre.
 vec3 backdrop(vec2 uv) {
   vec3 sum = vec3(0.0);
-  for (int i = 0; i < 16; i++) {
+  float total = 0.0;
+  for (int i = 0; i < 32; i++) {
     float a = float(i) * 2.39996;
-    float r = sqrt((float(i) + 0.5) / 16.0) * 0.06;
-    sum += textureLod(uImage, uv + vec2(cos(a) / uImageAspect, sin(a)) * r, uBlurLod).rgb;
+    float k = sqrt((float(i) + 0.5) / 32.0);
+    float w = exp(-k * k * 2.0);
+    sum += textureLod(uImage, uv + vec2(cos(a) / uImageAspect, sin(a)) * k * 0.03, uBlurLod).rgb * w;
+    total += w;
   }
-  return sum / 16.0;
+  return sum / total;
 }
 
 void main() {
@@ -52,10 +56,10 @@ void main() {
     return;
   }
   vec3 back = backdrop(uBack.xy + f * uBack.zw);
-  back = mix(vec3(luma(back)), back, 0.8) * 0.4;
+  back = mix(vec3(luma(back)), back, 0.92) * 0.72;
   // Soft contact shadow around the photo.
   vec2 outside = max(max(uRect.xy - f, f - (uRect.xy + uRect.zw)), 0.0) * uFramePx;
-  back *= 1.0 - 0.6 * exp(-length(outside) / (0.03 * uFramePx.y));
+  back *= 1.0 - 0.45 * exp(-length(outside) / (0.03 * uFramePx.y));
   vec2 local = (f - uRect.xy) / uRect.zw;
   vec2 edge = min(local, 1.0 - local) * uRect.zw * uFramePx;
   float cover = clamp(min(edge.x, edge.y) + 0.5, 0.0, 1.0);
@@ -993,7 +997,8 @@ export class GLRenderer implements Renderer {
     gl.uniform4f(u.uBack, back.x, back.y, back.w, back.h);
     gl.uniform2f(u.uBand, bars, bandHeight);
     gl.uniform2f(u.uFramePx, this.width, this.height * bandHeight);
-    gl.uniform1f(u.uBlurLod, Math.max(0, Math.log2(Math.max(texture.width, texture.height) / 48)));
+    // A gentle blur: the backdrop stays recognisable as the same photo.
+    gl.uniform1f(u.uBlurLod, Math.max(0, Math.log2(Math.max(texture.width, texture.height) / 400)));
     gl.uniform1f(u.uImageAspect, texture.width / texture.height);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     // Mipmaps let the blur transitions sample soft versions of the frame.

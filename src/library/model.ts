@@ -60,6 +60,7 @@ export class Library {
   roots: string[] = [];
   folders: Folder[] = [];
   readonly hidden = new Set<string>();
+  readonly favorites = new Set<string>();
   showHidden = false;
   readonly scanning = new Set<string>();
   sort: SortMode = "date";
@@ -83,9 +84,10 @@ export class Library {
   }
 
   /** Shows the previous discovery immediately, then refreshes everything in the background. */
-  async load(roots: string[], hidden: string[]) {
+  async load(roots: string[], hidden: string[], favorites: string[]) {
     this.roots = [...roots];
     for (const path of hidden) this.hidden.add(path);
+    for (const path of favorites) this.favorites.add(path);
     const cached = await api.cachedPhotos().catch(() => null);
     if (cached) {
       this.sources.set(DISCOVERED, cached);
@@ -119,9 +121,20 @@ export class Library {
     this.emit();
   }
 
-  setHidden(path: string, hidden: boolean) {
-    if (hidden) this.hidden.add(path);
-    else this.hidden.delete(path);
+  /** Hides or shows albums (one notification for any number of them). */
+  setHidden(paths: string[], hidden: boolean) {
+    for (const path of paths) {
+      if (hidden) this.hidden.add(path);
+      else this.hidden.delete(path);
+    }
+    this.emit();
+  }
+
+  setFavorite(paths: string[], favorite: boolean) {
+    for (const path of paths) {
+      if (favorite) this.favorites.add(path);
+      else this.favorites.delete(path);
+    }
     this.emit();
   }
 
@@ -136,6 +149,7 @@ export class Library {
     this.emit();
   }
 
+  /** Visible albums matching the filter, favorites first. */
   groups(filter: string): Group[] {
     const needle = filter.trim().toLowerCase();
     const groups: Group[] = [];
@@ -149,7 +163,11 @@ export class Library {
       const photos = folderMatches ? folder.photos : folder.photos.filter((p) => p.name.toLowerCase().includes(needle));
       if (photos.length) groups.push({ folder, photos });
     }
-    return groups;
+    // A stable partition keeps the chosen sort order inside each part.
+    return [
+      ...groups.filter((g) => this.favorites.has(g.folder.path)),
+      ...groups.filter((g) => !this.favorites.has(g.folder.path)),
+    ];
   }
 
   private async discover() {

@@ -31,6 +31,10 @@ export class MusicPlayer {
     return !!this.buffer;
   }
 
+  get duration() {
+    return this.buffer?.duration ?? 0;
+  }
+
   get playing() {
     return !!this.source && this.ctx.state === "running";
   }
@@ -41,15 +45,16 @@ export class MusicPlayer {
     return (((this.ctx.currentTime - this.origin) % this.buffer.duration) + this.buffer.duration) % this.buffer.duration;
   }
 
-  start() {
+  /** Starts looping playback, optionally `offset` seconds into the track. */
+  start(offset = 0) {
     if (!this.buffer || this.source || this.disposed) return;
     const source = this.ctx.createBufferSource();
     source.buffer = this.buffer;
     source.loop = true;
     source.connect(this.gain);
     const when = this.ctx.currentTime + 0.05;
-    source.start(when);
-    this.origin = when;
+    source.start(when, offset % this.buffer.duration);
+    this.origin = when - offset;
     this.source = source;
     void this.ctx.resume();
   }

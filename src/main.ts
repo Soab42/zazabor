@@ -45,6 +45,12 @@ class App {
     });
     document.getElementById("app")!.append(this.libraryView.el, this.viewer.el);
     window.addEventListener("keydown", (e) => this.onKey(e));
+    // WebKitGTK reports mouse back/forward buttons only as mouse events, with button 3 and 4.
+    window.addEventListener("mouseup", (e) => {
+      if (e.button !== 3 && e.button !== 4) return;
+      e.preventDefault();
+      this.onMouseNavigate(e.button === 3 ? -1 : 1);
+    });
   }
 
   async init() {
@@ -61,7 +67,14 @@ class App {
     this.resetIdleTimer();
     this.libraryView.refresh();
     this.setupDragDrop().catch((err) => console.warn("Drag and drop unavailable:", err));
-    await Promise.all([this.library.load(this.config.roots, this.config.hiddenAlbums), this.openLaunchPath()]);
+    await Promise.all([this.library.load(this.config.roots, this.config.hiddenAlbums, this.config.favoriteAlbums), this.openLaunchPath()]);
+  }
+
+  private onMouseNavigate(direction: 1 | -1) {
+    if (document.body.classList.contains("app-locked")) return;
+    if (this.player) this.player.skipBy(direction);
+    else if (this.viewer.isOpen) this.viewer.stepBy(direction);
+    else if (direction < 0) this.libraryView.navigateBack();
   }
 
   private onKey(e: KeyboardEvent) {

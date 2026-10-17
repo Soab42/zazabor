@@ -1,9 +1,9 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import type { BuiltinTrack } from "../api";
+import type { BuiltinTrack, MusicFile } from "../api";
 import type { Photo } from "../library/model";
 import { basename, h } from "../ui/dom";
 import { icon } from "../ui/icons";
-import { builtinTracks } from "./music";
+import { builtinTracks, isPreviewing, previewMusic, stopPreview, yourMusic } from "./music";
 import { TransitionPreview } from "./preview";
 import { applyTheme, BUILTIN_MUSIC, LOOKS, THEMES, TRANSITION_GROUPS, type Framing, type SlideshowSettings, type TransitionChoice, type TransitionKind } from "./settings";
 
@@ -23,6 +23,7 @@ export class SettingsForm {
   readonly el = h("div", { class: "settings-form" });
   private syncers: (() => void)[] = [];
   private tracks: BuiltinTrack[] = [];
+  private songs: MusicFile[] = [];
   private preview: TransitionPreview;
 
   constructor(
@@ -70,6 +71,7 @@ export class SettingsForm {
 
   dispose() {
     this.preview.dispose();
+    stopPreview();
   }
 
   /** Re-reads every control from the settings object. */
@@ -192,15 +194,28 @@ export class SettingsForm {
   private musicRow() {
     const CUSTOM = "\u0000custom";
     const select = h("select");
+    const preview = h("button", { type: "button", class: "icon-btn small preview-btn", title: "Listen to a few seconds" }, icon("play", 14));
     const options = () => {
       const current = this.settings.music;
-      select.replaceChildren(h("option", { value: "" }, "None"));
-      for (const track of this.tracks) select.append(h("option", { value: `${BUILTIN_MUSIC}${track.id}` }, `${track.title} (${track.id})`));
-      if (current && !current.startsWith(BUILTIN_MUSIC)) select.append(h("option", { value: current }, basename(current)));
+      select.replaceChildren(h("option", { value: "" }, "No music"));
+      const builtIn = h("optgroup", { label: "SliderPro soundtracks" });
+      for (const track of this.tracks) builtIn.append(h("option", { value: `${BUILTIN_MUSIC}${track.id}` }, `${track.vibe} — ${track.title}`));
+      select.append(builtIn);
+      if (this.songs.length) {
+        const mine = h("optgroup", { label: "Your music" });
+        for (const song of this.songs) mine.append(h("option", { value: song.path, title: song.path }, `${song.name}${song.folder ? `  ·  ${song.folder}` : ""}`));
+        select.append(mine);
+      }
+      if (current && !current.startsWith(BUILTIN_MUSIC) && !this.songs.some((s) => s.path === current)) {
+        select.append(h("option", { value: current }, basename(current)));
+      }
       select.append(h("option", { value: CUSTOM }, "Choose a file…"));
       select.value = current ?? "";
+      preview.disabled = !current;
+      preview.replaceChildren(icon(isPreviewing(current) ? "pause" : "play", 14));
     };
     select.addEventListener("change", async () => {
+      stopPreview();
       if (select.value !== CUSTOM) {
         this.settings.music = select.value || null;
         this.changed("music");
@@ -214,14 +229,30 @@ export class SettingsForm {
         options();
       }
     });
-    builtinTracks().then((tracks) => {
+    preview.addEventListener("click", async () => {
+      const choice = this.settings.music;
+      if (isPreviewing(choice)) {
+        stopPreview();
+        options();
+        return;
+      }
+      preview.replaceChildren(icon("pause", 14));
+      const ok = await previewMusic(choice, options);
+      if (!ok) {
+        preview.title = "This file can't be played on this computer";
+        options();
+      }
+    });
+    Promise.all([builtinTracks(), yourMusic()]).then(([tracks, songs]) => {
       this.tracks = tracks;
+      this.songs = songs;
       options();
     });
     this.syncers.push(options);
     options();
-    return this.row("Soundtrack", select);
+    return h("div", { class: "sf-row sf-music" }, h("span", { class: "sf-label" }, "Soundtrack"), select, preview);
   }
+
 }
 
 function estimate(photos: number, settings: SlideshowSettings) {

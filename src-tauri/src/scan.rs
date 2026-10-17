@@ -91,6 +91,57 @@ pub fn scan(root: &Path, recursive: bool) -> Vec<Folder> {
     )
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicFile {
+    pub path: String,
+    pub name: String,
+    pub folder: String,
+    pub size: u64,
+}
+
+/// Shorter files are notification sounds and jingles rather than songs.
+const MIN_SONG_BYTES: u64 = 300 * 1024;
+const MAX_SONGS: usize = 1000;
+
+/// Finds songs in the given folders (each with its own search depth), sorted by name.
+pub fn discover_music(roots: &[(PathBuf, usize)]) -> Vec<MusicFile> {
+    let mut seen = std::collections::HashSet::new();
+    let mut songs = Vec::new();
+    for (root, depth) in roots {
+        let walker = WalkDir::new(root)
+            .follow_links(false)
+            .max_depth(*depth)
+            .into_iter()
+            .filter_entry(|e| e.depth() == 0 || !(is_hidden(e) || is_skipped_dir(e)));
+        for entry in walker.filter_map(Result::ok) {
+            let path = entry.path();
+            if !entry.file_type().is_file() || !is_audio(path) || !seen.insert(path.to_path_buf()) {
+                continue;
+            }
+            let Ok(meta) = entry.metadata() else { continue };
+            if meta.len() < MIN_SONG_BYTES {
+                continue;
+            }
+            songs.push(MusicFile {
+                path: path.to_string_lossy().into_owned(),
+                name: path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
+                folder: path
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                size: meta.len(),
+            });
+            if songs.len() >= MAX_SONGS {
+                break;
+            }
+        }
+    }
+    songs.sort_by_key(|s| s.name.to_lowercase());
+    songs
+}
+
 /// Where automatic discovery looks: the home folder and mounted drives.
 pub fn discovery_roots(home: Option<PathBuf>) -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = home.into_iter().collect();

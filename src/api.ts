@@ -29,13 +29,22 @@ export type PathKind = "dir" | "image" | "audio" | "file" | "missing";
 export interface BuiltinTrack {
   id: string;
   title: string;
+  vibe: string;
   file: string;
   bpm: number;
   seconds: number;
   path: string;
 }
 
+export interface MusicFile {
+  path: string;
+  name: string;
+  folder: string;
+  size: number;
+}
+
 export const api = {
+  discoverMusic: () => invoke<MusicFile[]>("discover_music"),
   scanFolder: (path: string, recursive = true) =>
     invoke<FolderScan[]>("scan_folder", { path, recursive }),
   discoverPhotos: () => invoke<FolderScan[]>("discover_photos"),

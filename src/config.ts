@@ -6,7 +6,8 @@ export interface Config {
   /** Extra folders added by hand; everything else is discovered automatically. */
   roots: string[];
   hiddenAlbums: string[];
-  libraryView: "albums" | "photos";
+  favoriteAlbums: string[];
+  libraryView: "albums" | "favorites" | "photos";
   /** Minutes of inactivity before a configured lock engages; 0 = never. */
   autoLockMinutes: number;
   thumbSize: number;
@@ -19,6 +20,7 @@ export interface Config {
 const DEFAULTS: Config = {
   roots: [],
   hiddenAlbums: [],
+  favoriteAlbums: [],
   libraryView: "albums",
   autoLockMinutes: 5,
   thumbSize: 168,
@@ -38,7 +40,8 @@ export async function loadConfig(): Promise<Config> {
       ...parsed,
       roots: Array.isArray(parsed.roots) ? parsed.roots.filter((r) => typeof r === "string") : [],
       hiddenAlbums: Array.isArray(parsed.hiddenAlbums) ? parsed.hiddenAlbums.filter((r) => typeof r === "string") : [],
-      libraryView: parsed.libraryView === "photos" ? "photos" : "albums",
+      favoriteAlbums: Array.isArray(parsed.favoriteAlbums) ? parsed.favoriteAlbums.filter((r) => typeof r === "string") : [],
+      libraryView: parsed.libraryView === "photos" || parsed.libraryView === "favorites" ? parsed.libraryView : "albums",
       sort: parsed.sort === "name" ? "name" : "date",
       slideshow: normalizeSettings(parsed.slideshow),
     };
