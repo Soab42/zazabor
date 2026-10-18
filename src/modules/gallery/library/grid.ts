@@ -1,8 +1,8 @@
-import { formatDate, h, rafThrottle } from "../ui/dom";
-import { icon } from "../ui/icons";
-import type { GridLayout } from "../appearance";
+import { formatDate, h, rafThrottle } from "../../../ui/dom";
+import { icon } from "../../../ui/icons";
+import type { GridLayout } from "../../../appearance";
 import type { Group, Photo } from "./model";
-import { photoThumbUrl, type ThumbLoader } from "./thumbs";
+import { photoThumbUrl, type ThumbLoader } from "../../../shared/thumbs";
 
 const PAD = 24;
 const HEADER = 62;

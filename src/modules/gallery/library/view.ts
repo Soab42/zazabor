@@ -1,14 +1,14 @@
-import type { Config } from "../config";
-import { saveConfig } from "../config";
+import type { Config } from "../../../config";
+import { saveConfig } from "../../../config";
 import type { SlideshowScope } from "../slideshow/setup";
-import { formatDate, h } from "../ui/dom";
-import { icon } from "../ui/icons";
-import { openMenu, type MenuItem } from "../ui/menu";
+import { formatDate, h } from "../../../ui/dom";
+import { icon } from "../../../ui/icons";
+import { openMenu, type MenuItem } from "../../../ui/menu";
 import { AlbumGrid } from "./albums";
 import { Grid } from "./grid";
 import type { Group, Library, Photo, SortMode } from "./model";
 import { Sidebar } from "./sidebar";
-import type { ThumbLoader } from "./thumbs";
+import type { ThumbLoader } from "../../../shared/thumbs";
 
 export interface LibraryViewHandlers {
   open(photo: Photo, list: Photo[]): void;

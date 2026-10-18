@@ -1,6 +1,6 @@
-import type { PhotoInfo } from "../api";
+import type { PhotoInfo } from "../../../api";
 import type { Photo } from "../library/model";
-import { clear, formatBytes, formatDateTime, h } from "../ui/dom";
+import { clear, formatBytes, formatDateTime, h } from "../../../ui/dom";
 import { drawHistogram, type Histogram } from "./histogram";
 
 export class InfoPanel {

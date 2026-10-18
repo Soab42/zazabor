@@ -5,13 +5,13 @@ import { api, forwardLogsToTerminal } from "./api";
 import { applyAppearance, openAppearanceDialog } from "./appearance";
 import { askForAccess, lockApi, openLockSettings, type LockStatus } from "./lock";
 import { loadConfig, saveConfig, type Config } from "./config";
-import { Library, makeFolder } from "./library/model";
-import { ThumbLoader } from "./library/thumbs";
-import { LibraryView } from "./library/view";
-import { Player } from "./slideshow/player";
-import { openSetupDialog, type SlideshowScope } from "./slideshow/setup";
+import { Library, makeFolder } from "./modules/gallery/library/model";
+import { ThumbLoader } from "./shared/thumbs";
+import { LibraryView } from "./modules/gallery/library/view";
+import { Player } from "./modules/gallery/slideshow/player";
+import { openSetupDialog, type SlideshowScope } from "./modules/gallery/slideshow/setup";
 import { dirname, isTypingTarget } from "./ui/dom";
-import { Viewer } from "./viewer/viewer";
+import { Viewer } from "./modules/gallery/viewer/viewer";
 
 forwardLogsToTerminal();
 

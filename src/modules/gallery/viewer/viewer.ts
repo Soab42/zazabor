@@ -1,13 +1,13 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   api, displayRenderSize, fullUrl, loadImage, previewUrl, thumbUrl,
-} from "../api";
-import { saveConfig, type Config } from "../config";
+} from "../../../api";
+import { saveConfig, type Config } from "../../../config";
 import type { Photo } from "../library/model";
-import type { ThumbLoader } from "../library/thumbs";
+import type { ThumbLoader } from "../../../shared/thumbs";
 import type { SlideshowScope } from "../slideshow/setup";
-import { clamp, h } from "../ui/dom";
-import { icon } from "../ui/icons";
+import { clamp, h } from "../../../ui/dom";
+import { icon } from "../../../ui/icons";
 import { Filmstrip } from "./filmstrip";
 import { computeHistogram } from "./histogram";
 import { InfoPanel } from "./info";

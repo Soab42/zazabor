@@ -1,5 +1,5 @@
-import { api, type FolderScan } from "../api";
-import { basename, dirname } from "../ui/dom";
+import { api, type FolderScan } from "../../../api";
+import { basename, dirname } from "../../../ui/dom";
 
 export interface Photo {
   path: string;

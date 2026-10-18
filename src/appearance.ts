@@ -1,4 +1,4 @@
-import { WHEEL_CURVE, type Curve } from "./viewer/easing";
+import { WHEEL_CURVE, type Curve } from "./modules/gallery/viewer/easing";
 import { clamp, h } from "./ui/dom";
 import { icon } from "./ui/icons";
 

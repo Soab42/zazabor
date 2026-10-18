@@ -1,8 +1,8 @@
-import { thumbUrl } from "../api";
-import { formatDate, h } from "../ui/dom";
-import { icon } from "../ui/icons";
+import { thumbUrl } from "../../../api";
+import { formatDate, h } from "../../../ui/dom";
+import { icon } from "../../../ui/icons";
 import type { Group } from "./model";
-import type { ThumbLoader } from "./thumbs";
+import type { ThumbLoader } from "../../../shared/thumbs";
 
 export interface AlbumHandlers {
   open(group: Group): void;

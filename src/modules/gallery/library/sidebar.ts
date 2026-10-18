@@ -1,5 +1,5 @@
-import { clear, h } from "../ui/dom";
-import { icon, type IconName } from "../ui/icons";
+import { clear, h } from "../../../ui/dom";
+import { icon, type IconName } from "../../../ui/icons";
 import type { Group } from "./model";
 
 export type NavTarget = "albums" | "favorites" | "photos";

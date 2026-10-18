@@ -1,4 +1,4 @@
-import { clamp } from "../ui/dom";
+import { clamp } from "../../../ui/dom";
 import { Canvas2DDrawer, GLDrawer, GRID_ABOVE, type DrawItem, type ZoomDrawer } from "./drawers";
 import { cubicBezier, easeFrom, easeMove, slopeAt, WHEEL_CURVE, type Curve } from "./easing";
 import type { Tile, TiledImage } from "./tiles";

@@ -1,8 +1,8 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { displayRenderSize, loadImage, previewUrl } from "../api";
+import { displayRenderSize, loadImage, previewUrl } from "../../../api";
 import type { Photo } from "../library/model";
-import { clamp, formatDate, h, stripExtension } from "../ui/dom";
-import { icon } from "../ui/icons";
+import { clamp, formatDate, h, stripExtension } from "../../../ui/dom";
+import { icon } from "../../../ui/icons";
 import { Canvas2DRenderer } from "./canvas2d";
 import { GLRenderer } from "./gl";
 import { hashString, letterboxBars, motionEase, mulberry32, planMotion, type Motion } from "./motion";

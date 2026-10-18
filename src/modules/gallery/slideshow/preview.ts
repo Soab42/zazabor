@@ -1,6 +1,6 @@
-import { loadImage, thumbUrl } from "../api";
+import { loadImage, thumbUrl } from "../../../api";
 import type { Photo } from "../library/model";
-import { clamp, h } from "../ui/dom";
+import { clamp, h } from "../../../ui/dom";
 import { GLRenderer } from "./gl";
 import { planMotion } from "./motion";
 import type { SlideFrame, SlideTexture } from "./renderer";

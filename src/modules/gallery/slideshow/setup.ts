@@ -1,9 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { BuiltinTrack, MusicFile } from "../api";
+import type { BuiltinTrack, MusicFile } from "../../../api";
 import type { Photo } from "../library/model";
-import { basename, h } from "../ui/dom";
-import { icon } from "../ui/icons";
+import { basename, h } from "../../../ui/dom";
+import { icon } from "../../../ui/icons";
 import { builtinTracks, isPreviewing, previewMusic, stopPreview, yourMusic } from "./music";
 import { TransitionPreview } from "./preview";
 import {

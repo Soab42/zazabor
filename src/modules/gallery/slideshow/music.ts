@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import { api, type BuiltinTrack, type MusicFile } from "../api";
-import { basename } from "../ui/dom";
+import { api, type BuiltinTrack, type MusicFile } from "../../../api";
+import { basename } from "../../../ui/dom";
 import { BUILTIN_MUSIC } from "./settings";
 
 let tracks: Promise<BuiltinTrack[]> | null = null;

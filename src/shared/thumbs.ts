@@ -1,5 +1,4 @@
 import { thumbUrl } from "../api";
-import type { Photo } from "./model";
 
 /**
  * Thumbnail sizes the backend renders; picking from a few keeps the disk cache small.
@@ -12,7 +11,8 @@ export function thumbBucket(displayPx: number) {
 
 const RETRY_MS = 5000;
 
-export const photoThumbUrl = (photo: Photo, displayPx: number) =>
+/** A thumbnail URL for any image file, sized for `displayPx` CSS pixels. */
+export const photoThumbUrl = (photo: { path: string; mtime: number }, displayPx: number) =>
   thumbUrl(photo.path, photo.mtime, thumbBucket(displayPx));
 
 /**

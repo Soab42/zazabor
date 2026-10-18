@@ -1,6 +1,6 @@
 import type { Photo } from "../library/model";
-import { photoThumbUrl, type ThumbLoader } from "../library/thumbs";
-import { h, rafThrottle } from "../ui/dom";
+import { photoThumbUrl, type ThumbLoader } from "../../../shared/thumbs";
+import { h, rafThrottle } from "../../../ui/dom";
 
 const ITEM = 78;
 const THUMB = 62;

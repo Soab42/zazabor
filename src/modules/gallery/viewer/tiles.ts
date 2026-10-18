@@ -1,4 +1,4 @@
-import { tileUrl } from "../api";
+import { tileUrl } from "../../../api";
 
 export interface Tile {
   /** Position and size in image pixels. */
