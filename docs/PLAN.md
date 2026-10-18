@@ -30,6 +30,7 @@ The Figma file has been read (section 8.3), so the video player and the Settings
 | Topic | Decision |
 |---|---|
 | Video engine | **libVLC** (VLC's engine) for VLC-level format, codec and subtitle support. |
+| Video rendering (M0 result) | **Frames into WebGL** (path B): libVLC decodes I420 frames scaled to the window, the page draws them with WebGL, so glass controls, menus and popovers can sit over the video. Measured: 1080p and 4K at 25 fps, 720p mkv at 24 fps, no dropped frames, ~41 MB/s. Test code on branch `m0-spike`. |
 | File manager, first version | All four groups: browse & views, file operations, Quick Look & info, search & tools (section 6). |
 | Platforms | **Linux first** (X11 session today); code stays portable, macOS/Windows later. |
 | Display server | **X11 now, Wayland later.** On Wayland desktops CorePro runs through XWayland at first; native Wayland video is a later milestone. |
@@ -260,9 +261,13 @@ controls**. Three ways to do that, to be settled by a test build (milestone M0):
 | B. Frames into WebGL | libVLC video callbacks write frames to shared memory; the webview uploads them as textures. | Works on any display server; video can be styled and blended freely. | Copies every frame: fine for 1080p, heavy for 4K60. |
 | C. Separate borderless window | A native child window tracks the player area's position. | Simple to start. | Fragile on move/resize, focus and stacking problems. |
 
-Plan: try **A** first (X11 now; on Wayland desktops the app is started with
-`GDK_BACKEND=x11` so it runs through XWayland), keep **B** as the fallback and for Quick Look
-previews. Native Wayland (path B, or a Wayland subsurface) is a later milestone. Rust side: a thin FFI over `libvlc` (via `bindgen`, or the `vlc-rs` crate if it is
+**Decided in M0: path B.** Path A turned out not to fit the design: on X11 a native child
+window can't be blended under translucent HTML, so the video window would always cover the glass
+controls, menus and subtitle popovers. Path B measured well on this machine (i5-11400H, output
+1376×794): 1080p and 4K H.264 at 25 fps and a 720p mkv at 24 fps with no dropped frames; I420
+frames cost ~41 MB/s (RV32 ~109 MB/s, so I420 is the format). CPU for 4K was ~116% of one core
+with software decoding; hardware decoding (VA-API with copy-back) is the next optimisation. Path B
+also works on Wayland, so native Wayland no longer depends on the video path. Rust side: a thin FFI over `libvlc` (via `bindgen`, or the `vlc-rs` crate if it is
 still current), player state and events forwarded to the UI as Tauri events.
 
 Setup on this machine: `sudo apt install libvlc-dev vlc` (neither is installed yet).
@@ -347,7 +352,7 @@ running app.
 
 | # | Milestone | Done when |
 |---|---|---|
-| M0 | **Video test build** (libVLC rendering paths A and B) | A video plays inside the window under HTML controls; path chosen. |
+| M0 | **Video test build** (libVLC rendering paths A and B) | **Done**: path B chosen (section 8.2). |
 | M1 | **Shell**: rename to CorePro (moving SliderPro's settings and caches), app rail, router, Settings page (VLC-style layout) with feature toggles, first-run wizard; gallery moved into a module | Gallery works as before with existing settings kept; toggling features shows/hides modules and survives restart; first run asks for theme, accent and features. |
 | M2 | **Files: browse & views** | Icon, list, column and gallery views, tabs, history, sidebar, hidden files, live updates, 100k-file folder stays smooth. |
 | M3 | **Files: operations** | Copy/move/rename/new/trash/restore with jobs panel, conflicts and undo; covered by Rust tests on temp folders. |
