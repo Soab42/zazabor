@@ -36,6 +36,8 @@
 }
 .fs-searchbar-inner::-webkit-scrollbar { display: none; }
 .fs-searchbar.open .fs-searchbar-inner { padding: 7px 14px; opacity: 1; }
+/* The chips scroll sideways in a narrow window; the fade says there is more. */
+.fs-searchbar-inner.more-right { -webkit-mask-image: linear-gradient(to right, black calc(100% - 36px), transparent); mask-image: linear-gradient(to right, black calc(100% - 36px), transparent); }
 .fs-scope { flex: none; }
 .fs-scope button { padding: 0 11px; height: 24px; font-size: var(--text-sm); }
 .fs-searchbar-sep { flex: none; width: 0.5px; height: 18px; background: var(--line-strong); }
@@ -58,7 +60,8 @@
 .fs-chip-reset[hidden] { display: none; }
 
 /* Results list */
-.fs-results { --lv-cols: minmax(200px, 1.3fr) minmax(120px, 1fr) 160px 84px; }
+.lv.fs-results { --lv-cols: minmax(200px, 1.3fr) minmax(120px, 1fr) 170px 84px; }
+.fs-results .lv-th { white-space: nowrap; }
 .fs-results .lv-th:disabled { opacity: 1; cursor: default; }
 .fs-results .lv-th:disabled:hover { background: none; color: inherit; }
 .fs-results .lv-cell.loc { color: var(--faint); }

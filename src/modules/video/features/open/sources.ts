@@ -2,6 +2,7 @@ import { basename, dirname, h, stripExtension } from "../../../../ui/dom";
 import { icon } from "../../../../ui/icons";
 import type { VideoContext } from "../../extensions";
 import { isLocation, looksLikePlaylist, mediaApi, playlistHook, type CaptureDevice } from "../../media-api";
+import { libraryService } from "../../library-api";
 import { mediaSettings } from "../profiles/settings";
 import { focusFirst, openDialog } from "./dialog";
 import { emptyState, errorLine, hint, hostOf, listButton, sectionLabel, textInput } from "./ui";
@@ -37,6 +38,8 @@ export async function playAddress(ctx: VideoContext, raw: string): Promise<strin
       return "That playlist could not be read. Check the address and your connection.";
     }
     if (!entries.length) return "That playlist is empty.";
+    // The queue and the title show the channel names, not the addresses.
+    libraryService()?.remember(entries.map((e) => ({ path: e.mrl, name: e.title || undefined })));
     if (entries.length > 1 && playlistHook.importPlaylist) {
       try {
         if (await playlistHook.importPlaylist(address, entries)) ctx.showOsd(`Saved to Playlists · ${entries.length} entries`);

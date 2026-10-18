@@ -196,6 +196,10 @@ export interface LibraryService {
   addStream(url: string, name?: string): Promise<{ kind: "stream" | "playlist"; id: string }>;
   /** Called whenever playlists, streams, pins or the library data change. */
   onChange(fn: () => void): () => void;
+  /** What to call a file or stream (a channel name rather than its address, when known). */
+  label(path: string): string;
+  /** Names (and groups) for addresses, e.g. the channels of a playlist that is about to play. */
+  remember(items: { path: string; name?: string; group?: string }[]): void;
 }
 
 let service: LibraryService | null = null;

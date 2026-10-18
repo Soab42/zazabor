@@ -431,6 +431,7 @@ select option { background: var(--bg-raised); color: var(--text); }
 }
 .search:focus-within { background: var(--control-hover); color: var(--text-2); box-shadow: 0 0 0 3.5px var(--focus), 0 0 18px -2px var(--focus), inset 0 0 0 0.5px var(--line-strong); }
 .search-input { flex: 1; min-width: 0; height: 100%; border: 0; outline: none; background: none; color: var(--text); font: inherit; }
+.search-input:focus-visible { box-shadow: none; } /* the pill around it shows the focus */
 .search-input::placeholder { color: var(--faint); }
 
 .grid-wrap { position: absolute; inset: 0; }

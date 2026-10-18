@@ -207,7 +207,20 @@ fn unsafe_entry(name: &str) -> OpError {
     OpError::Failed(format!("The archive contains an unsafe path (“{name}”), so it wasn’t extracted."))
 }
 
-/// Extracts `archive` into a new folder named after it inside `dest_dir`; the result is that folder.
+/// The only entry directly inside `dir` (its path, name and whether it is a folder), if there is one.
+fn single_child(dir: &Path) -> Option<(PathBuf, String, bool)> {
+    let mut entries = fs::read_dir(dir).ok()?.flatten();
+    let only = entries.next()?;
+    if entries.next().is_some() {
+        return None;
+    }
+    let is_dir = only.file_type().map(|t| t.is_dir()).unwrap_or(false);
+    Some((only.path(), only.file_name().to_string_lossy().into_owned(), is_dir))
+}
+
+/// Extracts `archive` into `dest_dir`, like Archive Utility: an archive holding one item gives
+/// that item back (renamed if the name is taken); anything else goes into a new folder named after
+/// the archive. The result is what was created.
 pub fn extract(ctx: &mut JobCtx, archive: &Path, dest_dir: &Path) -> Op {
     let name = shown(archive);
     let Some((format, stem)) = detect(&name) else {
@@ -226,10 +239,18 @@ pub fn extract(ctx: &mut JobCtx, archive: &Path, dest_dir: &Path) -> Op {
     };
     match outcome {
         Ok(()) => {
-            let target = dest_dir.join(unique_in(dest_dir, &folder, true));
-            if let Err(e) = fs::rename(&tmp, &target) {
+            let only = single_child(&tmp);
+            let (from, base, is_dir) = match &only {
+                Some((path, name, is_dir)) => (path.clone(), name.clone(), *is_dir),
+                None => (tmp.clone(), folder.clone(), true),
+            };
+            let target = dest_dir.join(unique_in(dest_dir, &base, is_dir));
+            if let Err(e) = fs::rename(&from, &target) {
                 let _ = fs::remove_dir_all(&tmp);
-                return fail(format!("Couldn’t create “{folder}”: {}", plain(&e)));
+                return fail(format!("Couldn’t create “{base}”: {}", plain(&e)));
+            }
+            if only.is_some() {
+                let _ = fs::remove_dir(&tmp);
             }
             ctx.done = ctx.total;
             ctx.results.push(target.to_string_lossy().into_owned());
@@ -441,8 +462,8 @@ mod tests {
         let mut c = ctx();
         extract(&mut c, &zip, &out_dir).unwrap();
         assert_eq!(c.results, vec![out_dir.join("Project").to_string_lossy().into_owned()]);
-        // The folder holds what the archive's top level held: the original "Project" folder.
-        assert_sample(&out_dir.join("Project/Project"));
+        // The archive's only item, the "Project" folder, comes out as itself (not Project/Project).
+        assert_sample(&out_dir.join("Project"));
         // No temp leftovers.
         let names: Vec<_> = fs::read_dir(&out_dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
         assert_eq!(names, vec!["Project"]);
@@ -527,8 +548,9 @@ mod tests {
         fs::write(root.join("b.tar.bz2"), bz.finish().unwrap()).unwrap();
         extract(&mut ctx(), &root.join("a.tar.xz"), &root).unwrap();
         extract(&mut ctx(), &root.join("b.tar.bz2"), &root).unwrap();
-        assert_eq!(fs::read_to_string(root.join("a/f.txt")).unwrap(), "data");
-        assert_eq!(fs::read_to_string(root.join("b/f.txt")).unwrap(), "data");
+        // One file each: it comes out next to the archive, the second one renamed.
+        assert_eq!(fs::read_to_string(root.join("f.txt")).unwrap(), "data");
+        assert_eq!(fs::read_to_string(root.join("f 2.txt")).unwrap(), "data");
         let _ = fs::remove_dir_all(&root);
     }
 

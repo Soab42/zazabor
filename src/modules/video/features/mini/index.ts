@@ -16,7 +16,8 @@ import "./mini.css";
 
 /** Matches `minWidth` / `minHeight` in tauri.conf.json: the window API cannot read the minimum back. */
 const NORMAL_MIN = { width: 860, height: 560 };
-const MINI = { width: 420, height: 330 };
+// A 16:9 picture (420×236) above the 86px control bar (`--mini-bar-h` in mini.css).
+const MINI = { width: 420, height: 322 };
 const MARGIN = 28;
 const DRAG_THRESHOLD = 4;
 

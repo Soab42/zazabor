@@ -11,7 +11,7 @@ import type { MenuPlace, PanelTab, VideoContext, VideoFeature } from "./extensio
 import { FEATURES } from "./features";
 import { formatRate } from "./format";
 import { effectiveControls } from "./items";
-import type { LibSection } from "./library-api";
+import { libraryService, type LibSection } from "./library-api";
 import { Player } from "./player";
 import { quickHooks } from "./quick-api";
 import { Sections } from "./sections";
@@ -328,7 +328,8 @@ export class VideoModule implements AppModule {
     if (this.active && playing) this.surface.start();
     else this.surface.stop();
     this.crumb.textContent = playing && this.player.current ? basename(dirname(this.player.current)) : this.sections.title;
-    this.titleEl.textContent = playing && this.player.current ? stripExtension(basename(this.player.current)) : "";
+    const current = this.player.current;
+    this.titleEl.textContent = playing && current ? libraryService()?.label(current) ?? stripExtension(basename(current)) : "";
     this.titleEl.title = this.player.current ?? "";
   }
 

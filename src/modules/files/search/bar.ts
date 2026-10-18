@@ -64,7 +64,7 @@ export class SearchBar {
       this.clearFilters();
       hooks.filtersChanged();
     });
-    this.el.append(h("div", { class: "fs-searchbar-inner" },
+    const inner = h("div", { class: "fs-searchbar-inner" },
       segmented,
       h("span", { class: "fs-searchbar-sep" }),
       group("Kind", KIND_CHIPS, toggleKind),
@@ -72,7 +72,12 @@ export class SearchBar {
       group("Modified", MODIFIED_CHIPS, pickModified),
       h("span", { class: "fs-searchbar-sep" }),
       group("Size", SIZE_CHIPS, pickSize),
-      this.reset));
+      this.reset);
+    // Fades the right edge while chips are scrolled out of view.
+    const edge = () => inner.classList.toggle("more-right", inner.scrollLeft + inner.clientWidth < inner.scrollWidth - 1);
+    inner.addEventListener("scroll", edge, { passive: true });
+    new ResizeObserver(edge).observe(inner);
+    this.el.append(inner);
     // Clicking here must not take focus from the search field (that would close the strip).
     this.el.addEventListener("mousedown", (e) => {
       if ((e.target as HTMLElement).closest("button")) e.preventDefault();

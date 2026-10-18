@@ -430,6 +430,8 @@ export class Library implements LibraryService {
     const address = url.trim();
     const existing = this.settings.streams.find((s) => s.url === address);
     if (existing) return { kind: "stream", id: existing.id };
+    const imported = this.settings.playlists.find((p) => p.source === address);
+    if (imported) return { kind: "playlist", id: imported.id };
     const id = newId();
     const result = await libraryApi.importStream(address, id);
     if (result.kind === "playlist") {
