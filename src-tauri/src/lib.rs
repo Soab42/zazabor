@@ -295,7 +295,18 @@ pub fn run() {
             fs::fs_folder_size,
             fs::fs_folder_size_cancel,
             fs::fs_tags_get,
-            fs::fs_tags_set
+            fs::fs_tags_set,
+            // video: side panel
+            video::fx::video_eq_info,
+            video::fx::video_set_equalizer,
+            video::fx::video_set_audio_delay,
+            video::fx::video_set_subtitle_delay,
+            video::fx::video_file_hash,
+            video::fx::video_online_request,
+            video::fx::video_online_download,
+            video::tracks::video_video_tracks,
+            video::tracks::video_set_video_track,
+            video::meta::video_meta
         ])
         .run(tauri::generate_context!())
         .expect("error while running CorePro");
