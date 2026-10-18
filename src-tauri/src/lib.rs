@@ -300,7 +300,16 @@ pub fn run() {
             fs::fs_mounts,
             fs::fs_mount_uri,
             fs::fs_unmount,
-            fs::fs_eject
+            fs::fs_eject,
+            // search and tools
+            fs::fs_search,
+            fs::fs_search_cancel,
+            fs::fs_compress,
+            fs::fs_extract,
+            fs::fs_apps_for,
+            fs::fs_open_with,
+            fs::fs_set_default_app,
+            fs::fs_open_terminal
         ])
         .run(tauri::generate_context!())
         .expect("error while running CorePro");

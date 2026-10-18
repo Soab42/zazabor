@@ -4,6 +4,7 @@ import { Browser } from "./browser";
 import { createFileOps } from "./ops";
 import { createInfoExtension } from "./info/extension";
 import { Sidebar } from "./sidebar";
+import { createToolsExtension } from "./tools/extension";
 import "./files.css";
 
 /** The Files module: a Finder-style file manager (sidebar, tabs, four views, live folders). */
@@ -24,6 +25,8 @@ export const createFilesModule: ModuleFactory = (shell) => {
   browser.addExtension(createFileOps(el));
   const info = createInfoExtension(el, shell);
   browser.addExtension(info);
+  const tools = createToolsExtension(shell);
+  browser.addExtension(tools);
 
   /** Ctrl+K opens Connect to Server. */
   const connectKey = (e: KeyboardEvent) => {
@@ -54,6 +57,7 @@ export const createFilesModule: ModuleFactory = (shell) => {
     dispose() {
       sidebar.dispose();
       info.dispose();
+      tools.dispose();
       browser.dispose();
     },
   };

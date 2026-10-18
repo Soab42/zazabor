@@ -12,6 +12,11 @@ import { cutSet } from "./ops/cutset";
 import { categoryOf, iconNameFor, isImageExt, isVideoExt } from "./kinds";
 import { isInside, normalizePath, parentOf, samePath, expandPath } from "./path";
 import { filterEntries, sortEntries } from "./sort";
+import { SearchBar } from "./search/bar";
+import { applyFilters, hasFilters } from "./search/filters";
+import { ResultsView } from "./search/results";
+import { SearchSession, SEARCH_DEBOUNCE_MS } from "./search/session";
+import { noMatchesState, searchingState } from "./search/states";
 import { emptyState, errorState, loadingState } from "./states";
 import { TabBar } from "./tabbar";
 import { Tab } from "./tabs";
@@ -107,11 +112,17 @@ export class Browser {
   private offMarks: (() => void)[] = [];
   private liveTimer: number | undefined;
   private searchTimer: number | undefined;
+  /** Search across subfolders: results replace the folder view until the search ends. */
+  private resultsMode = false;
+  private resultSort: FilesSettings["sort"] | null = null;
+  private resultsTimer: number | undefined;
 
   private readonly thumbs = new ThumbLoader();
   private readonly ctx: ViewContext;
   private readonly toolbar: Toolbar;
   private readonly tabBar: TabBar;
+  private readonly searchBar: SearchBar;
+  private readonly session: SearchSession;
   private readonly content = h("div", { class: "fs-content" });
   private readonly overlay = h("div", { class: "fs-state" });
   private readonly statusText = h("span", { class: "status-text" });
@@ -119,7 +130,7 @@ export class Browser {
   private readonly sliderBox = h("div", { class: "fs-slider" }, h("span", { class: "slider-icon" }, icon("grid", 12)), this.slider,
     h("span", { class: "slider-icon" }, icon("grid", 17)));
   private view!: FileView;
-  private viewKind: FilesView | null = null;
+  private viewKind: FilesView | "results" | null = null;
 
   constructor(private readonly shell: ShellContext, private readonly hooks: BrowserHooks) {
     const browser = this;
@@ -150,7 +161,13 @@ export class Browser {
       toggleHidden: () => this.toggleHidden(),
       search: (query) => this.setQuery(query),
       searchDone: () => this.view.el.focus({ preventScroll: true }),
+      searchFocus: (focused) => this.searchFocus(focused),
     });
+    this.searchBar = new SearchBar({
+      scopeChanged: () => this.searchScopeChanged(),
+      filtersChanged: () => this.apply(true, 0),
+    });
+    this.session = new SearchSession(() => this.searchUpdated());
     this.tabBar = new TabBar({
       select: (i) => this.switchTab(i),
       close: (i) => this.closeTab(i),
@@ -169,7 +186,7 @@ export class Browser {
     this.content.addEventListener("contextmenu", (e) => {
       if (!e.defaultPrevented) this.contextMenu(e, null);
     });
-    this.el.append(this.toolbar.el, this.tabBar.el, this.content, status);
+    this.el.append(this.toolbar.el, this.searchBar.el, this.tabBar.el, this.content, status);
     this.overlay.hidden = true;
 
     this.mountView();
@@ -232,6 +249,8 @@ export class Browser {
     this.active = false;
     clearTimeout(this.liveTimer);
     clearTimeout(this.searchTimer);
+    clearTimeout(this.resultsTimer);
+    this.session.dispose();
     this.loadToken++;
     this.view.dispose();
     this.viewWatch.clear();
@@ -349,6 +368,7 @@ export class Browser {
     tagStore.forget();
     this.query = "";
     this.toolbar.resetSearch();
+    this.endSearch();
     this.updateToolbar();
     this.tabBar.render(this.tabs, this.activeTab);
     this.hooks.pathChanged(this.tab.path);
@@ -440,15 +460,27 @@ export class Browser {
 
   /** Filters the sorted listing, hands it to the view and refreshes the bars. */
   private apply(keep: boolean, scroll: number) {
-    this.visible = filterEntries(this.sorted, this.query);
+    const base = this.resultsMode ? this.session.entries(this.resultSort) : filterEntries(this.sorted, this.query);
+    this.visible = applyFilters(base, this.searchBar.filters);
     this.pruneSelection();
     this.view.setEntries(this.visible, keep);
     this.view.setScroll(scroll);
     const focus = this.tab.sel.focus;
     if (!keep && scroll === 0 && focus) this.view.reveal(focus);
-    this.setState(this.visible.length === 0 ? emptyState(this.query.trim()) : null);
+    this.setState(this.visible.length === 0 ? this.emptyContent() : null);
     this.updateStatus();
     this.syncWatches();
+  }
+
+  /** What to show over an empty list: the folder is empty, nothing matched, or a search is still looking. */
+  private emptyContent(): HTMLElement {
+    const query = this.query.trim();
+    const filtered = hasFilters(this.searchBar.filters);
+    if (this.resultsMode) {
+      if (this.session.running) return searchingState();
+      return noMatchesState(query, true, filtered, this.session.failed);
+    }
+    return filtered ? noMatchesState(query, false, true, null) : emptyState(query);
   }
 
   /** Forgets selected items of this folder that are no longer listed. */
@@ -471,11 +503,86 @@ export class Browser {
   private setQuery(query: string) {
     this.query = query;
     clearTimeout(this.searchTimer);
+    this.searchFocus(this.toolbar.searchFocused);
+    if (this.error !== null) return;
+    if (this.searchBar.scope === "subfolders" && query.trim() !== "") {
+      this.beginRecursive();
+      return;
+    }
+    const wasResults = this.resultsMode;
+    this.endSearch();
+    if (wasResults) {
+      this.apply(false, 0);
+      return;
+    }
     // A short pause keeps typing smooth in folders with 100,000 entries.
     this.searchTimer = window.setTimeout(() => {
       if (this.error !== null) return;
       this.apply(true, 0);
     }, this.sorted.length > 20000 ? 120 : 30);
+  }
+
+  // ---- search ---------------------------------------------------------------------------------
+
+  /** The options strip is open while the field has focus or text; closing it drops the filters. */
+  private searchFocus(focused: boolean) {
+    const open = focused || this.query.trim() !== "";
+    this.searchBar.setOpen(open);
+    if (!open && hasFilters(this.searchBar.filters)) {
+      this.searchBar.clearFilters();
+      if (this.loaded) this.apply(true, 0);
+    }
+  }
+
+  /** Shows the results list and (after a typing pause) restarts the recursive search. */
+  private beginRecursive() {
+    if (!this.resultsMode) {
+      this.resultsMode = true;
+      this.mountView();
+      this.apply(false, 0);
+    }
+    if (this.view instanceof ResultsView) this.view.setQuery(this.query);
+    this.toolbar.setSearching(true);
+    this.searchTimer = window.setTimeout(() => {
+      this.session.start(this.tab.path, this.query.trim(), { showHidden: this.settings.showHidden });
+    }, SEARCH_DEBOUNCE_MS);
+  }
+
+  /** Leaves the results list for the folder view (the caller repaints) and stops any search. */
+  private endSearch() {
+    clearTimeout(this.resultsTimer);
+    this.resultsTimer = undefined;
+    this.session.stop();
+    this.toolbar.setSearching(false);
+    this.searchFocus(this.toolbar.searchFocused);
+    if (!this.resultsMode) return;
+    this.resultsMode = false;
+    this.resultSort = null;
+    this.mountView();
+  }
+
+  private searchScopeChanged() {
+    this.toolbar.setSearchPlaceholder(this.searchBar.scope === "subfolders" ? "Search Subfolders" : "Search");
+    this.setQuery(this.query);
+  }
+
+  /** A batch of results arrived (or the search ended): repaint, at most ten times a second. */
+  private searchUpdated() {
+    this.toolbar.setSearching(this.session.running);
+    if (!this.resultsMode || this.disposed || this.resultsTimer !== undefined) return;
+    this.resultsTimer = window.setTimeout(() => {
+      this.resultsTimer = undefined;
+      if (this.resultsMode && !this.disposed) this.apply(true, this.view.getScroll());
+    }, 100);
+  }
+
+  /** A results column header was clicked: ascending, descending, then back to best match. */
+  private sortResults(key: FilesSortKey) {
+    const current = this.resultSort;
+    if (!current || current.key !== key) this.resultSort = { key, ascending: true };
+    else this.resultSort = current.ascending ? { key, ascending: false } : null;
+    if (this.view instanceof ResultsView) this.view.setSort(this.resultSort);
+    this.apply(true, 0);
   }
 
   private onFolderChanged(folder: string) {
@@ -524,7 +631,7 @@ export class Browser {
   // ---- views ----------------------------------------------------------------------------------
 
   private mountView() {
-    const kind = this.settings.view;
+    const kind = this.resultsMode ? "results" : this.settings.view;
     if (kind === this.viewKind) return;
     if (this.view) {
       this.view.el.remove();
@@ -532,6 +639,13 @@ export class Browser {
     }
     this.viewKind = kind;
     switch (kind) {
+      case "results": {
+        const results = new ResultsView(this.ctx);
+        results.setSort(this.resultSort);
+        results.setQuery(this.query);
+        this.view = results;
+        break;
+      }
       case "list": this.view = new ListView(this.ctx); break;
       case "column": this.view = new ColumnView(this.ctx); break;
       case "gallery": this.view = new GalleryView(this.ctx); break;
@@ -560,9 +674,14 @@ export class Browser {
     this.shell.saveConfig();
     this.updateToolbar();
     void this.load("live");
+    if (this.resultsMode) this.setQuery(this.query);
   }
 
   private sortBy(key: FilesSortKey) {
+    if (this.resultsMode) {
+      this.sortResults(key);
+      return;
+    }
     const sort = this.settings.sort;
     this.setSort(key, sort.key === key ? !sort.ascending : true);
   }
@@ -643,6 +762,9 @@ export class Browser {
         { label: "Open", icon: iconNameFor(categoryOf(entry)), shortcut: "Enter", action: () => this.openEntry(entry, this.view.focused()?.folder) },
         ...(entry.dir ? [{ label: "Open in New Tab", icon: "plus" as const, action: () => this.newTab(entry.path) }] : []),
         { label: "Open with Default App", icon: "external", action: () => this.shell.openExternally(entry.path) },
+        ...(this.resultsMode
+          ? [{ label: "Show in Enclosing Folder", icon: "folder" as const, action: () => this.navigate(parentOf(entry.path), { select: entry.path }) }]
+          : []),
         "separator",
         { label: "Copy Path", icon: "copy", action: () => copy(entry.path) },
         { label: "Copy Name", icon: "tag", action: () => copy(entry.name) },
@@ -700,6 +822,10 @@ export class Browser {
     const { items, selected } = this.view.status();
     const parts = [`${items.toLocaleString()} ${items === 1 ? "item" : "items"}`];
     if (selected > 0) parts.push(`${selected.toLocaleString()} selected`);
+    if (this.resultsMode) {
+      if (this.session.running) parts.push(`Searching… ${this.session.scanned.toLocaleString()} scanned`);
+      else if (this.session.truncated) parts.push("Showing the first 5,000 matches");
+    }
     const free = this.freeSpace();
     if (free !== null) parts.push(`${formatBytes(free)} free`);
     this.statusText.textContent = parts.join("  ·  ");

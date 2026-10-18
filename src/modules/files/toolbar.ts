@@ -2,6 +2,7 @@ import type { FilesView } from "../../config";
 import { h } from "../../ui/dom";
 import { icon, type IconName } from "../../ui/icons";
 import { PathBar } from "./pathbar";
+import "./search/search.css";
 
 export interface ToolbarHooks {
   back(): void;
@@ -15,6 +16,8 @@ export interface ToolbarHooks {
   search(query: string): void;
   /** Escape in the search field, after it was cleared. */
   searchDone(): void;
+  /** The search field gained or lost focus (the options strip follows it). */
+  searchFocus?(focused: boolean): void;
 }
 
 export interface ToolbarState {
@@ -41,8 +44,9 @@ export class Toolbar {
   private views = new Map<FilesView, HTMLButtonElement>();
   private hidden = h("button", { class: "icon-btn", type: "button" }, icon("eye", 17));
   private sort = h("button", { class: "icon-btn", type: "button", title: "Sort By" }, icon("sort", 17));
-  private search = h("input", { class: "search-input", type: "text", placeholder: "Search", spellcheck: false, autocomplete: "off", "aria-label": "Filter this folder" });
-  private searchBox = h("label", { class: "search fs-search" }, icon("search", 14), this.search);
+  private search = h("input", { class: "search-input", type: "text", placeholder: "Search", spellcheck: false, autocomplete: "off", "aria-label": "Search" });
+  private searchClear = h("button", { class: "fs-search-clear", type: "button", title: "Clear search (Esc)", "aria-label": "Clear search", tabindex: "-1" }, icon("close", 10));
+  private searchBox = h("label", { class: "search fs-search" }, icon("search", 14), this.search, h("span", { class: "spinner search-spin" }), this.searchClear);
 
   constructor(private readonly hooks: ToolbarHooks) {
     this.pathBar = new PathBar({ navigate: (p) => hooks.navigate(p), submit: (t) => hooks.submitPath(t) });
@@ -63,7 +67,17 @@ export class Toolbar {
     });
     this.hidden.addEventListener("click", () => hooks.toggleHidden());
 
-    this.search.addEventListener("input", () => hooks.search(this.search.value));
+    this.search.addEventListener("input", () => {
+      this.syncSearchBox();
+      hooks.search(this.search.value);
+    });
+    this.search.addEventListener("focus", () => hooks.searchFocus?.(true));
+    this.search.addEventListener("blur", () => hooks.searchFocus?.(false));
+    this.searchClear.addEventListener("mousedown", (e) => e.preventDefault());
+    this.searchClear.addEventListener("click", () => {
+      this.clearSearch();
+      this.search.focus();
+    });
     this.search.addEventListener("keydown", (e) => {
       if (e.key !== "Escape") return;
       e.preventDefault();
@@ -103,7 +117,25 @@ export class Toolbar {
   clearSearch() {
     if (this.search.value === "") return;
     this.search.value = "";
+    this.syncSearchBox();
     this.hooks.search("");
+  }
+
+  private syncSearchBox() {
+    this.searchBox.classList.toggle("has-text", this.search.value !== "");
+  }
+
+  /** Shows the small spinner in the field while a recursive search is still looking. */
+  setSearching(busy: boolean) {
+    this.searchBox.classList.toggle("busy", busy);
+  }
+
+  setSearchPlaceholder(text: string) {
+    this.search.placeholder = text;
+  }
+
+  get searchFocused() {
+    return document.activeElement === this.search;
   }
 
   get query() {
@@ -113,5 +145,7 @@ export class Toolbar {
   /** Empties the field without telling the browser (used when navigating). */
   resetSearch() {
     this.search.value = "";
+    this.syncSearchBox();
+    this.setSearching(false);
   }
 }
