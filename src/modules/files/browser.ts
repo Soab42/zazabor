@@ -2,10 +2,13 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import type { FilesSettings, FilesSortKey, FilesView } from "../../config";
 import { ThumbLoader } from "../../shared/thumbs";
 import type { ShellContext } from "../../shell/module";
-import { formatBytes, h, isTypingTarget } from "../../ui/dom";
+import { formatBytes, h, isTypingTarget, rafThrottle } from "../../ui/dom";
 import { icon } from "../../ui/icons";
 import { openMenu, type MenuItem } from "../../ui/menu";
 import { fsApi, onChanged, type FsEntry, type Volume } from "./api";
+import { setDragHooks } from "./dnd";
+import { tagStore } from "./info/tagstore";
+import { cutSet } from "./ops/cutset";
 import { categoryOf, iconNameFor, isImageExt, isVideoExt } from "./kinds";
 import { isInside, normalizePath, parentOf, samePath, expandPath } from "./path";
 import { filterEntries, sortEntries } from "./sort";
@@ -54,6 +57,8 @@ export interface BrowserExtension {
   itemMenu?(entries: FsEntry[], ctx: BrowserContext): MenuItem[];
   /** Extra items for the context menu of empty space. */
   emptyMenu?(ctx: BrowserContext): MenuItem[];
+  /** A drag-and-drop landed: move (or copy) `paths` into `dest`. Return true when handled. */
+  transfer?(paths: string[], dest: string, copy: boolean, ctx: BrowserContext): boolean;
 }
 
 const SORT_KEYS: { key: FilesSortKey; label: string }[] = [
@@ -99,6 +104,7 @@ export class Browser {
   private watched = new Set<string>();
   private viewWatch = new Map<string, number>();
   private unlisten: UnlistenFn | null = null;
+  private offMarks: (() => void)[] = [];
   private liveTimer: number | undefined;
   private searchTimer: number | undefined;
 
@@ -130,6 +136,8 @@ export class Browser {
       unwatch: (path) => this.removeViewWatch(path),
       sortBy: (key) => this.sortBy(key),
       statusChanged: () => this.updateStatus(),
+      isCut: (path) => cutSet.has(path),
+      tagsOf: (path) => tagStore.get(path),
     };
 
     this.toolbar = new Toolbar({
@@ -166,6 +174,7 @@ export class Browser {
 
     this.mountView();
     this.updateToolbar();
+    this.setupDragAndMarks();
     void onChanged((folder) => this.onFolderChanged(folder)).then((un) => {
       if (this.disposed) un();
       else this.unlisten = un;
@@ -229,6 +238,25 @@ export class Browser {
     this.syncWatches();
     this.unlisten?.();
     this.unlisten = null;
+    for (const off of this.offMarks) off();
+    this.offMarks = [];
+    setDragHooks(null);
+  }
+
+  /** Drag-and-drop hooks, and repainting of cut and tag marks when either changes. */
+  private setupDragAndMarks() {
+    setDragHooks({
+      transfer: (paths, dest, copy) => {
+        const ctx = this.context;
+        for (const extension of this.extensions) if (extension.transfer?.(paths, dest, copy, ctx)) return;
+      },
+      switchTab: (index) => this.switchTab(index),
+      open: (path) => this.navigate(path),
+    });
+    const repaint = rafThrottle(() => {
+      if (!this.disposed) this.view.refreshMarks();
+    });
+    this.offMarks = [cutSet.onChange(repaint), tagStore.onChange(repaint)];
   }
 
   addExtension(extension: BrowserExtension) {
@@ -318,6 +346,7 @@ export class Browser {
   }
 
   private afterNavigate() {
+    tagStore.forget();
     this.query = "";
     this.toolbar.resetSearch();
     this.updateToolbar();
@@ -611,7 +640,7 @@ export class Browser {
       const entries = this.tab.sel.selection.has(entry.path) ? ctx.selected() : [entry];
       const pinned = this.isPinned(entry.path);
       items = [
-        { label: "Open", icon: iconNameFor(categoryOf(entry)), action: () => this.openEntry(entry, this.view.focused()?.folder) },
+        { label: "Open", icon: iconNameFor(categoryOf(entry)), shortcut: "Enter", action: () => this.openEntry(entry, this.view.focused()?.folder) },
         ...(entry.dir ? [{ label: "Open in New Tab", icon: "plus" as const, action: () => this.newTab(entry.path) }] : []),
         { label: "Open with Default App", icon: "external", action: () => this.shell.openExternally(entry.path) },
         "separator",
@@ -638,7 +667,7 @@ export class Browser {
           icon: this.settings.showHidden ? "eyeOff" : "eye",
           action: () => this.toggleHidden(),
         },
-        { label: "New Tab", icon: "plus", action: () => this.newTab() },
+        { label: "New Tab", icon: "plus", shortcut: "Ctrl+T", action: () => this.newTab() },
         ...extra(this.extensions.map((x) => x.emptyMenu?.(ctx) ?? [])),
       ];
     }

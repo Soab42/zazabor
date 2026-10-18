@@ -1,9 +1,27 @@
 import { h } from "./dom";
 import { icon, type IconName } from "./icons";
+import "./menu.css";
 
 export type MenuItem =
-  | { label: string; icon?: IconName; action: () => void; danger?: boolean; disabled?: boolean }
+  | { label: string; icon?: IconName; action: () => void; danger?: boolean; disabled?: boolean; shortcut?: string }
   | "separator";
+
+const KEY_NAMES: Record<string, string> = {
+  ctrl: "Ctrl", control: "Ctrl", cmd: "Ctrl", meta: "Ctrl", mod: "Ctrl",
+  shift: "Shift", alt: "Alt", option: "Alt",
+  del: "Delete", delete: "Delete", esc: "Esc", escape: "Esc", space: "Space", enter: "Enter", return: "Enter",
+  tab: "Tab", backspace: "Backspace",
+};
+
+/** Normalises a shortcut hint to the Linux style: "ctrl+c" becomes "Ctrl+C", "del" becomes "Delete". */
+export function formatShortcut(text: string): string {
+  return text.split("+").map((part) => {
+    const key = part.trim();
+    const named = KEY_NAMES[key.toLowerCase()];
+    if (named) return named;
+    return /^f\d{1,2}$/i.test(key) ? key.toUpperCase() : key.length === 1 ? key.toUpperCase() : key;
+  }).filter(Boolean).join("+");
+}
 
 let openMenuEl: HTMLElement | null = null;
 
@@ -23,7 +41,8 @@ export function openMenu(x: number, y: number, items: MenuItem[]) {
       continue;
     }
     const button = h("button", { class: `menu-item${item.danger ? " danger" : ""}`, role: "menuitem", disabled: item.disabled },
-      item.icon ? icon(item.icon, 15) : h("span", { class: "menu-icon-gap" }), item.label);
+      item.icon ? icon(item.icon, 15) : h("span", { class: "menu-icon-gap" }), item.label,
+      ...(item.shortcut ? [h("span", { class: "menu-shortcut" }, formatShortcut(item.shortcut))] : []));
     button.addEventListener("click", () => {
       closeMenu();
       item.action();

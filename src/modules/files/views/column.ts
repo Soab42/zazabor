@@ -4,6 +4,8 @@ import type { FsEntry } from "../api";
 import { categoryOf, folderGlyph, iconNameFor, iconNode, kindLabel } from "../kinds";
 import { samePath } from "../path";
 import { clickSelect, moveSelect, selectAll, targetIndex, typeSelectIndex } from "../selection";
+import { attachDragSource } from "../dnd";
+import { markDrop, paintCut, paintTags } from "./marks";
 import type { FileView, ViewContext } from "./types";
 import { VirtualList } from "./vlist";
 
@@ -59,11 +61,21 @@ export class ColumnView implements FileView {
     });
     col.list.el.classList.add("cv-list");
     col.el.append(col.list.el, note);
+    col.el.dataset.dropPath = path;
     const idx = (p: string) => col.index.get(p) ?? -1;
     const rowAt = (e: Event) => {
       const row = (e.target as HTMLElement).closest<HTMLElement>(".cv-row");
       return row ? Number(row.dataset.i) : -1;
     };
+    attachDragSource(col.list.el, {
+      entryAt: (t) => {
+        const row = t.closest<HTMLElement>(".cv-row");
+        return row ? col.entries[Number(row.dataset.i)] ?? null : null;
+      },
+      isSelected: (p) => this.ctx.sel.selection.has(p),
+      select: (entry) => this.choose(col, entry.path),
+      paths: () => Array.from(this.ctx.sel.selection),
+    });
     col.list.el.addEventListener("click", (e) => {
       const i = rowAt(e);
       if (i < 0) return;
@@ -86,7 +98,7 @@ export class ColumnView implements FileView {
   }
 
   private createRow() {
-    return h("div", { class: "cv-row" }, h("span", { class: "cv-icon" }), h("span", { class: "cv-label" }), h("span", { class: "cv-chev" }));
+    return h("div", { class: "cv-row" }, h("span", { class: "cv-icon" }), h("span", { class: "cv-label" }), h("span", { class: "cv-tags" }), h("span", { class: "cv-chev" }));
   }
 
   private bindRow(col: Column, row: HTMLElement, i: number) {
@@ -95,7 +107,8 @@ export class ColumnView implements FileView {
     row.dataset.path = entry.path;
     row.title = entry.name;
     const category = categoryOf(entry);
-    const [iconSlot, label, chev] = Array.from(row.children) as HTMLElement[];
+    const [iconSlot, label, , chev] = Array.from(row.children) as HTMLElement[];
+    markDrop(row, entry, false);
     iconSlot.className = `cv-icon ${category}`;
     iconSlot.replaceChildren(iconNode(iconNameFor(category), 16));
     label.textContent = entry.name;
@@ -107,6 +120,8 @@ export class ColumnView implements FileView {
     const path = row.dataset.path ?? "";
     const active = this.cols[this.active] === col;
     row.classList.toggle("selected", col.selected === path || (active && this.ctx.sel.selection.has(path)));
+    paintCut(row, this.ctx, path);
+    paintTags(row.querySelector<HTMLElement>(".cv-tags")!, this.ctx.tagsOf(path));
   }
 
   private paintAll() {
@@ -124,6 +139,10 @@ export class ColumnView implements FileView {
       this.truncate(this.active + 1);
       this.hidePreview();
     }
+    this.paintAll();
+  }
+
+  refreshMarks() {
     this.paintAll();
   }
 

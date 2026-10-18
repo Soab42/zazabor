@@ -25,6 +25,10 @@ export interface ViewContext {
   sortBy(key: FilesSettings["sort"]["key"]): void;
   /** The view's counts changed without the selection changing. */
   statusChanged(): void;
+  /** Cut marked this path on the clipboard: show it dimmed. */
+  isCut(path: string): boolean;
+  /** The path's tag names for the dots; unknown paths are fetched in the background (see `refreshMarks`). */
+  tagsOf(path: string): string[];
 }
 
 /** One way of showing a folder. All views are virtualized. */
@@ -34,6 +38,8 @@ export interface FileView {
   setEntries(entries: FsEntry[], keep: boolean): void;
   /** The selection was changed from outside; repaint it. */
   renderSelection(): void;
+  /** The cut set or tags changed; repaint those marks. */
+  refreshMarks(): void;
   getScroll(): number;
   setScroll(value: number): void;
   /** Scrolls an entry into view. */

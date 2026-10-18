@@ -68,8 +68,8 @@ export function createInfoExtension(host: HTMLElement, shell: ShellContext): Inf
       ctx = c;
       const first = entries[0];
       return [
-        { label: "Quick Look", icon: "eye", action: () => quickLook.open(first) },
-        { label: "Get Info", icon: "info", action: () => info.show(first) },
+        { label: "Quick Look", icon: "eye", shortcut: "Space", action: () => quickLook.open(first) },
+        { label: "Get Info", icon: "info", shortcut: "Ctrl+I", action: () => info.show(first) },
         {
           label: entries.length > 1 ? `Tags (${entries.length} items)…` : "Tags…", icon: "tag",
           action: () => openTagPopover(point.x, point.y, entries.map((entry) => entry.path)),

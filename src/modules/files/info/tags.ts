@@ -1,6 +1,7 @@
 import { h } from "../../../ui/dom";
 import { icon } from "../../../ui/icons";
 import { infoApi, TAG_COLORS } from "../info-api";
+import { tagStore } from "./tagstore";
 
 /** How many of the targeted items carry a tag. */
 export type TagState = "none" | "some" | "all";
@@ -29,6 +30,7 @@ export async function toggleTag(paths: string[], tag: string, current: Record<st
     const had = current[path] ?? [];
     const tags = remove ? had.filter((t) => t !== tag) : had.includes(tag) ? had : [...had, tag];
     await infoApi.tagsSet(path, tags);
+    tagStore.set(path, tags);
     if (tags.length) next[path] = tags;
     else delete next[path];
   }

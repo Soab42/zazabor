@@ -1,0 +1,78 @@
+/* Drag and drop, rubber band, cut items and tag dots for the Files views. */
+
+/* ---- drag ghost ------------------------------------------------------------------------------ */
+
+body.dnd-active, body.dnd-active * { cursor: grabbing !important; }
+body.dnd-active.dnd-copy, body.dnd-active.dnd-copy * { cursor: copy !important; }
+
+.dnd-ghost {
+  position: fixed; top: 0; left: 0; z-index: 900; display: flex; align-items: center; gap: var(--space-2);
+  max-width: 240px; padding: var(--space-1) var(--space-3) var(--space-1) var(--space-1); border-radius: var(--radius-md);
+  background: var(--glass-strong-surface); -webkit-backdrop-filter: var(--blur-strong); backdrop-filter: var(--blur-strong);
+  box-shadow: inset 0 1px 0 var(--spec), var(--elev-3); color: var(--text); font-size: var(--text-sm);
+  pointer-events: none; will-change: transform; animation: pop-in var(--dur-fast) var(--ease-out);
+}
+/* A second sheet peeking out behind the ghost when several items travel together. */
+.dnd-ghost.multi::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; transform: translate(4px, 4px); border-radius: inherit;
+  background: var(--glass-strong); box-shadow: inset 0 0 0 0.5px var(--line-strong);
+}
+.dnd-art {
+  position: relative; display: grid; flex: none; place-items: center; width: 28px; height: 28px; overflow: hidden;
+  border-radius: var(--radius-sm); background: var(--tile); color: var(--muted);
+}
+.dnd-art.folder { overflow: visible; background: none; color: var(--accent); }
+.dnd-art .folder-glyph { width: 28px; height: auto; }
+.dnd-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.dnd-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+.dnd-count {
+  position: absolute; top: -7px; right: -7px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: var(--accent); color: var(--accent-ink); font-size: var(--text-xs); font-weight: 650; line-height: 18px;
+  text-align: center; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 1.5px var(--bg);
+}
+.dnd-plus {
+  position: absolute; bottom: -5px; left: -5px; display: grid; place-items: center; width: 16px; height: 16px;
+  border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 13px; font-weight: 700; line-height: 1;
+  box-shadow: 0 0 0 1.5px var(--bg); opacity: 0; transform: scale(0.6);
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-spring);
+}
+.dnd-ghost.copy .dnd-plus { opacity: 1; transform: none; }
+
+/* ---- drop targets ---------------------------------------------------------------------------- */
+
+.drop-target { transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+/* A folder (tile, row, tab): an accent wash with a ring, like Finder's spring-loaded folder. */
+.iv-tile.drop-target, .lv-row.drop-target, .cv-row.drop-target, .gv-cell.drop-target, .fs-tab.drop-target, .sb-item.drop-target {
+  background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.iv-tile.drop-target { border-radius: var(--radius-lg); }
+/* A whole folder view: just a ring around the content. */
+.fv-scroll.drop-target, .cv-col.drop-target, .gv.drop-target, .lv.drop-target { box-shadow: inset 0 0 0 2px var(--accent); background: var(--accent-soft); }
+.drop-target[data-drop-path]:not(.iv-tile):not(.lv-row):not(.cv-row):not(.gv-cell):not(.fs-tab):not(.fv-scroll):not(.cv-col):not(.gv):not(.lv) {
+  background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+/* ---- rubber band ----------------------------------------------------------------------------- */
+
+.rubber-band {
+  position: fixed; z-index: 50; pointer-events: none; border-radius: 3px;
+  background: var(--accent-soft); box-shadow: inset 0 0 0 0.5px var(--accent), 0 0 0 0.5px var(--accent);
+}
+
+/* ---- cut items ------------------------------------------------------------------------------- */
+
+.iv-tile.cut .iv-art, .iv-tile.cut .iv-name, .lv-row.cut .lv-cell, .cv-row.cut > :not(.cv-chev), .gv-cell.cut .gv-thumb { opacity: 0.5; }
+
+/* ---- tag dots -------------------------------------------------------------------------------- */
+
+.lv-tags, .cv-tags, .iv-tags { display: flex; flex: none; align-items: center; }
+.lv-tags:empty, .cv-tags:empty, .iv-tags:empty { display: none; }
+.lv-tags, .cv-tags { margin-left: var(--space-1); }
+.iv-tags { justify-content: center; height: 8px; margin-top: 3px; }
+.lv-tags .tag-dot + .tag-dot, .cv-tags .tag-dot + .tag-dot, .iv-tags .tag-dot + .tag-dot { margin-left: -3px; }
+.lv-tags .tag-dot, .cv-tags .tag-dot, .iv-tags .tag-dot { box-shadow: 0 0 0 1.5px var(--bg-raised, var(--bg)), inset 0 0 0 0.5px rgba(var(--fg), 0.25); }
+
+@media (prefers-reduced-motion: reduce) {
+  .dnd-ghost { animation: fade-in var(--dur-fast) ease; }
+  .dnd-plus { transform: none; transition: opacity var(--dur-fast) ease; }
+}

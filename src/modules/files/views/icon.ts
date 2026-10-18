@@ -3,10 +3,14 @@ import { photoThumbUrl } from "../../../shared/thumbs";
 import type { FsEntry } from "../api";
 import { categoryOf, folderGlyph, iconNameFor, iconNode } from "../kinds";
 import { clickSelect, moveSelect, selectAll, targetIndex, typeSelectIndex } from "../selection";
+import { attachDragSource } from "../dnd";
+import { markDrop, paintCut, paintTags } from "./marks";
+import { attachRubberBand, tileHits } from "./rubber";
 import type { FileView, ViewContext } from "./types";
 import { VirtualList } from "./vlist";
 
 const SIDE_PAD = 16;
+const PAD = 12;
 /** Everything in a tile besides the art: padding, the two-line name and the gap below. */
 const CHROME = 62;
 
@@ -20,12 +24,13 @@ export class IconView implements FileView {
   private entries: FsEntry[] = [];
   private index = new Map<string, number>();
   private cols = 1;
+  private detach: (() => void)[] = [];
 
   constructor(private readonly ctx: ViewContext) {
     this.list = new VirtualList({
       axis: "y",
       size: this.rowHeight,
-      pad: 12,
+      pad: PAD,
       overscan: 2,
       create: () => h("div", { class: "iv-row" }),
       bind: (row, r) => this.bindRow(row, r),
@@ -54,6 +59,35 @@ export class IconView implements FileView {
       }
       ctx.contextMenu(e, entry);
     });
+    this.detach = [
+      attachDragSource(this.el, {
+        entryAt: (t) => {
+          const tile = t.closest<HTMLElement>(".iv-tile");
+          return tile ? this.entries[Number(tile.dataset.i)] ?? null : null;
+        },
+        isSelected: (p) => ctx.sel.selection.has(p),
+        select: (entry) => {
+          ctx.sel.selection = new Set([entry.path]);
+          ctx.sel.anchor = ctx.sel.focus = entry.path;
+          this.renderSelection();
+          ctx.selectionChanged();
+        },
+        paths: () => Array.from(ctx.sel.selection),
+      }),
+      attachRubberBand({
+        scroller: this.el,
+        isEmpty: (t) => !t.closest(".iv-tile"),
+        hits: (band) => tileHits(band, {
+          count: this.entries.length, cols: this.cols, width: this.el.clientWidth, pad: PAD, sidePad: SIDE_PAD,
+          rowHeight: this.rowHeight, tileHeight: this.iconSize + 56, gap: 2,
+        }).map((i) => this.entries[i].path),
+        sel: () => ctx.sel,
+        changed: () => {
+          this.renderSelection();
+          ctx.selectionChanged();
+        },
+      }),
+    ];
   }
 
   private get iconSize() {
@@ -93,6 +127,7 @@ export class IconView implements FileView {
     this.entries = entries;
     this.index = new Map(entries.map((entry, i) => [entry.path, i]));
     this.computeCols();
+    this.el.dataset.dropPath = this.ctx.path;
     this.list.setCount(Math.ceil(entries.length / this.cols));
   }
 
@@ -130,6 +165,8 @@ export class IconView implements FileView {
   private releaseTile(tile: HTMLElement, remove: boolean) {
     this.dropThumb(tile);
     delete tile.dataset.path;
+    delete tile.dataset.dropPath;
+    delete tile.dataset.spring;
     if (remove) tile.remove();
   }
 
@@ -143,7 +180,8 @@ export class IconView implements FileView {
   }
 
   private createTile() {
-    return h("div", { class: "iv-tile" }, h("div", { class: "iv-art" }), h("div", { class: "iv-name" }, h("span")));
+    return h("div", { class: "iv-tile" }, h("div", { class: "iv-art" }), h("div", { class: "iv-name" }, h("span")),
+      h("div", { class: "iv-tags" }));
   }
 
   private bindTile(tile: HTMLElement, i: number) {
@@ -155,8 +193,9 @@ export class IconView implements FileView {
       tile.dataset.stamp = stamp;
       this.fillArt(tile, entry);
     }
-    (tile.lastElementChild!.firstElementChild as HTMLElement).textContent = entry.name;
+    (tile.children[1].firstElementChild as HTMLElement).textContent = entry.name;
     tile.title = entry.name;
+    markDrop(tile, entry, true);
     this.paint(tile, entry.path);
   }
 
@@ -181,6 +220,8 @@ export class IconView implements FileView {
     const { sel } = this.ctx;
     tile.classList.toggle("selected", sel.selection.has(path));
     tile.classList.toggle("focus", sel.focus === path);
+    paintCut(tile, this.ctx, path);
+    paintTags(tile.lastElementChild as HTMLElement, this.ctx.tagsOf(path));
   }
 
   renderSelection() {
@@ -189,6 +230,10 @@ export class IconView implements FileView {
         if (tile.dataset.path) this.paint(tile, tile.dataset.path);
       }
     });
+  }
+
+  refreshMarks() {
+    this.renderSelection();
   }
 
   getScroll() {
@@ -238,6 +283,7 @@ export class IconView implements FileView {
   }
 
   dispose() {
+    for (const off of this.detach) off();
     this.list.dispose();
   }
 }
