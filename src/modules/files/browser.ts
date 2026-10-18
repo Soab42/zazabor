@@ -434,7 +434,10 @@ export class Browser {
   private mountView() {
     const kind = this.settings.view;
     if (kind === this.viewKind) return;
-    this.view?.dispose();
+    if (this.view) {
+      this.view.el.remove();
+      this.view.dispose();
+    }
     this.viewKind = kind;
     switch (kind) {
       case "list": this.view = new ListView(this.ctx); break;

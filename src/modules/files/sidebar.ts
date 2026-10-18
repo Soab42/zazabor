@@ -121,7 +121,8 @@ export class Sidebar {
     h("span", { class: "sb-icon" }, icon(volumeIcon(volume), 17)),
     h("span", { class: "sb-name" }, volume.name),
     eject,
-    h("span", { class: "sb-usage" }, h("i", { style: { width: `${(used * 100).toFixed(1)}%` } })));
+    h("span", { class: used > 0.9 ? "sb-usage full" : "sb-usage", title: `${formatBytes(volume.free)} free of ${formatBytes(volume.total)}` },
+      h("i", { style: { width: `${(used * 100).toFixed(1)}%` } })));
     this.wire(button, volume.path, false);
     return button;
   }
