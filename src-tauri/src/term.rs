@@ -6,10 +6,12 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use serde::Serialize;
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::collections::hash_map::RandomState;
+use std::hash::{BuildHasher, Hasher};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, MutexGuard};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 struct Term {
     window: String,
@@ -66,14 +68,138 @@ fn start_dir(cwd: Option<String>) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/"))
 }
 
-/// Starts the user's shell in a terminal of `cols` × `rows` for this window; returns its id.
+// ---- shell integration ------------------------------------------------------------------------
+
+/// Scripts that make the shell mark prompts, commands and exit codes (OSC 133 / 633 / 7) for the
+/// command blocks. Each loads the user's own startup files first; none of those are changed.
+const SCRIPTS: [(&str, &str); 6] = [
+    ("zsh/.zshenv", include_str!("../shell/zsh/.zshenv")),
+    ("zsh/.zprofile", include_str!("../shell/zsh/.zprofile")),
+    ("zsh/.zshrc", include_str!("../shell/zsh/.zshrc")),
+    ("zsh/.zlogin", include_str!("../shell/zsh/.zlogin")),
+    ("corepro.bash", include_str!("../shell/corepro.bash")),
+    ("corepro.fish", include_str!("../shell/corepro.fish")),
+];
+
+/// Writes the scripts to a private folder in the app's cache (once per launch) and returns it.
+fn integration_dir(app: &AppHandle) -> Option<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = app.path().app_cache_dir().ok()?.join("shell-integration");
+    for (name, text) in SCRIPTS {
+        let path = dir.join(name);
+        std::fs::create_dir_all(path.parent()?).ok()?;
+        if std::fs::read_to_string(&path).ok().as_deref() != Some(text) {
+            std::fs::write(&path, text).ok()?;
+        }
+    }
+    // Only this user may write where zsh is told to read its startup files.
+    for sub in [dir.clone(), dir.join("zsh")] {
+        let _ = std::fs::set_permissions(&sub, std::fs::Permissions::from_mode(0o700));
+    }
+    Some(dir)
+}
+
+/// The user's login shell: $SHELL, else their passwd entry, else bash.
+fn default_shell() -> String {
+    if let Some(shell) = std::env::var_os("SHELL").filter(|s| !s.is_empty()) {
+        return shell.to_string_lossy().into_owned();
+    }
+    let user = std::env::var("USER").unwrap_or_default();
+    std::fs::read_to_string("/etc/passwd")
+        .ok()
+        .and_then(|text| text.lines().find(|l| l.split(':').next() == Some(&user)).and_then(|l| l.rsplit(':').next().map(str::to_string)))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "/bin/bash".into())
+}
+
+/// A random token the integration script stamps on command lines, so output can't fake them.
+fn nonce() -> String {
+    let mut h = RandomState::new().build_hasher();
+    h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0));
+    format!("{:016x}", h.finish())
+}
+
+/// The command to run `shell`, with the integration script when it's on and the shell is known.
+fn shell_command(shell: &str, integration: Option<&Path>) -> CommandBuilder {
+    let name = Path::new(shell).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let mut cmd = CommandBuilder::new(shell);
+    match (name.as_str(), integration) {
+        ("zsh", Some(dir)) => {
+            cmd.arg("-l");
+            let user = std::env::var_os("ZDOTDIR").or_else(|| std::env::var_os("HOME")).unwrap_or_default();
+            cmd.env("COREPRO_USER_ZDOTDIR", user);
+            cmd.env("ZDOTDIR", dir.join("zsh"));
+        }
+        ("bash", Some(dir)) => {
+            cmd.arg("--init-file");
+            cmd.arg(dir.join("corepro.bash"));
+        }
+        ("fish", Some(dir)) => {
+            cmd.arg("-l");
+            cmd.arg("--init-command");
+            cmd.arg(format!("source '{}'", dir.join("corepro.fish").display()));
+        }
+        ("zsh" | "bash" | "fish", None) => cmd.arg("-l"),
+        _ => {}
+    }
+    cmd
+}
+
+/// A shell to offer in the new-terminal menu.
+#[derive(Serialize)]
+pub struct ShellInfo {
+    name: String,
+    path: String,
+    default: bool,
+}
+
+/// The shells installed (from /etc/shells), the user's own first.
 #[tauri::command]
-pub fn term_spawn(app: AppHandle, window: tauri::Window, cwd: Option<String>, cols: u16, rows: u16) -> Result<u32, String> {
+pub fn term_shells() -> Vec<ShellInfo> {
+    let mine = default_shell();
+    let mine_name = Path::new(&mine).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let mut seen = std::collections::HashSet::new();
+    let mut shells = vec![ShellInfo { name: mine_name.clone(), path: mine.clone(), default: true }];
+    seen.insert(mine_name);
+    for line in std::fs::read_to_string("/etc/shells").unwrap_or_default().lines() {
+        let path = line.trim();
+        if path.is_empty() || path.starts_with('#') || !Path::new(path).exists() {
+            continue;
+        }
+        let name = Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        // A restricted shell isn't something to open by choice.
+        if name.starts_with('r') && name.ends_with("bash") || !seen.insert(name.clone()) {
+            continue;
+        }
+        shells.push(ShellInfo { name, path: path.to_string(), default: false });
+    }
+    shells
+}
+
+/// Starts a shell (the user's own unless `shell` names one) in a terminal of `cols` × `rows` for
+/// this window; returns its id. `integration` adds the command-block marks; `nonce` is the token
+/// genuine command-line marks carry.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn term_spawn(
+    app: AppHandle,
+    window: tauri::Window,
+    cwd: Option<String>,
+    cols: u16,
+    rows: u16,
+    shell: Option<String>,
+    integration: Option<bool>,
+    nonce: Option<String>,
+) -> Result<u32, String> {
     crate::ensure_unlocked()?;
     let pair = native_pty_system()
         .openpty(PtySize { rows: rows.max(2), cols: cols.max(10), pixel_width: 0, pixel_height: 0 })
         .map_err(|e| format!("Couldn’t open a terminal: {e}"))?;
-    let mut cmd = CommandBuilder::new_default_prog();
+    let shell = shell.filter(|s| Path::new(s).exists()).unwrap_or_else(default_shell);
+    let scripts = if integration.unwrap_or(true) { integration_dir(&app) } else { None };
+    let mut cmd = shell_command(&shell, scripts.as_deref());
+    // The terminal checks command lines against this token; it picks one, or gets a random one.
+    cmd.env("COREPRO_NONCE", nonce.filter(|n| !n.is_empty()).unwrap_or_else(self::nonce));
     cmd.cwd(start_dir(cwd));
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
@@ -186,6 +312,21 @@ mod tests {
         assert_eq!(split_utf8(&s[..8]), 6); // "aé€" + two bytes of the emoji
         assert_eq!(split_utf8(&s[..6]), 6);
         assert_eq!(split_utf8(b""), 0);
+    }
+
+    #[test]
+    fn shells_get_their_integration_script() {
+        let dir = Path::new("/tmp/si");
+        let zsh = shell_command("/usr/bin/zsh", Some(dir));
+        assert_eq!(zsh.get_argv().iter().map(|a| a.to_string_lossy().into_owned()).collect::<Vec<_>>(), ["/usr/bin/zsh", "-l"]);
+        assert_eq!(zsh.get_env("ZDOTDIR").map(|v| v.to_string_lossy().into_owned()).as_deref(), Some("/tmp/si/zsh"));
+        let bash = shell_command("/bin/bash", Some(dir));
+        assert_eq!(bash.get_argv().iter().map(|a| a.to_string_lossy().into_owned()).collect::<Vec<_>>(), ["/bin/bash", "--init-file", "/tmp/si/corepro.bash"]);
+        let plain = shell_command("/bin/dash", Some(dir));
+        assert_eq!(plain.get_argv().len(), 1);
+        let off = shell_command("/usr/bin/zsh", None);
+        assert!(off.get_env("ZDOTDIR").is_none() || off.get_env("ZDOTDIR") == std::env::var_os("ZDOTDIR").as_deref());
+        assert_ne!(nonce(), nonce());
     }
 
     #[test]

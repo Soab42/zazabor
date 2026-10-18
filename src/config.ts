@@ -86,6 +86,27 @@ export interface Config {
   onboarded: boolean;
   files: FilesSettings;
   video: VideoSettings;
+  terminal: TerminalSettings;
+}
+
+/** The Terminal section and the editor's terminal panel. */
+export interface TerminalSettings {
+  fontSize: number;
+  /** Path of the shell new terminals start; "" = the user's login shell. */
+  shell: string;
+  /** Command blocks through shell integration (marks emitted by a script loaded into the shell). */
+  integration: boolean;
+}
+
+export const DEFAULT_TERMINAL: TerminalSettings = { fontSize: 13, shell: "", integration: true };
+
+function normalizeTerminal(raw: Partial<TerminalSettings> | undefined): TerminalSettings {
+  const t = { ...DEFAULT_TERMINAL, ...raw };
+  return {
+    fontSize: typeof t.fontSize === "number" ? Math.min(28, Math.max(8, Math.round(t.fontSize))) : DEFAULT_TERMINAL.fontSize,
+    shell: typeof t.shell === "string" ? t.shell : "",
+    integration: t.integration !== false,
+  };
 }
 
 const DEFAULT_VIDEO: VideoSettings = {
@@ -174,6 +195,7 @@ const DEFAULTS: Config = {
   onboarded: false,
   files: DEFAULT_FILES,
   video: DEFAULT_VIDEO,
+  terminal: DEFAULT_TERMINAL,
 };
 
 export async function loadConfig(): Promise<Config> {
@@ -205,6 +227,7 @@ export function parseConfig(raw: string): Config {
     onboarded: parsed.onboarded === true,
     files: normalizeFiles(parsed.files),
     video: normalizeVideo(parsed.video),
+    terminal: normalizeTerminal(parsed.terminal),
   };
 }
 

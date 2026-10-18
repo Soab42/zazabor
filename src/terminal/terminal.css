@@ -1,10 +1,13 @@
-/* ---- Terminals: tabs over xterm.js, in the Terminal section and the editor's panel ---- */
+/* ---- Terminals: tabs of split panes over xterm.js, in the Terminal section and the editor's panel ---- */
 .tt { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.tt-bar { display: flex; align-items: center; gap: 4px; flex: none; height: 34px; padding: 0 8px 0 6px; box-shadow: inset 0 -0.5px 0 var(--line-strong); }
+.tt-bar { display: flex; align-items: center; gap: 2px; flex: none; height: 34px; padding: 0 8px 0 6px; box-shadow: inset 0 -0.5px 0 var(--line-strong); }
 .tt-strip { display: flex; flex: 1; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .tt-strip::-webkit-scrollbar { display: none; }
+.tt-add { display: flex; align-items: center; }
+.tt-add .icon-btn:last-child { width: 18px; margin-left: -4px; }
+.tt-sep { flex: none; width: 0.5px; height: 18px; margin: 0 6px; background: var(--line-strong); }
 .tt-tab {
-  display: flex; align-items: center; gap: 6px; flex: none; max-width: 200px; height: 26px; padding: 0 4px 0 10px; border-radius: 7px;
+  position: relative; display: flex; align-items: center; gap: 6px; flex: none; max-width: 220px; height: 26px; padding: 0 4px 0 10px; border-radius: 7px;
   color: var(--muted); font-size: var(--text-sm); cursor: default;
 }
 .tt-tab:hover { background: var(--hover); color: var(--text-2); }
@@ -14,10 +17,72 @@
 .tt-tab-close { display: grid; place-items: center; flex: none; width: 18px; height: 18px; border: 0; border-radius: 5px; background: none; color: var(--muted); opacity: 0; cursor: pointer; }
 .tt-tab:hover .tt-tab-close, .tt-tab.active .tt-tab-close { opacity: 1; }
 .tt-tab-close:hover { background: var(--control-hover); color: var(--text); }
+/* A command finished in a tab you weren't looking at. */
+.tt-dot { display: none; position: absolute; left: 3px; top: 50%; width: 5px; height: 5px; margin-top: -2.5px; border-radius: 50%; }
+.tt-tab.done .tt-dot { display: block; }
+.tt-tab.ok .tt-dot { background: #43a96b; }
+.tt-tab.failed .tt-dot { background: #e5534b; }
 .tt-body { position: relative; flex: 1; min-height: 0; }
+.tt-tab-body { position: absolute; inset: 0; display: flex; }
+.tt-tab-body[hidden] { display: none; }
 
-.tv { position: absolute; inset: 6px 4px 4px 12px; }
-.tv[hidden] { display: none; }
+/* Panes */
+.tp-split { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
+.tp-split.row { flex-direction: row; }
+.tp-split.col { flex-direction: column; }
+.tp-leaf { position: relative; flex: 1 1 0; min-width: 60px; min-height: 40px; }
+.tp-divider { position: relative; flex: none; background: var(--line-strong); z-index: 2; }
+.tp-split.row > .tp-divider { width: 1px; cursor: col-resize; }
+.tp-split.col > .tp-divider { height: 1px; cursor: row-resize; }
+.tp-divider::after { content: ""; position: absolute; inset: -4px; }
+.tp-divider:hover { background: var(--accent); }
+.tt-tab-body.split .tp-leaf::after { content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: 2px; transition: box-shadow var(--dur-fast); }
+.tt-tab-body.split .tp-leaf.focused::after { box-shadow: inset 0 0 0 1px var(--accent-soft), inset 0 2px 0 var(--accent); }
+.tt-tab-body.split .tp-leaf:not(.focused) .tv { opacity: 0.78; }
+
+/* One terminal */
+.tv { position: absolute; inset: 0; }
+.tv-term { position: absolute; inset: 6px 4px 4px 16px; }
 .tv .xterm { height: 100%; }
 .tv .xterm-viewport { background: transparent !important; scrollbar-width: thin; }
 .tv .xterm-screen { width: 100% !important; }
+
+/* Command blocks: a bar left of each finished command, green or red; click for its menu. */
+.tv .xterm-decoration-container .tv-block {
+  left: -11px !important; width: 3px !important; border-radius: 2px; cursor: pointer; opacity: 0.55; pointer-events: auto;
+  transition: opacity var(--dur-fast), width var(--dur-fast), left var(--dur-fast);
+}
+.tv .xterm-decoration-container .tv-block:hover { opacity: 1; width: 5px !important; left: -12px !important; }
+.tv-block.ok { background: #43a96b; }
+.tv-block.failed { background: #e5534b; opacity: 0.85; }
+
+/* The command you've scrolled into, pinned at the top. */
+.tv-sticky {
+  position: absolute; left: 12px; right: 18px; top: 4px; z-index: 3; display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px;
+  border: 0; border-radius: var(--radius-sm); cursor: pointer; text-align: left; color: var(--text); font: 12px var(--mono);
+  background: var(--glass-strong-surface, var(--glass-strong)); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  box-shadow: inset 0 0 0 0.5px var(--line-strong), var(--elev-1);
+}
+.tv-sticky[hidden] { display: none; }
+.tv-sticky-mark { color: var(--accent); }
+.tv-sticky.failed .tv-sticky-mark { color: #e5534b; }
+.tv-sticky-cmd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tv-sticky-meta { flex: none; color: var(--muted); font-size: 11px; }
+.tv-sticky.failed .tv-sticky-meta { color: #e5534b; }
+
+/* Find */
+.tv-find {
+  position: absolute; right: 18px; top: 6px; z-index: 4; display: flex; align-items: center; gap: 4px; height: 32px; padding: 0 6px 0 10px;
+  border-radius: var(--radius-md); color: var(--muted);
+  background: var(--glass-strong-surface, var(--glass-strong)); -webkit-backdrop-filter: var(--blur-strong); backdrop-filter: var(--blur-strong);
+  box-shadow: inset 0 1px 0 var(--spec), var(--shadow-pop);
+}
+.tv-find[hidden] { display: none; }
+.tv-find-input { width: 180px; height: 24px; padding: 0 6px; border: 0; outline: none; border-radius: 5px; background: var(--control); color: var(--text); font: inherit; font-size: var(--text-sm); }
+.tv-find-input:focus-visible { box-shadow: 0 0 0 2px var(--focus); }
+.tv-find-count { min-width: 56px; font-size: var(--text-xs); text-align: center; white-space: nowrap; }
+.tv-find-btn { display: grid; place-items: center; min-width: 24px; height: 24px; padding: 0 4px; border: 0; border-radius: 5px; background: none; color: var(--muted); font: 600 11px var(--font); cursor: pointer; }
+.tv-find-btn:hover { background: var(--hover); color: var(--text); }
+.tv-find-btn.active { background: var(--accent-soft); color: var(--accent); }
+.tv-sticky-more { display: grid; place-items: center; flex: none; width: 22px; height: 20px; margin-right: -6px; border-radius: 5px; color: var(--muted); }
+.tv-sticky-more:hover { background: var(--hover); color: var(--text); }

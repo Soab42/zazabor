@@ -6,6 +6,7 @@ import { readText } from "../shared/quicklook/api";
 import { basename, dirname, h } from "../ui/dom";
 import { icon } from "../ui/icons";
 import { openMenu, type MenuItem } from "../ui/menu";
+import type { TerminalSettings } from "../config";
 import { TerminalTabs } from "../terminal/tabs";
 import { isTerminalTarget } from "../terminal/target";
 import { changeMark, gitApi, type GitFile, type GitStatus } from "./git-api";
@@ -29,6 +30,9 @@ export interface EditorHost {
   openOther(entry: FsEntry): void;
   /** The window's title follows the active file. */
   setTitle(text: string): void;
+  /** The terminal panel's settings (font size, shell), saved with `saveSettings`. */
+  terminalSettings(): TerminalSettings;
+  saveSettings(): void;
 }
 
 interface Doc {
@@ -121,6 +125,8 @@ export class CodeEditor {
 
     this.terminals = new TerminalTabs({
       cwd: () => this.root,
+      settings: () => this.opts.terminalSettings(),
+      saveSettings: () => this.opts.saveSettings(),
       actions: [h("button", { class: "icon-btn small", type: "button", title: "Hide Panel (Ctrl+`)", onclick: () => this.toggleTerminal(false) }, icon("close", 14))],
       onEmpty: () => this.toggleTerminal(false),
     });

@@ -3,7 +3,10 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 /** The terminal backend (src-tauri/src/term.rs): the user's shell in a pseudo-terminal. */
 export const termApi = {
-  spawn: (cwd: string | null, cols: number, rows: number) => invoke<number>("term_spawn", { cwd, cols, rows }),
+  spawn: (cwd: string | null, cols: number, rows: number, shell: string | null, integration: boolean, nonce: string) =>
+    invoke<number>("term_spawn", { cwd, cols, rows, shell, integration, nonce }),
+  /** Installed shells, the user's login shell first. */
+  shells: () => invoke<{ name: string; path: string; default: boolean }[]>("term_shells"),
   write: (id: number, data: string) => invoke<void>("term_write", { id, data }),
   resize: (id: number, cols: number, rows: number) => invoke<void>("term_resize", { id, cols, rows }),
   kill: (id: number) => invoke<void>("term_kill", { id }),

@@ -282,6 +282,7 @@ pub fn run() {
             term::term_resize,
             term::term_kill,
             term::term_info,
+            term::term_shells,
             git::git_status,
             git::git_show,
             git::git_stage,

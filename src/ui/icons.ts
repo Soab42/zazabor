@@ -61,6 +61,8 @@ const paths = {
   sync: `<path d="M4.5 12a7.5 7.5 0 0 1 12.8-5.3l2.2 2.3"/><path d="M19.5 4.5V9H15"/><path d="M19.5 12a7.5 7.5 0 0 1-12.8 5.3l-2.2-2.3"/><path d="M4.5 19.5V15H9"/>`,
   undo: `<path d="M9 14 4.5 9.5 9 5"/><path d="M4.5 9.5h9a6 6 0 0 1 0 12H10"/>`,
   files: `<path d="M8.5 3.5h6l4 4v10a1.5 1.5 0 0 1-1.5 1.5h-8.5A1.5 1.5 0 0 1 7 17.5v-12.5a1.5 1.5 0 0 1 1.5-1.5z"/><path d="M14.5 3.5v4h4"/><path d="M4.5 7.5v12a1.5 1.5 0 0 0 1.5 1.5h9"/>`,
+  splitRight: `<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M12 4.5v15"/>`,
+  splitDown: `<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 12h17"/>`,
   terminal: `<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M7.5 9.5l3 2.5-3 2.5M12.5 15h4"/>`,
   copy: `<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/>`,
   cut: `<circle cx="6.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/><path d="M8.3 15.7L18 4.5M15.7 15.7L6 4.5"/>`,

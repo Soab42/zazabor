@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { homeDir } from "@tauri-apps/api/path";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { applyAppearance } from "../appearance";
-import { adoptConfig, CONFIG_SAVED, parseConfig, type Config } from "../config";
+import { adoptConfig, CONFIG_SAVED, parseConfig, saveConfig, type Config } from "../config";
 import { askForAccess, dismissUnlockPrompt, lockApi } from "../lock";
 import { fsApi, type FsEntry } from "../modules/files/api";
 import { isCloudPath } from "../modules/files/cloud";
@@ -53,6 +53,8 @@ export async function startViewer(config: Config, path: string) {
     const editor = new CodeEditor(await projectRoot(dirname(path)), {
       openOther: (other) => openFileWindow(other),
       setTitle,
+      terminalSettings: () => config.terminal,
+      saveSettings: () => saveConfig(config),
     });
     app.append(editor.el);
     themeChanged = () => editor.themeChanged();

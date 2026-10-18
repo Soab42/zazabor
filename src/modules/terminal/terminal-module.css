@@ -5,4 +5,4 @@
   background: var(--glass-surface, var(--glass)); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
 }
 .term-module .tt-tab { height: 30px; }
-.term-module .tv { inset: 10px 8px 8px 16px; }
+.term-module .tv-term { inset: 10px 8px 8px 20px; }

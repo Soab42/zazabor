@@ -7,9 +7,9 @@ import "./terminal-module.css";
  * The Terminal section: your shell in glass tabs. New terminals start in the folder of the one in
  * front; a new window (Ctrl+N from the rail) starts there too.
  */
-export const createTerminalModule: ModuleFactory = () => {
+export const createTerminalModule: ModuleFactory = (shell) => {
   let home: string | null = null;
-  const tabs = new TerminalTabs({ cwd: () => home });
+  const tabs = new TerminalTabs({ cwd: () => home, settings: () => shell.config.terminal, saveSettings: () => shell.saveConfig() });
   const el = h("section", { class: "term-module" }, tabs.el);
 
   const module: AppModule = {
