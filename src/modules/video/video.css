@@ -252,14 +252,17 @@
 }
 .vp.panel-open .vp-panel { display: flex; }
 .vp-panel-tabs { display: flex; gap: 2px; margin: 10px 10px 4px; padding: 2px; border-radius: 9px; background: var(--control); box-shadow: inset 0 0 0 0.5px var(--line); }
+/* Five or more tabs don't fit with labels: only the active tab shows its name, the rest are icons. */
 .vp-panel-tab {
-  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 28px; padding: 0 6px; border: 0;
+  flex: 0 0 34px; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 28px; padding: 0 6px; border: 0;
   border-radius: 7px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
-  transition: color var(--dur-fast, 150ms), background var(--dur-fast, 150ms);
+  transition: color var(--dur-fast, 150ms), background var(--dur-fast, 150ms), flex-grow var(--dur, 240ms) var(--ease-out, ease);
 }
 .vp-panel-tab:hover { color: var(--text); }
 .vp-panel-tab.active { background: var(--thumb); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18), 0 0 0 0.5px rgba(0, 0, 0, 0.06); }
 .vp-panel-tab .icon { flex: none; }
+.vp-panel-tab.active { flex: 1 1 auto; }
+.vp-panel-tab:not(.active) span { display: none; }
 .vp-panel-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 14px 18px; }
 .vp.fullscreen.panel-open .vp-panel { position: absolute; top: 56px; right: 12px; bottom: 76px; border-radius: 14px; background: var(--glass-strong); box-shadow: inset 0 1px 0 var(--shine), var(--shadow-pop); }
 .vp.fullscreen.idle .vp-panel { opacity: 0; pointer-events: none; }

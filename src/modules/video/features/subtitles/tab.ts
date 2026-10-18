@@ -169,7 +169,7 @@ export function createSubtitlesTab(c: SubtitleController, addSubtitles: () => vo
         section("Subtitles", tracksBox, error, h("div", { class: "pp-dialog-buttons" }, addButton)),
         section("Timing", delay.el, h("div", { class: "pp-dialog-buttons" }, nudge("− 50 ms", -50), nudge("+ 50 ms", 50)), timeline.el,
           note("Drag the strip sideways to shift the timing; click a line to jump to it."), timelineToggle.el),
-        section("Appearance", preview, font.el, h("div", { class: "pp-row-split" }, h("span", { class: "pp-label" }, "Size"), sizeMode.el), sizeRel.el, sizeExact.el,
+        section("Appearance", preview, font.el, h("div", { class: "pp-row-split" }, h("span", { class: "pp-label" }, "Size by"), sizeMode.el), sizeRel.el, sizeExact.el,
           h("div", { class: "pp-colors" }, h("span", { class: "pp-label" }, "Colour"), h("div", { class: "pp-swatches" }, ...swatches, colorInput)),
           outline.el, shadow.el, box.el, position.el, bold.el,
           note("Our own renderer draws subtitle files you add. Subtitles inside the video are drawn by VLC and keep its look.")),

@@ -221,6 +221,11 @@ span.lib-crumb.current:hover { background: none; }
 .lib-list.compact .lib-row-col, .lib-compact .lib-row-col { display: none; }
 .lib-list.compact .lib-row-title, .lib-compact .lib-row-title { font-size: var(--text-md); }
 .lib-list.compact .lib-row.playing::before { top: 10px; bottom: 10px; }
+/* The sidebar is narrow: names get two lines, and the hover actions sit over the duration. */
+.lib-compact .lib-row-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.25; white-space: normal; overflow-wrap: anywhere; }
+.lib-compact .lib-row-meta { min-width: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.lib-compact .lib-row-actions { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); }
+.lib-compact .lib-row:hover .lib-row-meta, .lib-compact .lib-row:focus-within .lib-row-meta { opacity: 0; }
 
 .lib-dock { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 6px 10px 12px; box-shadow: inset 0 0.5px 0 var(--line-strong); }
 .lib-dock-title {

@@ -37,7 +37,6 @@ const createPanelFeature: FeatureFactory = (ctx): VideoFeature => {
 
   return {
     panelTabs: [subtitles.tab, audio.tab, video.tab, playback.tab],
-    menuItems: (place) => subtitles.menuItems(place),
     handleKey: (e) => subtitles.handleKey(e),
     dispose() {
       subtitles.dispose();

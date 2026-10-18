@@ -52,9 +52,11 @@ export function createTimeline(c: SubtitleController, compact = false): Timeline
     if (!index) {
       empty.textContent = c.source === "embedded" ? "The timeline works with subtitle files added here." : "Add a subtitle file to see its timeline.";
       empty.hidden = false;
+      head.hidden = true;
       for (const b of pool) b.hidden = true;
     } else {
       empty.hidden = true;
+      head.hidden = false;
       const win = windowAround(c.now(), SPAN_MS);
       const cues = index.between(win.from - delay, win.to - delay);
       cues.forEach((cue, i) => {

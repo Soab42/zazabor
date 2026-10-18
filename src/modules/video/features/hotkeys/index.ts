@@ -32,6 +32,8 @@ export function videoShortcuts(steps: Steps): ShortcutGroup[] {
         ["Mute or unmute", [["M"]]],
         ["Fullscreen", [["F"], ["Double-click"]]],
         ["Leave fullscreen", [["Esc"]]],
+        ["Hide or show the controls", [["Ctrl", "H"]]],
+        ["Subtitles earlier or later", [["G"], ["H"]]],
       ],
     },
     {
@@ -39,6 +41,7 @@ export function videoShortcuts(steps: Steps): ShortcutGroup[] {
       rows: [
         ["Open a file", [["Ctrl", "O"]]],
         ["Add a bookmark here", [["Ctrl", "B"]]],
+        ["Mini player", [["Ctrl", "M"]]],
         ["Show these shortcuts", [["?"]]],
       ],
     },

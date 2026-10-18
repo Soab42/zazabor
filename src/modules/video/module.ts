@@ -69,7 +69,7 @@ export class VideoModule implements AppModule {
   private view: "browse" | "player" = "browse";
   private active = false;
   private fullscreen = false;
-  /** "Hide UI": nothing but the video on screen until H or Esc. */
+  /** "Hide UI": nothing but the video on screen until Ctrl+H or Esc. */
   private uiHidden = false;
   /** The playlist panel in fullscreen is separate from the normal sidebar setting. */
   private fullscreenSidebar = false;
@@ -227,7 +227,10 @@ export class VideoModule implements AppModule {
       ...this.featureItems(place),
       "separator",
       { label: this.fullscreen ? "Exit Fullscreen (F)" : "Fullscreen (F)", icon: "fullscreen", disabled: !watching, action: () => void this.toggleFullscreen() },
-      { label: "Hide UI (H)", icon: "eyeOff", disabled: !watching, action: () => this.setUiHidden(true) },
+      { label: "Hide UI (Ctrl+H)", icon: "eyeOff", disabled: !watching, action: () => {
+        this.setUiHidden(true);
+        this.flash("UI hidden", "Ctrl+H or Esc to show");
+      } },
       { label: this.panelOpen ? "Close Side Panel" : "Side Panel", icon: "sidebar", disabled: !watching || this.tabs.length === 0, action: () => this.setPanel(!this.panelOpen) },
       "separator",
       { label: "Customise Player…", icon: "settings", action: () => this.customise() },
@@ -505,6 +508,12 @@ export class VideoModule implements AppModule {
       void this.openFile();
       return true;
     }
+    // Ctrl+H as in VLC's minimal interface; plain G/H belong to the subtitle delay.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "h" && this.view === "player" && this.player.current) {
+      this.setUiHidden(!this.uiHidden);
+      this.flash(this.uiHidden ? "UI hidden" : "UI shown", this.uiHidden ? "Ctrl+H or Esc to show" : "Ctrl+H");
+      return true;
+    }
     if (e.ctrlKey || e.metaKey || e.altKey || this.view !== "player" || !this.player.current) return false;
     const { player } = this;
     // Every action tells the user which key did it: `flash(result, key)`.
@@ -540,11 +549,6 @@ export class VideoModule implements AppModule {
       case "f":
       case "F":
         void this.toggleFullscreen().then(() => this.flash(this.fullscreen ? "Fullscreen" : "Windowed", "F"));
-        return true;
-      case "h":
-      case "H":
-        this.setUiHidden(!this.uiHidden);
-        this.flash(this.uiHidden ? "UI hidden" : "UI shown", this.uiHidden ? "H or Esc to show" : "H");
         return true;
       case "Escape":
         if (this.uiHidden) {

@@ -138,6 +138,7 @@ export class Library implements LibraryService {
     if (first) {
       void onVideoLibrary((folders) => {
         this.folders = folders;
+        this.folderListings.clear();
         this.scanningVideos = false;
         this.changed(true);
       }).then((off) => this.disposers.push(off)).catch((err) => console.warn("Could not listen for the video library:", err));
@@ -207,9 +208,12 @@ export class Library implements LibraryService {
     return this.folderListings.get(path) ?? this.folders?.find((f) => f.path === path)?.videos ?? null;
   }
 
-  /** Lists a folder from disk (fresh, and for folders the library hasn't found). */
+  /**
+   * Lists a folder from disk (fresh, and for folders the library hasn't found). Pages call this
+   * while rendering, so it lists each folder once; a new library scan makes them list again.
+   */
   loadFolder(path: string) {
-    if (this.folderLoading.has(path)) return;
+    if (this.folderLoading.has(path) || this.folderListings.has(path)) return;
     this.folderLoading.add(path);
     void videoApi.listVideos(path).then((files: VideoFile[]) => {
       const known = new Map((this.folders?.find((f) => f.path === path)?.videos ?? []).map((v) => [v.path, v]));

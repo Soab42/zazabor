@@ -1,6 +1,6 @@
 import { h } from "../../../../ui/dom";
-import type { MenuItem } from "../../../../ui/menu";
-import { featureSettings, type MenuPlace, type PanelTab, type VideoContext } from "../../extensions";
+import { featureSettings, type PanelTab, type VideoContext } from "../../extensions";
+import { quickHooks } from "../../quick-api";
 import { SubtitleController, SUBTITLE_DEFAULTS, type SubtitleSettings } from "./controller";
 import { openAddSubtitles } from "./dialog";
 import { normalizeStyle } from "./style";
@@ -10,7 +10,6 @@ import { createTimeline } from "./timeline-ui";
 export interface SubtitlesFeature {
   controller: SubtitleController;
   tab: PanelTab;
-  menuItems(place: MenuPlace): MenuItem[];
   handleKey(e: KeyboardEvent): boolean;
   dispose(): void;
 }
@@ -40,6 +39,8 @@ export function createSubtitles(ctx: VideoContext): SubtitlesFeature {
   const settings = loadSettings(ctx);
   const controller = new SubtitleController(ctx, settings);
   const add = () => openAddSubtitles(controller, ctx);
+  // The player menu's and the subtitle button's "Add Subtitles…" open the dialog.
+  quickHooks.addSubtitles = add;
 
   // A small timeline over the video when the Playback tab's switch is on.
   const stageTimeline = createTimeline(controller, true);
@@ -58,9 +59,6 @@ export function createSubtitles(ctx: VideoContext): SubtitlesFeature {
   return {
     controller,
     tab: createSubtitlesTab(controller, add),
-    menuItems(place) {
-      return place === "open" ? [] : [{ label: "Add Subtitles…", icon: "subtitles", action: add }];
-    },
     handleKey(e) {
       if (e.ctrlKey || e.metaKey || e.altKey || !ctx.player.current || !ctx.showingPlayer) return false;
       const key = e.key.toLowerCase();
@@ -71,6 +69,7 @@ export function createSubtitles(ctx: VideoContext): SubtitlesFeature {
       return true;
     },
     dispose() {
+      if (quickHooks.addSubtitles === add) quickHooks.addSubtitles = null;
       unsubscribe();
       stageTimeline.dispose();
       stageBox.remove();

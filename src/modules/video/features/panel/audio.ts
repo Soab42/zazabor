@@ -163,13 +163,21 @@ export function createAudioTab(ctx: VideoContext, settings: PanelSettings): { ta
     markPreset();
   }
 
-  async function loadInfo() {
-    if (info) return;
+  // Rendering and showing the tab both ask; the cards are built once.
+  let loading: Promise<void> | null = null;
+  function loadInfo(): Promise<void> {
+    loading ??= fetchInfo().then((ok) => {
+      if (!ok) loading = null;
+    });
+    return loading;
+  }
+
+  async function fetchInfo(): Promise<boolean> {
     try {
       info = await panelApi.eqInfo();
     } catch (err) {
       console.warn("Could not read the equalizer presets:", err);
-      return;
+      return false;
     }
     for (const p of info.presets) {
       const look = PRESET_LOOK[p.name] ?? { label: p.name, icon: "music" as IconName };
@@ -179,6 +187,7 @@ export function createAudioTab(ctx: VideoContext, settings: PanelSettings): { ta
     buildBands();
     syncBands();
     renderEq();
+    return true;
   }
 
   // ---- track, language, delay --------------------------------------------------------------
