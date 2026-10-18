@@ -26,12 +26,13 @@ export function createSubtitlesTab(c: SubtitleController, addSubtitles: () => vo
   let tracksKey = "";
   function renderTracks() {
     const state = c.state;
-    const key = JSON.stringify([c.source, c.externalName, state.subtitleTrack, state.subtitleTracks]);
+    const shown = c.shownTrack;
+    const key = JSON.stringify([shown, c.externalName, state.subtitleTracks]);
     if (key === tracksKey) return;
     tracksKey = key;
-    const rows: HTMLElement[] = [choiceRow("Off", c.source === "off", () => c.turnOff())];
-    if (c.externalName) rows.push(choiceRow(c.externalName, c.source === "ours", () => undefined, "added file"));
-    for (const t of state.subtitleTracks) rows.push(choiceRow(t.name, c.source === "embedded" && state.subtitleTrack === t.id, () => c.selectEmbedded(t.id), "in the file"));
+    const rows: HTMLElement[] = [choiceRow("Off", shown === null, () => c.turnOff())];
+    if (c.externalName) rows.push(choiceRow(c.externalName, shown === "file", () => undefined, "added file"));
+    for (const t of state.subtitleTracks) rows.push(choiceRow(t.name, shown === t.id, () => c.selectEmbedded(t.id), "in the file"));
     tracksBox.replaceChildren(...rows);
   }
   const error = h("p", { class: "pp-note bad", role: "alert", hidden: true });

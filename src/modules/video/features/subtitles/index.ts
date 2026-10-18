@@ -1,4 +1,5 @@
 import { h } from "../../../../ui/dom";
+import type { MenuItem } from "../../../../ui/menu";
 import { featureSettings, type PanelTab, type VideoContext } from "../../extensions";
 import { quickHooks } from "../../quick-api";
 import { SubtitleController, SUBTITLE_DEFAULTS, type SubtitleSettings } from "./controller";
@@ -41,6 +42,18 @@ export function createSubtitles(ctx: VideoContext): SubtitlesFeature {
   const add = () => openAddSubtitles(controller, ctx);
   // The player menu's and the subtitle button's "Add Subtitles…" open the dialog.
   quickHooks.addSubtitles = add;
+  // The bar's subtitle menu and button show the same choice as the Subtitles tab.
+  const subtitleItems = (): MenuItem[] => {
+    const shown = controller.shownTrack;
+    const mark = (on: boolean) => (on ? ("check" as const) : undefined);
+    const items: MenuItem[] = [{ label: "Off", icon: mark(shown === null), action: () => controller.turnOff() }];
+    if (controller.externalName) items.push({ label: controller.externalName, icon: mark(shown === "file"), action: () => undefined });
+    for (const t of ctx.player.state.subtitleTracks) items.push({ label: t.name, icon: mark(shown === t.id), action: () => controller.selectEmbedded(t.id) });
+    return items;
+  };
+  const subtitlesShown = () => controller.shownTrack !== null;
+  quickHooks.subtitleItems = subtitleItems;
+  quickHooks.subtitlesShown = subtitlesShown;
 
   // A small timeline over the video when the Playback tab's switch is on.
   const stageTimeline = createTimeline(controller, true);
@@ -70,6 +83,8 @@ export function createSubtitles(ctx: VideoContext): SubtitlesFeature {
     },
     dispose() {
       if (quickHooks.addSubtitles === add) quickHooks.addSubtitles = null;
+      if (quickHooks.subtitleItems === subtitleItems) quickHooks.subtitleItems = null;
+      if (quickHooks.subtitlesShown === subtitlesShown) quickHooks.subtitlesShown = null;
       unsubscribe();
       stageTimeline.dispose();
       stageBox.remove();

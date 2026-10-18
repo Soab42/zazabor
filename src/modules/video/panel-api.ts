@@ -69,6 +69,22 @@ export interface OnlineReply {
   body: string;
 }
 
+/** A subtitle track stored in the video file (src-tauri/src/video/embedded_subs.rs), in file order. */
+export interface EmbeddedTrack {
+  /** Position among the file's subtitle tracks; libVLC lists them in the same order. */
+  index: number;
+  trackNumber: number;
+  codec: string;
+  language: string;
+  name: string;
+  default: boolean;
+  forced: boolean;
+  /** A text track we can draw ourselves; image tracks (PGS, VobSub) stay with libVLC. */
+  text: boolean;
+  /** Times in ms; text with its SRT tags or ASS override blocks. */
+  cues: { start: number; end: number; text: string }[];
+}
+
 export const panelApi = {
   eqInfo: () => invoke<EqInfo>("video_eq_info"),
   /** Turns the equalizer on with these gains (dB), or off. */
@@ -80,6 +96,8 @@ export const panelApi = {
   videoTracks: () => invoke<VideoTracks>("video_video_tracks"),
   setVideoTrack: (id: number) => invoke<void>("video_set_video_track", { id }),
   meta: () => invoke<MediaMeta>("video_meta"),
+  /** The subtitle tracks inside a Matroska/WebM file (empty for other files). */
+  embeddedSubtitles: (path: string) => invoke<EmbeddedTrack[]>("video_embedded_subtitles", { path }),
   fileHash: (path: string) => invoke<FileHash>("video_file_hash", { path }),
   /** One call to the OpenSubtitles REST API v1 (`path` like "/subtitles?query=x"). */
   onlineRequest: (method: "GET" | "POST", path: string, apiKey: string, token?: string, body?: unknown) =>

@@ -10,6 +10,7 @@ pub mod audio_out;
 pub mod capture;
 pub mod chapters;
 pub mod convert;
+pub mod embedded_subs;
 mod frame;
 pub mod fx;
 pub mod library;

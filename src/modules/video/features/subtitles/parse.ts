@@ -228,6 +228,16 @@ export function parseSubtitles(input: string): Cue[] {
   return cues.sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
+/** Cues from timed markup (a video's own subtitle track), sorted by start time. */
+export function cuesFromTimed(list: { start: number; end: number; text: string }[]): Cue[] {
+  const cues: Cue[] = [];
+  for (const item of list) {
+    const cue = makeCue(item.start, item.end, item.text);
+    if (cue) cues.push(cue);
+  }
+  return cues.sort((a, b) => a.start - b.start || a.end - b.end);
+}
+
 /** The cue's text as one plain string (lines joined by newlines). */
 export function cueText(cue: Cue): string {
   return cue.lines.map((line) => line.map((run) => run.text).join("")).join("\n");

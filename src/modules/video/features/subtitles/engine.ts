@@ -100,6 +100,15 @@ export class SubtitleEngine {
   }
 
   /** Stops showing the file and forgets it. */
+  /** Shows cues that didn't come from a file (a video's own subtitle track); `label` names them. */
+  loadCues(cues: Cue[], label: string) {
+    ++this.loadToken;
+    this.index = new CueIndex(cues);
+    this.path = label;
+    this.clearShown();
+    this.render(this.lastTime);
+  }
+
   unload() {
     this.loadToken++;
     this.index = null;

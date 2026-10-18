@@ -50,7 +50,9 @@ export function createTimeline(c: SubtitleController, compact = false): Timeline
     readout.textContent = index ? formatDelay(delay) : "";
     readout.hidden = !index || delay === 0;
     if (!index) {
-      empty.textContent = c.source === "embedded" ? "The timeline works with subtitle files added here." : "Add a subtitle file to see its timeline.";
+      empty.textContent = c.source !== "embedded"
+        ? "Turn on a subtitle track or add a subtitle file to see its timeline."
+        : c.readingEmbedded ? "Reading the subtitles in the video…" : "This track is a picture format, so it has no timeline.";
       empty.hidden = false;
       head.hidden = true;
       for (const b of pool) b.hidden = true;

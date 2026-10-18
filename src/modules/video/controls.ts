@@ -142,7 +142,7 @@ export class ControlBar {
       }
       case "subtitles": {
         const button = this.iconButton(id, "Subtitles", () => this.popup(button, this.subtitleMenu()));
-        return { el: button, update: (s) => button.classList.toggle("active", s.subtitleTrack >= 0) };
+        return { el: button, update: (s) => button.classList.toggle("active", quickHooks.subtitlesShown?.() ?? s.subtitleTrack >= 0) };
       }
       case "settings": {
         // The side panel (Subtitles, Audio, Video, Playback, Bookmarks…); features supply its tabs.
@@ -263,14 +263,18 @@ export class ControlBar {
   private subtitleMenu(): MenuItem[] {
     const { player } = this.host;
     const { subtitleTracks, subtitleTrack } = player.state;
-    return [
-      { label: "Subtitles", icon: "subtitles", disabled: true, action: HEADING },
+    // The subtitles feature knows what's on screen when it draws a track itself.
+    const choices: MenuItem[] = quickHooks.subtitleItems?.() ?? [
       { label: "Off", icon: subtitleTrack < 0 ? "check" : undefined, action: () => player.setSubtitleTrack(-1) },
       ...subtitleTracks.map((track) => ({
         label: track.name,
         icon: track.id === subtitleTrack ? ("check" as const) : undefined,
         action: () => player.setSubtitleTrack(track.id),
       })),
+    ];
+    return [
+      { label: "Subtitles", icon: "subtitles", disabled: true, action: HEADING },
+      ...choices,
       "separator",
       // The "Add Subtitles…" dialog from the subtitles feature takes over through `quickHooks.addSubtitles`.
       { label: "Add Subtitles…", icon: "plus", action: () => (quickHooks.addSubtitles ?? (() => this.host.addSubtitleFile()))() },

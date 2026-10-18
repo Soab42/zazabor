@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { MenuItem } from "../../ui/menu";
 
 /**
  * The contract between the player chrome (control bar, quick access, Bookmarks tab) and the
@@ -79,7 +80,11 @@ export const quickHooks: {
   addSubtitles: (() => void) | null;
   /** Adds a bookmark at the current time (the bar's Bookmark button, Ctrl+B). */
   addBookmark: (() => void) | null;
-} = { addSubtitles: null, addBookmark: null };
+  /** The subtitle choices for the quick menu (Off, an added file, the file's tracks), as the subtitles feature shows them. */
+  subtitleItems: (() => MenuItem[]) | null;
+  /** Subtitles are showing, whoever draws them (the bar's subtitle button lights up). */
+  subtitlesShown: (() => boolean) | null;
+} = { addSubtitles: null, addBookmark: null, subtitleItems: null, subtitlesShown: null };
 
 type Listener = () => void;
 

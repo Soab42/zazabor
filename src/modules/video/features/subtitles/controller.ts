@@ -1,9 +1,10 @@
 import { basename } from "../../../../ui/dom";
 import type { VideoContext } from "../../extensions";
-import { panelApi } from "../../panel-api";
+import { panelApi, type EmbeddedTrack } from "../../panel-api";
 import { ownFormat, SubtitleEngine } from "./engine";
 import { trackForLanguage } from "./language";
 import { episodeKey, showOf, type ShowInfo } from "./match";
+import { cuesFromTimed } from "./parse";
 import type { OnlineSettings } from "./online";
 import { DEFAULT_STYLE, normalizeStyle, type SubStyle } from "./style";
 import { snapDelay } from "./timeline";
@@ -61,6 +62,10 @@ export class SubtitleController {
   error: string | null = null;
   /** The Add Subtitles dialog asked the tab to open its advanced section. */
   wantAdvanced = false;
+  /** The libVLC track id our engine is drawing (one of the video's own text tracks), else null. */
+  embeddedId: number | null = null;
+  /** The video's own subtitle tracks are still being read. */
+  readingEmbedded = false;
 
   private readonly listeners = new Set<() => void>();
   private readonly unsubscribe: () => void;
@@ -72,6 +77,8 @@ export class SubtitleController {
   private suppressUntil = 0;
   private raf = 0;
   private clock = { base: 0, at: 0, playing: false, rate: 1 };
+  /** The video's own subtitle tracks once read (text ones carry their cues). */
+  private embedded: EmbeddedTrack[] | null = null;
 
   constructor(private readonly ctx: VideoContext, readonly settings: SubtitleSettings) {
     this.engine = new SubtitleEngine(ctx.stageLayer);
@@ -114,6 +121,16 @@ export class SubtitleController {
   get source(): "ours" | "embedded" | "off" {
     if (this.engine.active) return "ours";
     return this.ctx.player.state.subtitleTrack >= 0 ? "embedded" : "off";
+  }
+
+  /**
+   * The choice on screen, whoever draws it: one of libVLC's track ids (our engine draws the
+   * video's own text tracks), "file" for an added subtitle file, or null when off.
+   */
+  get shownTrack(): number | "file" | null {
+    if (this.engine.active) return this.embeddedId ?? "file";
+    const id = this.ctx.player.state.subtitleTrack;
+    return id >= 0 ? id : null;
   }
 
   get preset(): ShowPreset | null {
@@ -166,12 +183,16 @@ export class SubtitleController {
     if (this.engine.active && state.subtitleTrack !== -1) {
       if (Date.now() < this.suppressUntil) {
         player.setSubtitleTrack(-1);
-      } else {
-        // The user chose one of VLC's tracks: ours steps aside.
+      } else if (!this.takeOverEmbedded()) {
+        // One of VLC's tracks we can't draw (a picture format) was chosen: ours steps aside.
         this.engine.unload();
         this.externalName = null;
+        this.embeddedId = null;
         this.emit();
       }
+    } else if (state.subtitleTrack !== -1) {
+      // VLC picked one of the video's own tracks (its default, or the default language).
+      this.takeOverEmbedded();
     }
     if (this.delayPending && state.playing) {
       this.delayPending = false;
@@ -186,10 +207,14 @@ export class SubtitleController {
     this.path = path;
     this.engine.unload();
     this.externalName = null;
+    this.embeddedId = null;
+    this.embedded = null;
+    this.readingEmbedded = false;
     this.error = null;
     this.defaultsDone = false;
     this.defaultsTries = 0;
     this.suppressUntil = 0;
+    if (path && !/^[a-z][a-z0-9+.-]*:\/\//i.test(path)) this.readEmbedded(path);
     this.show = path ? showOf(path) : null;
     if (!path || !this.show) {
       this.delay = 0;
@@ -228,13 +253,69 @@ export class SubtitleController {
     if (track) player.setSubtitleTrack(track.id);
   }
 
+  // ---- the video's own tracks ----------------------------------------------------------------
+
+  /** Reads the video's own subtitle tracks in the background (Matroska/WebM; others have none). */
+  private readEmbedded(path: string) {
+    this.readingEmbedded = true;
+    panelApi.embeddedSubtitles(path).then((tracks) => {
+      if (path !== this.path) return;
+      this.embedded = tracks;
+      this.readingEmbedded = false;
+      // VLC has been drawing the default track meanwhile; ours takes over without a gap.
+      this.takeOverEmbedded();
+      this.emit();
+    }).catch((err) => {
+      if (path !== this.path) return;
+      console.warn("Could not read the video's subtitle tracks:", err);
+      this.readingEmbedded = false;
+      this.emit();
+    });
+  }
+
+  /** The video's own text track behind one of VLC's subtitle track ids, when ours can draw it. */
+  private embeddedText(id: number): EmbeddedTrack | null {
+    const tracks = this.embedded;
+    const listed = this.ctx.player.state.subtitleTracks;
+    // VLC lists the file's tracks first, in file order; files added through VLC come after them.
+    if (!tracks?.length || listed.length < tracks.length) return null;
+    const track = tracks[listed.findIndex((t) => t.id === id)];
+    return track?.text && track.cues.length > 0 ? track : null;
+  }
+
+  /** If VLC is showing one of the video's own text tracks, draws it with our engine instead. */
+  private takeOverEmbedded(): boolean {
+    const id = this.ctx.player.state.subtitleTrack;
+    const track = id >= 0 ? this.embeddedText(id) : null;
+    if (!track) return false;
+    this.showEmbedded(id, track);
+    return true;
+  }
+
+  private showEmbedded(id: number, track: EmbeddedTrack) {
+    this.engine.loadCues(cuesFromTimed(track.cues), track.name || `Track ${track.index + 1}`);
+    this.embeddedId = id;
+    this.externalName = null;
+    this.suppressUntil = Date.now() + SUPPRESS_MS;
+    this.ctx.player.setSubtitleTrack(-1);
+    this.engine.setDelay(this.delay);
+    this.kick();
+    this.emit();
+  }
+
   // ---- choosing a source ---------------------------------------------------------------------
 
-  /** Shows subtitles from one of VLC's own tracks. */
+  /** Shows one of the video's tracks: drawn by us when it's text we have, else by VLC. */
   selectEmbedded(id: number) {
+    if (this.path) delete this.settings.assign[this.path];
+    const track = this.embeddedText(id);
+    if (track) {
+      this.showEmbedded(id, track);
+      return;
+    }
     this.engine.unload();
     this.externalName = null;
-    if (this.path) delete this.settings.assign[this.path];
+    this.embeddedId = null;
     this.ctx.player.setSubtitleTrack(id);
     this.emit();
   }
@@ -242,6 +323,7 @@ export class SubtitleController {
   turnOff() {
     this.engine.unload();
     this.externalName = null;
+    this.embeddedId = null;
     if (this.path) delete this.settings.assign[this.path];
     this.ctx.player.setSubtitleTrack(-1);
     this.save();
@@ -254,6 +336,7 @@ export class SubtitleController {
    */
   async useFile(path: string): Promise<void> {
     this.error = null;
+    this.embeddedId = null;
     if (!ownFormat(path)) {
       this.engine.unload();
       this.externalName = null;

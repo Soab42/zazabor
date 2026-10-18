@@ -321,6 +321,7 @@ pub fn run() {
             video::tracks::video_video_tracks,
             video::tracks::video_set_video_track,
             video::meta::video_meta,
+            video::embedded_subs::video_embedded_subtitles,
             // video: chrome and quick access
             video::audio_out::video_audio_devices,
             video::audio_out::video_set_audio_device,
