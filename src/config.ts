@@ -7,6 +7,34 @@ import { MODULE_IDS, type ModuleId } from "./shell/module";
 export type FilesView = "icon" | "list" | "column" | "gallery";
 export type FilesSortKey = "name" | "date" | "size" | "kind";
 
+export type VideoSection = "home" | "videos" | "recent";
+
+/** Where a video was left, for resuming and for the sidebar's progress bars. */
+export interface VideoPosition {
+  /** Milliseconds. */
+  time: number;
+  length: number;
+  /** When it was last watched, ms since the epoch. */
+  at: number;
+}
+
+export interface VideoSettings {
+  /** 0–1.25 (VLC allows a little boost). */
+  volume: number;
+  muted: boolean;
+  /** The sidebar (play queue / browser) is open. */
+  sidebar: boolean;
+  section: VideoSection;
+  /** Resume points by file path; trimmed to the most recent 500. */
+  positions: Record<string, VideoPosition>;
+  /** Recently played files, most recent first (max 50). */
+  recent: string[];
+  /** Control-bar items in order (Customise player); see docs/design/vlc/PLAYER.md. */
+  controls: string[];
+}
+
+export const DEFAULT_VIDEO_CONTROLS = ["previous", "play", "next", "seek", "volume", "audio", "subtitles", "settings", "playlist"];
+
 export interface FilesSettings {
   showHidden: boolean;
   view: FilesView;
@@ -18,6 +46,8 @@ export interface FilesSettings {
   pinned: string[];
   /** Where the last session ended, to reopen there. */
   lastPath: string | null;
+  /** Ask before moving items to the Trash. */
+  confirmTrash: boolean;
 }
 
 export interface Config {
@@ -41,6 +71,36 @@ export interface Config {
   /** The first-run wizard has been completed. */
   onboarded: boolean;
   files: FilesSettings;
+  video: VideoSettings;
+}
+
+const DEFAULT_VIDEO: VideoSettings = {
+  volume: 1,
+  muted: false,
+  sidebar: true,
+  section: "home",
+  positions: {},
+  recent: [],
+  controls: DEFAULT_VIDEO_CONTROLS,
+};
+
+function normalizeVideo(raw: Partial<VideoSettings> | undefined): VideoSettings {
+  const v = { ...DEFAULT_VIDEO, ...raw };
+  const positions: Record<string, VideoPosition> = {};
+  if (v.positions && typeof v.positions === "object") {
+    for (const [path, p] of Object.entries(v.positions)) {
+      if (p && typeof p.time === "number" && typeof p.length === "number" && typeof p.at === "number") positions[path] = p;
+    }
+  }
+  return {
+    volume: typeof v.volume === "number" ? Math.min(1.25, Math.max(0, v.volume)) : 1,
+    muted: v.muted === true,
+    sidebar: v.sidebar !== false,
+    section: v.section === "videos" || v.section === "recent" ? v.section : "home",
+    positions,
+    recent: Array.isArray(v.recent) ? v.recent.filter((p) => typeof p === "string").slice(0, 50) : [],
+    controls: Array.isArray(v.controls) && v.controls.every((c) => typeof c === "string") ? v.controls : DEFAULT_VIDEO_CONTROLS,
+  };
 }
 
 const DEFAULT_FILES: FilesSettings = {
@@ -51,6 +111,7 @@ const DEFAULT_FILES: FilesSettings = {
   sort: { key: "name", ascending: true },
   pinned: [],
   lastPath: null,
+  confirmTrash: false,
 };
 
 function normalizeFiles(raw: Partial<FilesSettings> | undefined): FilesSettings {
@@ -64,6 +125,7 @@ function normalizeFiles(raw: Partial<FilesSettings> | undefined): FilesSettings 
     sort: { key: sort.key, ascending: sort.ascending !== false },
     pinned: Array.isArray(f.pinned) ? f.pinned.filter((p) => typeof p === "string") : [],
     lastPath: typeof f.lastPath === "string" ? f.lastPath : null,
+    confirmTrash: f.confirmTrash === true,
   };
 }
 
@@ -89,6 +151,7 @@ const DEFAULTS: Config = {
   module: "files",
   onboarded: false,
   files: DEFAULT_FILES,
+  video: DEFAULT_VIDEO,
 };
 
 export async function loadConfig(): Promise<Config> {
@@ -110,6 +173,7 @@ export async function loadConfig(): Promise<Config> {
       module: MODULE_IDS.includes(parsed.module as ModuleId) ? (parsed.module as ModuleId) : "files",
       onboarded: parsed.onboarded === true,
       files: normalizeFiles(parsed.files),
+      video: normalizeVideo(parsed.video),
     };
   } catch (err) {
     console.warn("Could not read config, using defaults:", err);

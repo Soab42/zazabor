@@ -26,6 +26,36 @@ export interface BrowserHooks {
   pinsChanged(): void;
 }
 
+/** What feature add-ons (file operations, Quick Look, …) can see and do in the browser. */
+export interface BrowserContext {
+  readonly shell: ShellContext;
+  /** The folder the active tab shows. */
+  readonly folder: string;
+  /** Selected entries in view order; the focused entry when nothing is selected. */
+  selected(): FsEntry[];
+  focused(): FsEntry | null;
+  /** Entries of the current folder in view order (after search filtering). */
+  visible(): FsEntry[];
+  /** Re-lists the current folder now (live updates catch most changes on their own). */
+  refresh(): void;
+  /** Selects these paths (e.g. after creating or pasting) and scrolls the focus into view. */
+  select(paths: string[], focus?: string): void;
+  navigate(path: string): void;
+}
+
+/**
+ * A feature that plugs into the browser without editing it: its own shortcuts and context-menu
+ * items. Registered with `Browser.addExtension` from the module's index.
+ */
+export interface BrowserExtension {
+  /** Keys before the browser's own handling (never called while typing in a field). */
+  handleKey?(e: KeyboardEvent, ctx: BrowserContext): boolean;
+  /** Extra items for an item's context menu; `entries` are the selection the click acts on. */
+  itemMenu?(entries: FsEntry[], ctx: BrowserContext): MenuItem[];
+  /** Extra items for the context menu of empty space. */
+  emptyMenu?(ctx: BrowserContext): MenuItem[];
+}
+
 const SORT_KEYS: { key: FilesSortKey; label: string }[] = [
   { key: "name", label: "Name" },
   { key: "date", label: "Date Modified" },
@@ -57,6 +87,7 @@ export class Browser {
   private raw: FsEntry[] = [];
   private sorted: FsEntry[] = [];
   private visible: FsEntry[] = [];
+  private extensions: BrowserExtension[] = [];
   private query = "";
   private error: string | null = null;
   private loadToken = 0;
@@ -198,6 +229,38 @@ export class Browser {
     this.syncWatches();
     this.unlisten?.();
     this.unlisten = null;
+  }
+
+  addExtension(extension: BrowserExtension) {
+    this.extensions.push(extension);
+  }
+
+  /** The add-on view of the browser (see BrowserContext). */
+  get context(): BrowserContext {
+    const browser = this;
+    return {
+      shell: this.shell,
+      get folder() { return browser.tab.path; },
+      selected: () => {
+        const { selection, focus } = this.tab.sel;
+        const chosen = this.visible.filter((e) => selection.has(e.path));
+        if (chosen.length) return chosen;
+        const current = focus ? this.visible.find((e) => e.path === focus) : undefined;
+        return current ? [current] : [];
+      },
+      focused: () => this.view.focused()?.entry ?? null,
+      visible: () => this.visible,
+      refresh: () => void this.load("live"),
+      select: (paths, focus) => {
+        const sel = this.tab.sel;
+        sel.selection = new Set(paths);
+        sel.focus = sel.anchor = focus ?? paths[0] ?? null;
+        this.view.renderSelection();
+        if (sel.focus) this.view.reveal(sel.focus);
+        this.updateStatus();
+      },
+      navigate: (path) => this.navigate(path),
+    };
   }
 
   /** Settings edited `config.files` (hidden files, folders first, default view): follow along. */
@@ -542,7 +605,10 @@ export class Browser {
     e.preventDefault();
     const copy = (text: string) => void navigator.clipboard?.writeText(text).catch(() => {});
     let items: MenuItem[];
+    const ctx = this.context;
+    const extra = (groups: MenuItem[][]) => groups.filter((g) => g.length).flatMap((g): MenuItem[] => ["separator", ...g]);
     if (entry) {
+      const entries = this.tab.sel.selection.has(entry.path) ? ctx.selected() : [entry];
       const pinned = this.isPinned(entry.path);
       items = [
         { label: "Open", icon: iconNameFor(categoryOf(entry)), action: () => this.openEntry(entry, this.view.focused()?.folder) },
@@ -557,6 +623,7 @@ export class Browser {
               action: () => (pinned ? this.unpin(entry.path) : this.pin(entry.path)),
             }]
           : []),
+        ...extra(this.extensions.map((x) => x.itemMenu?.(entries, ctx) ?? [])),
       ];
     } else {
       items = [
@@ -572,6 +639,7 @@ export class Browser {
           action: () => this.toggleHidden(),
         },
         { label: "New Tab", icon: "plus", action: () => this.newTab() },
+        ...extra(this.extensions.map((x) => x.emptyMenu?.(ctx) ?? [])),
       ];
     }
     openMenu(e.clientX, e.clientY, items);
@@ -633,6 +701,8 @@ export class Browser {
       }
     }
     if (isTypingTarget(e.target)) return false;
+    const ctx = this.context;
+    for (const extension of this.extensions) if (extension.handleKey?.(e, ctx)) return true;
     if (mod && !e.altKey && !e.shiftKey && key === "a") {
       this.view.selectAll();
       return true;
