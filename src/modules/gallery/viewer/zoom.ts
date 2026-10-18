@@ -1,6 +1,6 @@
 import { clamp } from "../../../ui/dom";
 import { Canvas2DDrawer, GLDrawer, GRID_ABOVE, type DrawItem, type ZoomDrawer } from "./drawers";
-import { cubicBezier, easeFrom, easeMove, slopeAt, WHEEL_CURVE, type Curve } from "./easing";
+import { cubicBezier, easeFrom, easeMove, slopeAt, startSlope, WHEEL_CURVE, type Curve } from "./easing";
 import type { Tile, TiledImage } from "./tiles";
 
 export interface ZoomLayer {
@@ -28,6 +28,8 @@ export const MAX_SCALE = 128;
 /** Device pixels per image pixel above which pixels are drawn as crisp squares. */
 const CRISP_ABOVE = 2.5;
 const STEP_MS = 300;
+/** How much a step may be shortened or lengthened to carry on the zoom's speed. */
+const STEP_STRETCH = [0.5, 2] as const;
 const MOVE_MS = 320;
 /** A new photo fades up from the background; the previous one is never drawn over it. */
 const FADE_IN_MS = 140;
@@ -446,14 +448,20 @@ export class ZoomView {
     const now = performance.now();
     const fromLog = Math.log(this.scale);
     const toLog = Math.log(scale);
-    // A zoom already under way hands its speed on, so the new curve starts where the old one was
-    // heading rather than lurching forward or stopping dead.
+    // A zoom already under way hands its speed on, so the new move doesn't lurch forward or stop dead.
     const running = this.tween;
     if (running && toLog !== fromLog) {
       const t = Math.min(1, (now - running.start) / running.duration);
       const speed = ((running.toLog - running.fromLog) * slopeAt(running.ease, t)) / running.duration;
       const slope = (speed * duration) / (toLog - fromLog);
-      if (slope > 0) ease = easeFrom(slope, this.stepCurve);
+      if (slope > 0 && ease === this.stepEase) {
+        // Steps keep the chosen curve whole, every notch: the step's length is what changes, so the
+        // curve starts at the speed the zoom already has (within reason).
+        const start = startSlope(this.stepCurve);
+        if (start > 0) duration = clamp((duration * start) / slope, duration * STEP_STRETCH[0], duration * STEP_STRETCH[1]);
+      } else if (slope > 0) {
+        ease = easeFrom(slope, this.stepCurve);
+      }
     }
     this.tween = { ...path, start: now, duration, ease, fromLog, toLog };
     this.startLoop();

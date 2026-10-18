@@ -48,6 +48,13 @@ export function easeFrom(slope: number, curve: Curve) {
   return cubicBezier(x1, slope * x1, curve[2], curve[3]);
 }
 
+/** How fast a curve starts: eased progress per unit of time progress at x = 0 (y1 / x1). */
+export function startSlope(curve: Curve): number {
+  const [x1, y1] = curve;
+  if (x1 <= 0) return y1 > 0 ? Infinity : 0;
+  return Math.max(0, y1 / x1);
+}
+
 /** The slope of an easing function at x, measured numerically. */
 export function slopeAt(ease: (x: number) => number, x: number) {
   const a = Math.max(0, x - 1e-3);
