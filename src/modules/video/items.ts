@@ -69,11 +69,10 @@ export function sanitizeControls(ids: string[]): string[] {
 /** The bar as laid out by the redesign: transport and volume on the left, tracks, queue, side panel and fullscreen on the right. */
 export const REDESIGN_CONTROLS = ["previous", "play", "next", "volume", "seek", "audio", "subtitles", "playlist", "settings", "fullscreen"];
 
-/** The default bar before the redesign (what `config.ts` still ships); saved bars that equal it get the new one. */
+/** The default bar before the redesign; saved bars that equal it get the new one. */
 const OLD_DEFAULT_CONTROLS = ["previous", "play", "next", "seek", "volume", "audio", "subtitles", "settings", "playlist"];
 
 /** The bar to show for a saved list: the old stock layout is upgraded, custom layouts are kept. */
-/** Upgrades a bar saved with the pre-redesign default to the redesign layout; custom bars are kept. */
 export function effectiveControls(saved: string[]): string[] {
   const same = saved.length === OLD_DEFAULT_CONTROLS.length && saved.every((id, i) => id === OLD_DEFAULT_CONTROLS[i]);
   return same ? REDESIGN_CONTROLS : saved;
