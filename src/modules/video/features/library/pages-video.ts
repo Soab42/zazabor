@@ -98,11 +98,12 @@ export function homePage(env: PageEnv): PageResult {
   if (watching.length > 0) {
     body.append(heading("Continue watching"), shelf(...watching.map(({ path, position }) => {
       const file = lib.folders?.flatMap((f) => f.videos).find((v) => v.path === path);
+      const stream = isUrl(path);
       return card({
-        art: art({ src: videoThumb(path, file?.mtime ?? 0, 400), icon: "film", progress: progressOf(position) }),
-        title: stripExtension(basename(path)),
+        art: art({ src: stream ? null : videoThumb(path, file?.mtime ?? 0, 400), icon: stream ? "network" : "film", progress: progressOf(position) }),
+        title: lib.label(path),
         subtitle: formatRemaining(position.time, position.length),
-        detail: basename(dirname(path)),
+        detail: lib.sublabel(path),
         playing: lib.player.current === path,
         onOpen: () => lib.playAll([path]),
         onMenu: (x, y) => videoMenu(env, x, y, path, [path]),

@@ -275,9 +275,20 @@ export class Library implements LibraryService {
     if (song) return song.title;
     const named = this.labels.get(path);
     if (named) return named;
+    if (isUrl(path)) this.loadChannelNames();
     const info = this.infos.get(path);
     if (info?.title && isAudioPath(path)) return info.title;
     return isUrl(path) ? nameFromUrl(path) : stripExtension(basename(path));
+  }
+
+  private channelNamesAsked = false;
+
+  /** Channel names live in the IPTV playlists' channel lists: read them once, so a stream seen
+   *  before (Continue watching, Recent) isn't shown by its address after a restart. */
+  private loadChannelNames() {
+    if (this.channelNamesAsked) return;
+    this.channelNamesAsked = true;
+    for (const playlist of this.settings.playlists) if (playlist.source) this.itemsOf(playlist);
   }
 
   /** The second line for a queue/list row: artist, folder or address. */
