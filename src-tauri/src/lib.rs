@@ -287,7 +287,15 @@ pub fn run() {
             fs::fs_rename,
             fs::fs_new_folder,
             fs::fs_duplicate,
-            fs::fs_undo
+            fs::fs_undo,
+            // quick look and info
+            fs::fs_read_text,
+            fs::fs_read_binary,
+            fs::fs_info,
+            fs::fs_folder_size,
+            fs::fs_folder_size_cancel,
+            fs::fs_tags_get,
+            fs::fs_tags_set
         ])
         .run(tauri::generate_context!())
         .expect("error while running CorePro");

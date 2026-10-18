@@ -2,6 +2,7 @@ import type { AppModule, ModuleFactory } from "../../shell/module";
 import { h } from "../../ui/dom";
 import { Browser } from "./browser";
 import { createFileOps } from "./ops";
+import { createInfoExtension } from "./info/extension";
 import { Sidebar } from "./sidebar";
 import "./files.css";
 
@@ -21,6 +22,8 @@ export const createFilesModule: ModuleFactory = (shell) => {
   });
   el.append(sidebar.el, browser.el);
   browser.addExtension(createFileOps(el));
+  const info = createInfoExtension(el, shell);
+  browser.addExtension(info);
 
   const module: AppModule = {
     id: "files",
@@ -42,6 +45,7 @@ export const createFilesModule: ModuleFactory = (shell) => {
     },
     dispose() {
       sidebar.dispose();
+      info.dispose();
       browser.dispose();
     },
   };

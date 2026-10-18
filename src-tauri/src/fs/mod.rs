@@ -2,10 +2,13 @@
 //! watching and "open with the default app". The command shapes mirror
 //! `src/modules/files/api.ts`.
 
+mod info;
 mod jobs;
 mod list;
 mod names;
 mod ops;
+mod tags;
+mod text;
 mod trash;
 mod volumes;
 mod watch;
@@ -218,6 +221,66 @@ pub async fn fs_undo(ops: Vec<ops::UndoOp>) -> Result<ops::UndoReport, String> {
     tauri::async_runtime::spawn_blocking(move || ops::apply_undo(&ops, &trash))
         .await
         .map_err(|e| e.to_string())
+}
+
+// ---- quick look and info ----------------------------------------------------------------------
+
+/// The start of a file as text, for Quick Look.
+#[tauri::command]
+pub async fn fs_read_text(path: String, max_bytes: usize) -> Result<text::TextPreview, String> {
+    ensure_unlocked()?;
+    tauri::async_runtime::spawn_blocking(move || text::read_text(Path::new(&path), max_bytes))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// A file's raw bytes (up to `max_bytes`), answered as a binary IPC response.
+#[tauri::command]
+pub async fn fs_read_binary(path: String, max_bytes: u64) -> Result<tauri::ipc::Response, String> {
+    ensure_unlocked()?;
+    tauri::async_runtime::spawn_blocking(move || text::read_bytes(Path::new(&path), max_bytes))
+        .await
+        .map_err(|e| e.to_string())?
+        .map(tauri::ipc::Response::new)
+}
+
+/// Metadata for Get Info.
+#[tauri::command]
+pub async fn fs_info(path: String) -> Result<info::FsInfo, String> {
+    ensure_unlocked()?;
+    tauri::async_runtime::spawn_blocking(move || info::info(Path::new(&path)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Starts measuring a folder; answers with a job id and streams `fs-size` events.
+#[tauri::command]
+pub fn fs_folder_size(app: tauri::AppHandle, path: String) -> Result<u64, String> {
+    ensure_unlocked()?;
+    Ok(info::start_folder_size(app, PathBuf::from(path)))
+}
+
+#[tauri::command]
+pub fn fs_folder_size_cancel(id: u64) {
+    info::cancel_folder_size(id);
+}
+
+/// The colour tags of each path (paths without tags are left out).
+#[tauri::command]
+pub async fn fs_tags_get(paths: Vec<String>) -> Result<std::collections::HashMap<String, Vec<String>>, String> {
+    ensure_unlocked()?;
+    tauri::async_runtime::spawn_blocking(move || tags::get_many(&paths))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Replaces a path's tags; rejects when the filesystem has no user extended attributes.
+#[tauri::command]
+pub async fn fs_tags_set(path: String, tags: Vec<String>) -> Result<(), String> {
+    ensure_unlocked()?;
+    tauri::async_runtime::spawn_blocking(move || tags::set(Path::new(&path), &tags))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]

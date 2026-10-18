@@ -1,0 +1,177 @@
+/* ---- Quick Look -----------------------------------------------------------------------------
+   A large strong-glass overlay centred over its host. Colours come from the tokens in styles.css;
+   the syntax palette mixes fixed hues into --text so it stays legible in light and dark. */
+
+.ql-overlay {
+  position: absolute; inset: 0; z-index: 30; display: grid; place-items: center; padding: var(--space-5);
+  background: color-mix(in srgb, var(--bg) 42%, transparent);
+  animation: fade-in var(--dur-med) var(--ease-out);
+}
+.ql-overlay.closing { pointer-events: none; animation: ql-fade-out 140ms var(--ease-out) forwards; }
+@keyframes ql-fade-out { to { opacity: 0; } }
+@keyframes ql-in { from { opacity: 0; transform: scale(0.965); } }
+@keyframes ql-out { to { opacity: 0; transform: scale(0.985); } }
+
+.ql-panel {
+  display: flex; flex-direction: column; width: min(980px, 100%); height: min(780px, 100%); min-width: 0;
+  overflow: hidden; border-radius: var(--radius-xl);
+  box-shadow: inset 0 1px 0 var(--spec), var(--elev-4);
+  outline: none; animation: ql-in 200ms var(--ease-out);
+}
+.ql-overlay.closing .ql-panel { animation: ql-out 140ms var(--ease-out) forwards; }
+
+.ql-head {
+  flex: none; display: flex; align-items: center; gap: var(--space-3); min-height: 56px; padding: 0 var(--space-3) 0 var(--space-4);
+  box-shadow: inset 0 -0.5px 0 var(--line-strong);
+}
+.ql-glyph { display: grid; flex: none; color: var(--accent); }
+.ql-heading { flex: 1; min-width: 0; }
+.ql-title {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--text-lg); font-weight: 650; letter-spacing: -0.01em;
+}
+.ql-sub {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px;
+  color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums;
+}
+.ql-actions { display: flex; flex: none; align-items: center; gap: var(--space-1); }
+.ql-sep { width: 0.5px; height: 18px; margin: 0 var(--space-2); background: var(--line-strong); }
+.ql-icon:disabled { opacity: 0.35; pointer-events: none; }
+.ql-open[hidden] { display: none; }
+
+.ql-body { position: relative; flex: 1; min-height: 0; overflow: auto; background: rgba(var(--fg), 0.025); }
+.ql-stage { position: relative; display: flex; min-height: 100%; animation: fade-in 180ms var(--ease-out); }
+.ql-stage > * { flex: 1; min-width: 0; }
+.ql-fill { position: relative; display: flex; flex-direction: column; }
+.ql-loading { position: absolute; inset: 0; display: grid; place-items: center; }
+
+/* ---- images and video posters ---------------------------------------------------------------- */
+
+.ql-image-frame, .ql-video { position: absolute; inset: 0; display: grid; place-items: center; padding: var(--space-4); }
+.ql-image {
+  display: block; max-width: 100%; max-height: 100%; object-fit: contain; border-radius: var(--radius-sm);
+  box-shadow: var(--elev-2); background: var(--tile); opacity: 0; transition: opacity 250ms var(--ease-out);
+}
+.ql-image.loaded { opacity: 1; }
+.ql-poster { position: relative; display: grid; max-width: 100%; max-height: 100%; place-items: center; }
+.ql-poster .ql-image { grid-area: 1 / 1; }
+.ql-play {
+  grid-area: 1 / 1; display: grid; place-items: center; width: 72px; height: 72px; padding: 0 0 0 4px; border: 0; border-radius: 50%;
+  color: var(--text); background: var(--chip); -webkit-backdrop-filter: var(--blur-chip); backdrop-filter: var(--blur-chip);
+  box-shadow: inset 0 0 0 0.5px var(--line-strong), var(--elev-2); cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.ql-play:hover { background: var(--chip-strong); transform: scale(1.05); }
+.ql-play:active { transform: scale(0.97); }
+.ql-play:focus-visible { outline: none; box-shadow: inset 0 0 0 0.5px var(--line-strong), 0 0 0 3px var(--focus); }
+
+/* ---- cards: folders, audio, anything without a visual preview -------------------------------- */
+
+.ql-card {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-1);
+  margin: auto; padding: var(--space-6) var(--space-5); max-width: 440px; text-align: center;
+}
+.ql-card-art { display: grid; place-items: center; width: 112px; height: 96px; margin-bottom: var(--space-3); color: var(--accent); }
+.ql-card-art .folder-glyph { width: 112px; height: auto; }
+.ql-card-name {
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--text-xl); font-weight: 650; letter-spacing: -0.015em;
+}
+.ql-card-line { color: var(--muted); font-size: var(--text-md); font-variant-numeric: tabular-nums; }
+.ql-card-note { margin-top: var(--space-3); color: var(--faint); font-size: var(--text-sm); }
+.ql-live { transition: color var(--dur-med) var(--ease-out); }
+.ql-live:not(.done) { color: var(--faint); }
+.ql-audio { width: min(380px, 100%); margin-top: var(--space-4); height: 40px; border-radius: var(--radius-lg); color-scheme: light dark; }
+
+/* ---- text and code --------------------------------------------------------------------------- */
+
+.ql-code {
+  --hl-kw: color-mix(in oklch, oklch(0.68 0.19 320) 65%, var(--text));
+  --hl-str: color-mix(in oklch, oklch(0.72 0.15 150) 62%, var(--text));
+  --hl-com: var(--faint);
+  --hl-num: color-mix(in oklch, oklch(0.74 0.15 60) 62%, var(--text));
+  --hl-fn: color-mix(in oklch, oklch(0.7 0.15 245) 62%, var(--text));
+  --hl-type: color-mix(in oklch, oklch(0.74 0.12 195) 62%, var(--text));
+  --hl-attr: color-mix(in oklch, oklch(0.72 0.14 25) 55%, var(--text));
+  --hl-var: color-mix(in oklch, oklch(0.74 0.13 90) 55%, var(--text));
+  display: flex; min-width: min-content; min-height: 100%; font: 12.5px/1.6 var(--mono); tab-size: 4;
+  font-variant-ligatures: none;
+}
+.ql-gutter {
+  position: sticky; left: 0; z-index: 1; flex: none; padding: var(--space-4) var(--space-3) var(--space-4) var(--space-4);
+  color: var(--faint); text-align: right; white-space: pre; user-select: none; font-variant-numeric: tabular-nums;
+  background: var(--bg-raised); box-shadow: inset -0.5px 0 0 var(--line);
+}
+.ql-pre { flex: 1; margin: 0; padding: var(--space-4) var(--space-5) var(--space-4) var(--space-4); overflow: visible; color: var(--text); }
+.ql-pre code { font: inherit; }
+.ql-line { white-space: pre; }
+.hl-kw { color: var(--hl-kw); }
+.hl-str { color: var(--hl-str); }
+.hl-com { color: var(--hl-com); font-style: italic; }
+.hl-num { color: var(--hl-num); }
+.hl-fn { color: var(--hl-fn); }
+.hl-type { color: var(--hl-type); }
+.hl-tag { color: var(--hl-kw); }
+.hl-attr { color: var(--hl-attr); }
+.hl-var { color: var(--hl-var); }
+.ql-truncated {
+  position: sticky; bottom: 0; flex: none; padding: var(--space-2) var(--space-4); text-align: center;
+  color: var(--muted); font-size: var(--text-sm); background: var(--bg-raised); box-shadow: inset 0 0.5px 0 var(--line-strong);
+}
+
+/* ---- markdown -------------------------------------------------------------------------------- */
+
+.ql-doc { padding: var(--space-5) var(--space-6) var(--space-6); }
+.md { max-width: 720px; margin: 0 auto; color: var(--text-2); font-size: var(--text-lg); line-height: 1.65; overflow-wrap: anywhere; }
+.md > :first-child { margin-top: 0; }
+.md p, .md ul, .md ol, .md blockquote, .md .ql-code, .md .md-table-wrap { margin: 0 0 var(--space-3); }
+.md-h { margin: var(--space-5) 0 var(--space-2); color: var(--text); font-weight: 700; letter-spacing: -0.02em; line-height: 1.25; }
+h1.md-h { font-size: var(--text-2xl); padding-bottom: var(--space-2); box-shadow: inset 0 -0.5px 0 var(--line-strong); }
+h2.md-h { font-size: var(--text-xl); }
+h3.md-h { font-size: var(--text-lg); }
+h4.md-h, h5.md-h, h6.md-h { font-size: var(--text-md); }
+.md strong { color: var(--text); font-weight: 650; }
+.md ul, .md ol { padding-left: var(--space-5); }
+.md li > p { margin-bottom: var(--space-1); }
+.md li > ul, .md li > ol { margin: var(--space-1) 0; }
+.md blockquote { padding: 0 var(--space-4); border-left: 3px solid var(--line-strong); color: var(--muted); }
+.md hr { height: 0; margin: var(--space-4) 0; border: 0; box-shadow: 0 0.5px 0 var(--line-strong); }
+.md-code {
+  padding: 1px 5px; border-radius: 5px; background: var(--control); box-shadow: inset 0 0 0 0.5px var(--line);
+  font: 0.86em var(--mono); color: var(--text);
+}
+.md-link { color: var(--accent); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent); text-underline-offset: 2px; }
+.md-image { padding: 0 5px; border-radius: 5px; background: var(--control); color: var(--muted); font-size: 0.9em; }
+.md .ql-code {
+  min-height: 0; border-radius: var(--radius-md); overflow: auto; background: var(--control); box-shadow: inset 0 0 0 0.5px var(--line);
+  font-size: 12px;
+}
+.md .ql-code .ql-gutter { display: none; }
+.md .ql-pre { padding: var(--space-3) var(--space-4); }
+.md-table-wrap { overflow-x: auto; }
+.md table { border-collapse: collapse; font-size: var(--text-md); font-variant-numeric: tabular-nums; }
+.md th, .md td { padding: 6px 12px; text-align: left; box-shadow: inset 0 -0.5px 0 var(--line); }
+.md th { color: var(--text); font-weight: 650; box-shadow: inset 0 -0.5px 0 var(--line-strong); }
+
+/* ---- pdf ------------------------------------------------------------------------------------- */
+
+.ql-pdf { display: flex; flex-direction: column; align-items: center; gap: var(--space-4); padding: var(--space-5) var(--space-4); }
+.ql-pdf-page { display: block; max-width: 100%; height: auto; border-radius: 3px; background: white; box-shadow: var(--elev-2); }
+.ql-pdf-more { color: var(--muted); font-size: var(--text-sm); }
+
+/* ---- compact preview thumbnail (Get Info) ---------------------------------------------------- */
+
+.ql-thumb, .ql-thumb-art { display: grid; place-items: center; width: 100%; height: 100%; }
+.ql-thumb-art { color: var(--accent); }
+.ql-thumb-art .folder-glyph { width: 84px; height: auto; }
+.ql-thumb-img {
+  max-width: 100%; max-height: 100%; object-fit: contain; border-radius: var(--radius-sm); background: var(--tile);
+  opacity: 0; transition: opacity 250ms var(--ease-out);
+}
+.ql-thumb-img.loaded { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ql-panel, .ql-overlay.closing .ql-panel { animation: fade-in var(--dur-med) var(--ease-out); }
+  .ql-overlay.closing .ql-panel { animation: ql-fade-out 140ms var(--ease-out) forwards; }
+  .ql-play:hover { transform: none; }
+}
