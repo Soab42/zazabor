@@ -6,6 +6,7 @@ mod migrate;
 mod music;
 mod protocol;
 mod scan;
+mod video;
 
 use std::path::{Path, PathBuf};
 use tauri::Manager;
@@ -260,7 +261,20 @@ pub fn run() {
             fs::fs_volumes,
             fs::fs_watch,
             fs::fs_unwatch,
-            fs::fs_open_default
+            fs::fs_open_default,
+            // video
+            video::video_open,
+            video::video_set_paused,
+            video::video_stop,
+            video::video_seek,
+            video::video_set_volume,
+            video::video_set_muted,
+            video::video_set_rate,
+            video::video_set_audio_track,
+            video::video_set_subtitle_track,
+            video::video_add_subtitle,
+            video::video_state,
+            video::video_list
         ])
         .run(tauri::generate_context!())
         .expect("error while running CorePro");

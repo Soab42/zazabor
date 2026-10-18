@@ -113,6 +113,7 @@ pub fn lock_status() -> LockStatus {
 pub fn lock_now() {
     if current().1.mode != LockMode::Off {
         LOCKED.store(true, Ordering::SeqCst);
+        crate::video::stop_all();
     }
 }
 
