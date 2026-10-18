@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { homeDir } from "@tauri-apps/api/path";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { applyAppearance } from "../appearance";
 import { adoptConfig, CONFIG_SAVED, parseConfig, type Config } from "../config";
@@ -73,11 +74,15 @@ export async function startViewer(config: Config, path: string) {
 const PROJECT_MARKERS = new Set([".git", ".hg", "package.json", "Cargo.toml", "pyproject.toml", "go.mod", "pom.xml",
   "build.gradle", "composer.json", "Gemfile", "deno.json", ".vscode"]);
 
-/** The project a folder belongs to (the nearest folder at or above it with a marker), else the folder itself. */
+/**
+ * The project a folder belongs to (the nearest folder at or above it with a marker), else the
+ * folder itself. The home folder is never the project, even with a .git or package.json in it.
+ */
 async function projectRoot(dir: string): Promise<string> {
   if (isCloudPath(dir)) return dir;
+  const home = (await homeDir().catch(() => "")).replace(/\/+$/, "");
   let at = dir;
-  for (let depth = 0; depth < 8; depth++) {
+  for (let depth = 0; depth < 8 && at !== home; depth++) {
     const entries = await fsApi.list(at, true).catch(() => [] as FsEntry[]);
     if (entries.some((e) => PROJECT_MARKERS.has(e.name))) return at;
     const parent = dirname(at);

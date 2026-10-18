@@ -1,0 +1,8 @@
+/* ---- The Terminal section: tabs in a glass bar over the terminal ---- */
+.term-module { display: flex; flex-direction: column; background: var(--bg); }
+.term-module .tt-bar {
+  height: 44px; padding: 0 12px 0 10px;
+  background: var(--glass-surface, var(--glass)); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+}
+.term-module .tt-tab { height: 30px; }
+.term-module .tv { inset: 10px 8px 8px 16px; }

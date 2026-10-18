@@ -12,6 +12,7 @@ import { Rail } from "./rail";
 import { MODULES } from "./registry";
 import { classifyPath } from "./router";
 import { Settings } from "./settings";
+import { isTerminalTarget } from "../terminal/target";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { closeThisWindow, isFileWindow, isMainWindow, onOthers, openWindow, tellOthers, windowStart } from "./windows";
@@ -98,6 +99,8 @@ export class Shell implements ShellContext {
     // An extra window starts where it was asked to; the main window where it was left.
     const wanted = windowStart && windowStart.module !== "viewer" ? windowStart.module : this.config.module;
     const first = this.config.features[wanted] ? wanted : this.enabledModules()[0];
+    // A Terminal window starts its first shell in the folder it was opened for.
+    if (first === "terminal" && windowStart?.path) (await this.ensure("terminal"))?.open?.({ kind: "folder", path: windowStart.path });
     await this.activate(first);
     const path = windowStart?.path;
     if (path && first === wanted) {
@@ -328,6 +331,13 @@ export class Shell implements ShellContext {
 
   private onKey(e: KeyboardEvent) {
     if (document.body.classList.contains("app-locked")) return;
+    // Keys typed into a terminal are the shell's (Ctrl+L clears the screen, Ctrl+N is history…);
+    // only the terminal's own shortcuts apply there.
+    if (isTerminalTarget(e.target)) {
+      const active = this.active ? this.modules.get(this.active) : undefined;
+      if (active?.handleKey(e)) e.preventDefault();
+      return;
+    }
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.key.toLowerCase() === "l" && this.lock.enabled) {
       e.preventDefault();

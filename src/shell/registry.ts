@@ -27,7 +27,13 @@ export const MODULES: Record<ModuleId, ModuleMeta> = {
   video: {
     title: "Video",
     icon: "video",
-    blurb: "A calm, VLC-powered video player (coming soon).",
+    blurb: "A calm, VLC-powered video player with a media library, streams and subtitles.",
     load: async () => (await import("../modules/video")).createVideoModule,
+  },
+  terminal: {
+    title: "Terminal",
+    icon: "terminal",
+    blurb: "Your shell in glass tabs, also built into the code editor.",
+    load: async () => (await import("../modules/terminal")).createTerminalModule,
   },
 };

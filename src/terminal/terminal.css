@@ -1,0 +1,23 @@
+/* ---- Terminals: tabs over xterm.js, in the Terminal section and the editor's panel ---- */
+.tt { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.tt-bar { display: flex; align-items: center; gap: 4px; flex: none; height: 34px; padding: 0 8px 0 6px; box-shadow: inset 0 -0.5px 0 var(--line-strong); }
+.tt-strip { display: flex; flex: 1; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.tt-strip::-webkit-scrollbar { display: none; }
+.tt-tab {
+  display: flex; align-items: center; gap: 6px; flex: none; max-width: 200px; height: 26px; padding: 0 4px 0 10px; border-radius: 7px;
+  color: var(--muted); font-size: var(--text-sm); cursor: default;
+}
+.tt-tab:hover { background: var(--hover); color: var(--text-2); }
+.tt-tab.active { background: var(--control); color: var(--text); box-shadow: inset 0 0 0 0.5px var(--line); }
+.tt-tab .icon { flex: none; color: var(--accent); }
+.tt-tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tt-tab-close { display: grid; place-items: center; flex: none; width: 18px; height: 18px; border: 0; border-radius: 5px; background: none; color: var(--muted); opacity: 0; cursor: pointer; }
+.tt-tab:hover .tt-tab-close, .tt-tab.active .tt-tab-close { opacity: 1; }
+.tt-tab-close:hover { background: var(--control-hover); color: var(--text); }
+.tt-body { position: relative; flex: 1; min-height: 0; }
+
+.tv { position: absolute; inset: 6px 4px 4px 12px; }
+.tv[hidden] { display: none; }
+.tv .xterm { height: 100%; }
+.tv .xterm-viewport { background: transparent !important; scrollbar-width: thin; }
+.tv .xterm-screen { width: 100% !important; }

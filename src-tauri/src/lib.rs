@@ -1,11 +1,13 @@
 mod dims;
 mod fs;
+mod git;
 mod imaging;
 mod lock;
 mod migrate;
 mod music;
 mod protocol;
 mod scan;
+mod term;
 mod video;
 
 use std::path::{Path, PathBuf};
@@ -255,6 +257,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 video::window_closed(window.label());
+                term::window_closed(window.label());
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -274,6 +277,22 @@ pub fn run() {
             lock::lock_status,
             lock::lock_now,
             open_window,
+            term::term_spawn,
+            term::term_write,
+            term::term_resize,
+            term::term_kill,
+            term::term_info,
+            git::git_status,
+            git::git_show,
+            git::git_stage,
+            git::git_unstage,
+            git::git_discard,
+            git::git_commit,
+            git::git_push,
+            git::git_pull,
+            git::git_branches,
+            git::git_checkout,
+            git::git_init,
             lock::unlock,
             lock::confirm_identity,
             lock::set_lock,

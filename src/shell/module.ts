@@ -2,9 +2,9 @@ import type { Config } from "../config";
 import type { IconName } from "../ui/icons";
 
 /** The features CorePro is made of; each can be turned off in Settings. */
-export type ModuleId = "files" | "gallery" | "video";
+export type ModuleId = "files" | "gallery" | "video" | "terminal";
 
-export const MODULE_IDS: readonly ModuleId[] = ["files", "gallery", "video"];
+export const MODULE_IDS: readonly ModuleId[] = ["files", "gallery", "video", "terminal"];
 
 /** Something one module asks the shell to show, usually in another module. */
 export type OpenRequest =
