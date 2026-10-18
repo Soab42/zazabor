@@ -147,6 +147,10 @@ export class VideoModule implements AppModule {
       openPanel: (tab) => this.setPanel(true, tab),
       closePanel: () => this.setPanel(false),
       showPlayer: () => this.setView("player"),
+      configChanged: () => {
+        this.shell.saveConfig();
+        this.configChanged();
+      },
     };
   }
 

@@ -32,6 +32,8 @@ export interface VideoContext {
   closePanel(): void;
   /** Shows a library page or the player. */
   showPlayer(): void;
+  /** Saves the config and re-applies the module's part of it (control bar, sections). */
+  configChanged(): void;
 }
 
 export interface PanelTab {

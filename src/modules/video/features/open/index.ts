@@ -1,4 +1,3 @@
-import type { ShellContext } from "../../../../shell/module";
 import type { MenuItem } from "../../../../ui/menu";
 import type { FeatureFactory, MenuPlace } from "../../extensions";
 import { formatTime } from "../../format";
@@ -21,16 +20,6 @@ const OPTION_KEYS: (keyof MediaSettings)[] = [
 ];
 
 /**
- * Tells the Video module its part of the config changed (it re-renders the control bar). The
- * shell's own method is the only route: features don't get a hook for it.
- */
-function notifyConfigChanged(shell: ShellContext) {
-  const shellWithHook = shell as unknown as { configChanged?: () => void };
-  if (typeof shellWithHook.configChanged === "function") shellWithHook.configChanged();
-  else shell.saveConfig();
-}
-
-/**
  * Opening media beyond files (web streams, cameras, clipboard, recent), Convert, Stream to
  * Device, profiles, the keyboard-shortcuts dialog, the first-run intro, and the player's
  * behaviour settings (resume, default speed, skip interval, on-screen messages, accent).
@@ -39,7 +28,7 @@ export const createMediaTools: FeatureFactory = (ctx) => {
   const { shell, player } = ctx;
   const root = ctx.stageLayer.closest<HTMLElement>(".vp");
   const settings = () => mediaSettings(shell);
-  const profileHost: ProfileHost = { config: shell.config, save: () => shell.saveConfig(), changed: () => notifyConfigChanged(shell) };
+  const profileHost: ProfileHost = { config: shell.config, save: () => shell.saveConfig(), changed: () => ctx.configChanged() };
 
   const restorePlayback = installPlaybackSettings(ctx);
   const convert = createConvert(ctx);

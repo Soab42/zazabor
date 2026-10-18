@@ -1,5 +1,6 @@
 import type { FeatureFactory, MenuPlace, VideoFeature } from "../../extensions";
 import type { MenuItem } from "../../../../ui/menu";
+import { playlistHook } from "../../media-api";
 import { createMiniFeature } from "../mini";
 import { StageCover } from "./stage";
 import { Library } from "./store";
@@ -15,6 +16,8 @@ export const createLibraryFeature: FeatureFactory = (ctx) => {
   lib.playFn = (path, queue) => void ctx.play(path, queue);
   const cover = new StageCover(ctx, lib);
   const mini = createMiniFeature(ctx);
+  // A pasted IPTV/M3U address from the Network Stream dialog is kept as a playlist of channels.
+  playlistHook.importPlaylist = async (url) => (await lib.addStream(url)).kind === "playlist";
 
   const current = () => (ctx.player.current ? [ctx.player.current] : []);
 
@@ -33,6 +36,7 @@ export const createLibraryFeature: FeatureFactory = (ctx) => {
     },
     handleKey: (e) => mini.handleKey?.(e) ?? false,
     dispose() {
+      playlistHook.importPlaylist = undefined;
       mini.dispose?.();
       cover.dispose();
       lib.dispose();

@@ -36,12 +36,10 @@ export async function playAddress(ctx: VideoContext, raw: string): Promise<strin
       console.warn("Could not read the playlist:", err);
       return "That playlist could not be read. Check the address and your connection.";
     }
+    if (!entries.length) return "That playlist is empty.";
     if (entries.length > 1 && playlistHook.importPlaylist) {
       try {
-        if (await playlistHook.importPlaylist(address, entries)) {
-          ctx.showOsd(`Playlist added · ${entries.length} entries`);
-          return null;
-        }
+        if (await playlistHook.importPlaylist(address, entries)) ctx.showOsd(`Saved to Playlists · ${entries.length} entries`);
       } catch (err) {
         console.warn("Playlist import failed:", err);
       }
