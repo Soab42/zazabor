@@ -63,6 +63,28 @@ pub type FormatCb = unsafe extern "C" fn(
 pub type CleanupCb = unsafe extern "C" fn(opaque: *mut c_void);
 pub type EventCb = unsafe extern "C" fn(event: *const libvlc_event_t, data: *mut c_void);
 
+/// libvlc_media_track_t (`vlc/libvlc_media.h`), shared by the library parser and the Playback tab.
+#[repr(C)]
+pub struct MediaTrack {
+    pub codec: u32,
+    pub original_fourcc: u32,
+    pub id: c_int,
+    pub kind: c_int,
+    pub profile: c_int,
+    pub level: c_int,
+    /// Union of audio / video / subtitle details; points at the struct matching `kind`.
+    pub details: *mut c_void,
+    pub bitrate: c_uint,
+    pub language: *mut c_char,
+    pub description: *mut c_char,
+}
+
+#[link(name = "vlc")]
+extern "C" {
+    pub fn libvlc_media_tracks_get(media: *mut libvlc_media_t, tracks: *mut *mut *mut MediaTrack) -> c_uint;
+    pub fn libvlc_media_tracks_release(tracks: *mut *mut MediaTrack, count: c_uint);
+}
+
 #[link(name = "vlc")]
 extern "C" {
     pub fn libvlc_new(argc: c_int, argv: *const *const c_char) -> *mut libvlc_instance_t;

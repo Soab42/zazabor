@@ -1,26 +1,10 @@
 //! Metadata of the current media for the Playback tab: tags and per-stream details.
 
 use super::frame::lock_ignore_poison;
-use super::vlc::{libvlc_media_player_t, libvlc_media_t};
+use super::vlc::{libvlc_media_player_t, libvlc_media_t, libvlc_media_tracks_get, libvlc_media_tracks_release, MediaTrack};
 use super::{ensure_unlocked, with_player, PLAYER};
 use serde::Serialize;
 use std::ffi::{c_char, c_int, c_uint, c_void, CStr};
-
-/// libvlc_media_track_t from libVLC 3 (`vlc/libvlc_media.h`).
-#[repr(C)]
-struct MediaTrack {
-    codec: u32,
-    original_fourcc: u32,
-    id: c_int,
-    kind: c_int,
-    profile: c_int,
-    level: c_int,
-    /// Union of audio / video / subtitle details; points at the matching struct.
-    details: *mut c_void,
-    bitrate: c_uint,
-    language: *mut c_char,
-    description: *mut c_char,
-}
 
 #[repr(C)]
 struct VideoDetails {
@@ -53,8 +37,6 @@ extern "C" {
     fn libvlc_media_player_get_media(player: *mut libvlc_media_player_t) -> *mut libvlc_media_t;
     fn libvlc_media_release(media: *mut libvlc_media_t);
     fn libvlc_media_get_meta(media: *mut libvlc_media_t, meta: c_int) -> *mut c_char;
-    fn libvlc_media_tracks_get(media: *mut libvlc_media_t, tracks: *mut *mut *mut MediaTrack) -> c_uint;
-    fn libvlc_media_tracks_release(tracks: *mut *mut MediaTrack, count: c_uint);
     fn libvlc_media_get_codec_description(kind: c_int, codec: u32) -> *const c_char;
     fn libvlc_free(ptr: *mut c_void);
 }

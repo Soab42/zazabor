@@ -18,6 +18,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use super::frame::lock_ignore_poison;
 use super::list::{is_video, natural_cmp};
+use super::vlc::{libvlc_media_tracks_get, libvlc_media_tracks_release, MediaTrack};
 use super::{instance, vlc};
 use crate::scan::{self, unix_seconds};
 
@@ -37,21 +38,6 @@ struct VideoTrack {
     width: c_uint,
 }
 
-#[repr(C)]
-struct MediaTrack {
-    codec: u32,
-    original_fourcc: u32,
-    id: c_int,
-    kind: c_int,
-    profile: c_int,
-    level: c_int,
-    /// A union of audio / video / subtitle details; only the video layout is read.
-    details: *mut VideoTrack,
-    bitrate: c_uint,
-    language: *mut c_char,
-    description: *mut c_char,
-}
-
 const TRACK_VIDEO: c_int = 1;
 const META_TITLE: c_int = 0;
 const META_ARTIST: c_int = 1;
@@ -68,8 +54,6 @@ extern "C" {
     fn libvlc_media_get_parsed_status(media: *mut vlc::libvlc_media_t) -> c_int;
     fn libvlc_media_get_duration(media: *mut vlc::libvlc_media_t) -> i64;
     fn libvlc_media_get_meta(media: *mut vlc::libvlc_media_t, meta: c_int) -> *mut c_char;
-    fn libvlc_media_tracks_get(media: *mut vlc::libvlc_media_t, tracks: *mut *mut *mut MediaTrack) -> c_uint;
-    fn libvlc_media_tracks_release(tracks: *mut *mut MediaTrack, count: c_uint);
     fn libvlc_free(ptr: *mut c_void);
 }
 
@@ -179,8 +163,9 @@ pub fn parse_file(path: &Path, art: bool) -> MediaInfo {
             let track = &**tracks.add(i);
             if track.kind == TRACK_VIDEO && !track.details.is_null() && !info.has_video {
                 info.has_video = true;
-                info.width = (*track.details).width;
-                info.height = (*track.details).height;
+                let video = &*(track.details as *const VideoTrack);
+                info.width = video.width;
+                info.height = video.height;
             }
         }
         if !tracks.is_null() {
