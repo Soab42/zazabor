@@ -151,13 +151,6 @@ export const createMediaTools: FeatureFactory = (ctx) => {
         ctx.showOsd(formatTime(player.state.time), direction < 0 ? "←" : "→");
         return true;
       }
-      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-        if (s.volumeStep === 5) return false;
-        const volume = Math.round((player.state.volume + (e.key === "ArrowUp" ? 1 : -1) * (s.volumeStep / 100)) * 100) / 100;
-        player.setVolume(volume);
-        ctx.showOsd(`${Math.round(Math.min(1.25, Math.max(0, volume)) * 100)}%`, e.key === "ArrowUp" ? "↑" : "↓");
-        return true;
-      }
       return false;
     },
 

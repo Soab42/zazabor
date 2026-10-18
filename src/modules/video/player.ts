@@ -1,7 +1,7 @@
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import type { ShellContext } from "../../shell/module";
 import { clamp, dirname } from "../../ui/dom";
-import { onState, videoApi, type PlaybackState, type VideoSurface } from "./api";
+import { MAX_VOLUME, onState, videoApi, type PlaybackState, type VideoSurface } from "./api";
 import { addRecent, nextIndex, previousAction, resumeTime, trimPositions, type RepeatMode } from "./queue";
 
 /** How often the resume point is saved while playing. */
@@ -305,7 +305,7 @@ export class Player {
   // ---- sound and speed ----------------------------------------------------------------------
 
   setVolume(volume: number) {
-    const v = clamp(volume, 0, 1.25);
+    const v = clamp(volume, 0, MAX_VOLUME);
     this.settings.volume = v;
     this.state = { ...this.state, volume: v };
     if (v > 0 && this.settings.muted) this.applyMuted(false);

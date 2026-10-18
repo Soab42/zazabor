@@ -2,6 +2,7 @@ import { getCurrentWindow, currentMonitor, LogicalSize, PhysicalPosition, Physic
 import { basename, h, stripExtension } from "../../../../ui/dom";
 import { icon } from "../../../../ui/icons";
 import type { MenuItem } from "../../../../ui/menu";
+import { MAX_VOLUME } from "../../api";
 import type { MenuPlace, VideoContext, VideoFeature } from "../../extensions";
 import { formatTime } from "../../format";
 import { Library } from "../library/store";
@@ -55,7 +56,7 @@ export function createMiniFeature(ctx: VideoContext): VideoFeature {
   const prev = iconButton("prev", "Previous", () => player.previous());
   const play = iconButton("play", "Play / Pause", () => player.togglePlay(), " primary");
   const next = iconButton("next", "Next", () => player.next());
-  const volume = h("input", { class: "vp-mini-volume", type: "range", min: 0, max: 125, step: 1, "aria-label": "Volume" });
+  const volume = h("input", { class: "vp-mini-volume", type: "range", min: 0, max: MAX_VOLUME * 100, step: 1, "aria-label": "Volume" });
   volume.addEventListener("input", () => player.setVolume(Number(volume.value) / 100));
   const queueButton = iconButton("playlist", "Queue", () => toggleQueue());
   const returnButton = iconButton("fullscreen", "Back to the full player (double-click the picture)", () => void exit());

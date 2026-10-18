@@ -116,7 +116,7 @@ static WORKER: Once = Once::new();
 static WAKE: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new());
 static ENDED: AtomicBool = AtomicBool::new(false);
 static ERROR: Mutex<Option<String>> = Mutex::new(None);
-/// 0–125, as libVLC counts it. Kept across files.
+/// 0–200 (200% amplifies), as libVLC counts it. Kept across files.
 static VOLUME: AtomicU32 = AtomicU32::new(100);
 static MUTED: AtomicBool = AtomicBool::new(false);
 static RATE: AtomicU32 = AtomicU32::new(0x3f80_0000); // 1.0f32
@@ -428,7 +428,7 @@ pub async fn video_seek(time: i64) -> Result<(), String> {
 #[tauri::command]
 pub async fn video_set_volume(volume: f64) -> Result<(), String> {
     ensure_unlocked()?;
-    let value = (volume * 100.0).round().clamp(0.0, 125.0) as u32;
+    let value = (volume * 100.0).round().clamp(0.0, 200.0) as u32;
     VOLUME.store(value, Ordering::Relaxed);
     with_player(|p| {
         // SAFETY: see with_player.

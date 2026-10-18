@@ -4,10 +4,10 @@ import type { AppModule, OpenRequest, ShellContext } from "../../shell/module";
 import { basename, dirname, h, isTypingTarget, stripExtension } from "../../ui/dom";
 import { icon, type IconName } from "../../ui/icons";
 import { closeMenu, openMenu, type MenuItem } from "../../ui/menu";
-import type { VideoSurface } from "./api";
+import { MAX_VOLUME, type VideoSurface } from "./api";
 import { ControlBar, openPlayerMenu } from "./controls";
 import { openCustomize, type CustomizeHandle } from "./customize";
-import type { MenuPlace, PanelTab, VideoContext, VideoFeature } from "./extensions";
+import { featureSettings, type MenuPlace, type PanelTab, type VideoContext, type VideoFeature } from "./extensions";
 import { FEATURES } from "./features";
 import { formatRate } from "./format";
 import { effectiveControls } from "./items";
@@ -17,6 +17,7 @@ import { quickHooks } from "./quick-api";
 import { Sections } from "./sections";
 import { VideoSidebar } from "./sidebar";
 import { createVideoSurface } from "./surface";
+import { wheelStepper } from "./volume";
 
 const VIDEO_EXTENSIONS = ["mp4", "mkv", "webm", "avi", "mov", "m4v", "wmv", "flv", "mpg", "mpeg", "ts", "m2ts", "ogv", "3gp"];
 const SUBTITLE_EXTENSIONS = ["srt", "ass", "ssa", "vtt", "sub"];
@@ -98,6 +99,7 @@ export class VideoModule implements AppModule {
       panelOpen: () => this.panelOpen,
       togglePanel: () => this.setPanel(!this.panelOpen),
       toggleFullscreen: () => void this.toggleFullscreen(),
+      nudgeVolume: (up) => this.nudgeVolume(up, up ? "Scroll ↑" : "Scroll ↓"),
       addSubtitleFile: () => void this.addSubtitleFile(),
     });
     this.sidebar = new VideoSidebar(shell, {
@@ -260,6 +262,12 @@ export class VideoModule implements AppModule {
       clearTimeout(this.clickTimer);
       this.clickTimer = window.setTimeout(() => this.player.togglePlay(), 220);
     });
+    // The wheel over the picture changes the volume, as in VLC.
+    const wheel = wheelStepper((up) => this.nudgeVolume(up, up ? "Scroll ↑" : "Scroll ↓"));
+    this.stage.addEventListener("wheel", (e) => {
+      if (this.view !== "player" || !this.player.current || onStageControl(e)) return;
+      wheel(e);
+    }, { passive: false });
     this.stage.addEventListener("dblclick", (e) => {
       if (onStageControl(e)) return;
       clearTimeout(this.clickTimer);
@@ -505,6 +513,14 @@ export class VideoModule implements AppModule {
     this.flash(`Speed ${formatRate(to ?? rate)}`, key);
   }
 
+  /** One volume step up or down (Settings → Video → Audio sets its size), with the key that did it. */
+  private nudgeVolume(up: boolean, key: string) {
+    const step = featureSettings(this.shell, "media", { volumeStep: 5 }).volumeStep / 100;
+    const volume = Math.min(MAX_VOLUME, Math.max(0, Math.round((this.player.state.volume + (up ? step : -step)) * 100) / 100));
+    this.player.setVolume(volume);
+    this.flash(`Volume ${Math.round(volume * 100)}%`, key);
+  }
+
   handleKey(e: KeyboardEvent): boolean {
     if (!this.active) return false;
     if (this.customizer) {
@@ -546,12 +562,9 @@ export class VideoModule implements AppModule {
         return true;
       }
       case "ArrowUp":
-      case "ArrowDown": {
-        const volume = Math.round((player.state.volume + (e.key === "ArrowUp" ? 0.05 : -0.05)) * 100) / 100;
-        player.setVolume(volume);
-        this.flash(`Volume ${Math.round(Math.min(1.25, Math.max(0, volume)) * 100)}%`, e.key === "ArrowUp" ? "↑" : "↓");
+      case "ArrowDown":
+        this.nudgeVolume(e.key === "ArrowUp", e.key === "ArrowUp" ? "↑" : "↓");
         return true;
-      }
       case "m":
       case "M":
         player.toggleMute();

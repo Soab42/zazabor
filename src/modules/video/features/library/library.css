@@ -51,6 +51,7 @@ span.lib-crumb.current:hover { background: none; }
 .lib-search svg { flex: none; }
 .lib-search-input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--text); font-size: var(--text-md); }
 .lib-search-input::placeholder { color: var(--faint); }
+.lib-search-input:focus-visible { box-shadow: none; } /* the pill around it shows the focus */
 
 /* ---- page ---- */
 .lib-page { max-width: 1240px; margin: 0 auto; padding: 24px 32px 56px; }

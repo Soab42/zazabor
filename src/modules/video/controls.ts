@@ -18,6 +18,8 @@ export interface ControlHost {
   togglePanel(): void;
   toggleFullscreen(): void;
   addSubtitleFile(): void;
+  /** One volume step (the step from Settings), with an on-screen message. */
+  nudgeVolume(up: boolean): void;
 }
 
 interface Built {
@@ -133,7 +135,7 @@ export class ControlBar {
         return { el: seekbar.el, update: (s) => seekbar.update(s), dispose: () => seekbar.dispose() };
       }
       case "volume": {
-        const volume = new VolumeControl({ setVolume: (v) => player.setVolume(v), toggleMute: () => player.toggleMute() });
+        const volume = new VolumeControl({ setVolume: (v) => player.setVolume(v), toggleMute: () => player.toggleMute(), nudge: (up) => this.host.nudgeVolume(up) });
         return { el: volume.el, update: (s) => volume.update(s) };
       }
       case "audio": {

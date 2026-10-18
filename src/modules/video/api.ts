@@ -14,6 +14,9 @@ export interface Track {
   name: string;
 }
 
+/** The loudest the player goes: 200%, as in VLC (libVLC amplifies above 100%). */
+export const MAX_VOLUME = 2;
+
 export interface PlaybackState {
   /** The open file, or null when nothing is loaded. */
   path: string | null;
@@ -23,7 +26,7 @@ export interface PlaybackState {
   length: number;
   /** Playback reached the end of the file. */
   ended: boolean;
-  /** 0–1.25. */
+  /** 0 to MAX_VOLUME (above 1, libVLC amplifies). */
   volume: number;
   muted: boolean;
   /** Playback speed, 1 = normal. */

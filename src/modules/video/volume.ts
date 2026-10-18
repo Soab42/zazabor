@@ -1,23 +1,41 @@
 import { clamp, h } from "../../ui/dom";
 import { icon } from "../../ui/icons";
-import type { PlaybackState } from "./api";
+import { MAX_VOLUME as MAX, type PlaybackState } from "./api";
 
-const MAX = 1.25;
+/** Wheel movement that makes one volume step: a mouse notch, or a touchpad's small deltas added up. */
+const WHEEL_STEP = 40;
 
-/** The mute button and the cone-shaped level meter (drag or scroll, 0–125%) with its percentage. */
+/**
+ * A wheel handler that calls `onStep(up)` once per mouse notch, and once per WHEEL_STEP of
+ * touchpad scrolling, so neither races through the range.
+ */
+export function wheelStepper(onStep: (up: boolean) => void): (e: WheelEvent) => void {
+  let pending = 0;
+  return (e) => {
+    e.preventDefault();
+    const delta = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1);
+    if (delta === 0) return;
+    if (Math.sign(delta) !== Math.sign(pending)) pending = 0;
+    pending = Math.abs(delta) >= WHEEL_STEP ? WHEEL_STEP * Math.sign(delta) : pending + delta;
+    if (Math.abs(pending) < WHEEL_STEP) return;
+    pending = 0;
+    onStep(delta < 0);
+  };
+}
+
+/** The mute button and the cone-shaped level meter (drag or scroll, 0–200%) with its percentage. */
 export class VolumeControl {
   readonly el: HTMLElement;
   private readonly button = h("button", { class: "icon-btn vc-btn", type: "button", title: "Mute (M)", "aria-label": "Mute" });
   private readonly fill = h("div", { class: "vc-vol-fill" });
   private readonly cone = h("div", { class: "vc-vol-cone" }, this.fill);
   private readonly level = h("span", { class: "vc-vol-level" }, "100%");
-  private readonly meter = h("div", { class: "vc-vol", role: "slider", "aria-label": "Volume", "aria-valuemin": 0, "aria-valuemax": 125 },
+  private readonly meter = h("div", { class: "vc-vol", role: "slider", "aria-label": "Volume", "aria-valuemin": 0, "aria-valuemax": MAX * 100 },
     this.cone, h("span", { class: "vc-vol-100", "aria-hidden": "true" }));
   private dragging = false;
   private iconName = "";
-  private volume = 1;
 
-  constructor(private readonly hooks: { setVolume(v: number): void; toggleMute(): void }) {
+  constructor(private readonly hooks: { setVolume(v: number): void; toggleMute(): void; nudge(up: boolean): void }) {
     this.el = h("div", { class: "vc-volume" }, this.button, this.meter, this.level);
     this.button.addEventListener("click", () => hooks.toggleMute());
     this.meter.addEventListener("pointerdown", (e) => {
@@ -36,10 +54,8 @@ export class VolumeControl {
     };
     this.meter.addEventListener("pointerup", end);
     this.meter.addEventListener("pointercancel", end);
-    this.meter.addEventListener("wheel", (e) => {
-      e.preventDefault();
-      hooks.setVolume(Math.round((this.volume - Math.sign(e.deltaY) * 0.05) * 100) / 100);
-    }, { passive: false });
+    // Scrolling anywhere on the control (icon, cone or percentage) steps the volume.
+    this.el.addEventListener("wheel", wheelStepper((up) => hooks.nudge(up)), { passive: false });
   }
 
   private set(e: PointerEvent) {
@@ -51,7 +67,6 @@ export class VolumeControl {
   }
 
   update(state: PlaybackState) {
-    this.volume = state.volume;
     const shown = state.muted ? 0 : state.volume;
     this.meter.style.setProperty("--v", `${(shown / MAX) * 100}%`);
     this.meter.style.setProperty("--full", `${(1 / MAX) * 100}%`);

@@ -19,7 +19,7 @@ export interface VideoPosition {
 }
 
 export interface VideoSettings {
-  /** 0–1.25 (VLC allows a little boost). */
+  /** 0–2 (200%, as in VLC; libVLC amplifies above 1). */
   volume: number;
   muted: boolean;
   /** The sidebar (play queue / browser) is open. */
@@ -107,7 +107,7 @@ function normalizeVideo(raw: Partial<VideoSettings> | undefined): VideoSettings 
     }
   }
   return {
-    volume: typeof v.volume === "number" ? Math.min(1.25, Math.max(0, v.volume)) : 1,
+    volume: typeof v.volume === "number" ? Math.min(2, Math.max(0, v.volume)) : 1,
     muted: v.muted === true,
     sidebar: v.sidebar !== false,
     section: v.section === "videos" || v.section === "recent" ? v.section : "home",
