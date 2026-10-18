@@ -2,11 +2,14 @@
 //! watching and "open with the default app". The command shapes mirror
 //! `src/modules/files/api.ts`.
 
+mod apps;
+mod archive;
 mod info;
 mod jobs;
 mod list;
 mod names;
 mod ops;
+mod search;
 mod tags;
 mod text;
 mod trash;
@@ -279,6 +282,81 @@ pub async fn fs_tags_get(paths: Vec<String>) -> Result<std::collections::HashMap
 pub async fn fs_tags_set(path: String, tags: Vec<String>) -> Result<(), String> {
     ensure_unlocked()?;
     tauri::async_runtime::spawn_blocking(move || tags::set(Path::new(&path), &tags))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+// ---- search and tools -----------------------------------------------------------------------
+// Commands mirror `src/modules/files/tools-api.ts`. Archive jobs are reported as `copy` jobs so
+// the jobs panel shows them; their final event's `results` hold the archive or folder created.
+
+/// Starts a recursive search under `root`; answers with an id and streams `fs-search` events.
+#[tauri::command]
+pub fn fs_search(app: tauri::AppHandle, root: String, query: String, options: Option<search::SearchOptions>) -> Result<u64, String> {
+    ensure_unlocked()?;
+    Ok(search::start(app, root, query, options.unwrap_or_default()))
+}
+
+#[tauri::command]
+pub fn fs_search_cancel(id: u64) {
+    search::cancel(id);
+}
+
+/// Zips items into a new archive in `dest_dir` as a background job; returns the job id.
+#[tauri::command]
+pub fn fs_compress(app: tauri::AppHandle, sources: Vec<String>, dest_dir: String) -> Result<u64, String> {
+    ensure_unlocked()?;
+    let (sources, dest) = (paths_of(sources), PathBuf::from(dest_dir));
+    Ok(jobs::spawn(app, jobs::Kind::Copy, trash_home()?, move |ctx| archive::compress(ctx, &sources, &dest)))
+}
+
+/// Extracts a zip or tar archive into a folder named after it inside `dest_dir`; returns the job id.
+#[tauri::command]
+pub fn fs_extract(app: tauri::AppHandle, archive: String, dest_dir: String) -> Result<u64, String> {
+    ensure_unlocked()?;
+    let (archive, dest) = (PathBuf::from(archive), PathBuf::from(dest_dir));
+    Ok(jobs::spawn(app, jobs::Kind::Copy, trash_home()?, move |ctx| archive::extract(ctx, &archive, &dest)))
+}
+
+/// The apps that can open a file, default first.
+#[tauri::command]
+pub async fn fs_apps_for(path: String) -> Result<apps::AppsFor, String> {
+    ensure_unlocked()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mime = apps::mime_of(Path::new(&path));
+        let mut apps = apps::apps_for_mime(&apps::Dirs::from_env(), &mime);
+        for app in &mut apps {
+            app.icon = app.icon.as_deref().and_then(apps::icon_data_url);
+        }
+        apps::AppsFor { mime, apps }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Opens a file with a specific app (a desktop file id from `fs_apps_for`).
+#[tauri::command]
+pub async fn fs_open_with(path: String, app_id: String) -> Result<(), String> {
+    ensure_unlocked()?;
+    tauri::async_runtime::spawn_blocking(move || apps::open_with(&apps::Dirs::from_env(), Path::new(&path), &app_id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Makes an app the default for a MIME type.
+#[tauri::command]
+pub async fn fs_set_default_app(mime: String, app_id: String) -> Result<(), String> {
+    ensure_unlocked()?;
+    tauri::async_runtime::spawn_blocking(move || apps::set_default(&mime, &app_id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Opens a terminal in a folder: `terminal` if given, else the first one installed.
+#[tauri::command]
+pub async fn fs_open_terminal(dir: String, terminal: Option<String>) -> Result<(), String> {
+    ensure_unlocked()?;
+    tauri::async_runtime::spawn_blocking(move || apps::open_terminal(Path::new(&dir), terminal.as_deref()))
         .await
         .map_err(|e| e.to_string())?
 }
