@@ -1,8 +1,20 @@
-# SliderPro
+# CorePro
 
-A Picasa-style photo gallery for the desktop, with GPU-accelerated deep zoom and cinematic slideshows. Built with [Tauri 2](https://tauri.app) (Rust) and TypeScript + WebGL2.
+Files, photos and video in one premium desktop app: a Finder-style file manager, a Picasa-style gallery with GPU deep zoom and cinematic slideshows, and (in progress) a VLC-based video player. Each feature can be turned on or off in Settings. Built with [Tauri 2](https://tauri.app) (Rust) and TypeScript + WebGL2. CorePro grew out of SliderPro; its settings move over on first launch.
+
+See `docs/PLAN.md` for the roadmap and `docs/DESIGN.md` for the design rules.
 
 ## Features
+
+**App**
+- An app rail switches between Files, Gallery and Video (Ctrl+1/2/3); Settings sits at the bottom of the rail.
+- A first-run wizard picks the theme, accent colour and which features to turn on.
+- Frosted-glass macOS-style interface in dark, light or system theme, with accent colours and background tones.
+
+**Files**
+- Finder-style browsing: Favourites and Devices in the sidebar (including phones and network shares mounted by GVfs, with capacity meters), a clickable path bar, tabs, back/forward, and live updates when folders change.
+- Icon, list, column and gallery views, all virtualized for folders with 100,000 items; image thumbnails, sorting, instant search and hidden files on demand.
+- Images open in the Gallery viewer; other files open with their default app.
 
 **Gallery**
 - Finds your photos automatically, like a phone gallery: it scans your home folder and connected drives, skipping hidden folders, app data, code projects and icon-sized images. Results are cached, so albums appear instantly on the next launch.
@@ -23,8 +35,8 @@ A Picasa-style photo gallery for the desktop, with GPU-accelerated deep zoom and
 - Ken Burns motion with smart framing (landscapes fill the frame; portraits float over a blurred backdrop), colour grades, film grain, vignette, 2.39:1 letterbox, title cards and captions.
 - Five original built-in soundtracks (synthesised by `tools/make_music.py`, free to ship); cuts can land on the beat. Your own music works too.
 
-**Appearance**
-- Grid layout, gap and corner rounding; accent colour and background tone; the zoom animation curve (presets or your own cubic-bezier); and custom CSS on top of everything. Changes apply live.
+**Settings**
+- A searchable Settings page: theme, accent and background tone; grid layout, gap and corners; the zoom animation curve (presets or your own cubic-bezier); custom CSS; features on/off; Files options; the privacy lock; a keyboard reference. Changes apply live.
 
 **Privacy lock**
 - Lock the app with this computer's administrator password (system polkit dialog) or a custom password (stored as an Argon2 hash).
@@ -35,8 +47,10 @@ A Picasa-style photo gallery for the desktop, with GPU-accelerated deep zoom and
 
 | Where | Keys |
 | --- | --- |
+| App | Ctrl+1/2/3 to switch features, Ctrl+L to lock |
+| Files | Enter to open, Alt+← → to go back/forward, Alt+↑ or Backspace for the parent folder, Ctrl+T/W for tabs, Ctrl+L to type a path, Ctrl+F to search, Ctrl+H for hidden files |
 | Gallery | Arrows to move, Enter to open, Ctrl+F to search, F5 for a slideshow, Ctrl+L to lock |
-| Viewer | ← → to browse, ↑ ↓, +/− or wheel to zoom (hold to glide), 0 to fit, 1–8 for 100%–12,800%, R to rotate, I for info, F for fullscreen, S for a slideshow |
+| Viewer | ← → to browse, ↑ ↓, +/− or wheel to zoom (hold to glide), 0 to fit, 1–8 for 100%–12,800% (without Ctrl), R to rotate, I for info, F for fullscreen, S for a slideshow |
 | Slideshow | Space to pause, ← → to skip, M to mute, S for settings, C for captions, Esc to exit |
 
 ## Install on Linux (no root needed)
@@ -46,11 +60,11 @@ scripts/install-linux.sh            # builds, then installs into ~/.local with a
 scripts/install-linux.sh --uninstall
 ```
 
-This adds SliderPro to your applications menu and to "Open With" for images. To build `.deb`/`.rpm` packages instead, run `npm run tauri build`.
+This adds CorePro to your applications menu and to "Open With" for images, videos and folders (it removes an older SliderPro launcher). To build `.deb`/`.rpm` packages instead, run `npm run tauri build`.
 
 ## Development
 
-Requirements: Rust (stable), Node.js 20+, and on Linux the WebKitGTK 4.1 development packages ([Tauri prerequisites](https://tauri.app/start/prerequisites/)).
+Requirements: Rust (stable), Node.js 20+, and on Linux the WebKitGTK 4.1 development packages ([Tauri prerequisites](https://tauri.app/start/prerequisites/)) plus libVLC for the video player (`sudo apt install libvlc-dev vlc`).
 
 ```sh
 npm install
@@ -68,7 +82,9 @@ python3 tools/make_music.py
 
 ## Project layout
 
-- `src-tauri/src` — Rust backend: folder discovery (`scan.rs`), decoding, thumbnails and EXIF (`imaging.rs`), the `cs://` image protocol (`protocol.rs`) and the lock (`lock.rs`).
-- `src/library` — gallery: albums, virtualized photo grid, sidebar.
-- `src/viewer` — zoom engine (`zoom.ts`), WebGL/Canvas2D drawers, filmstrip, info panel.
-- `src/slideshow` — player, WebGL renderer and transitions (`gl.ts`), Ken Burns planning, themes, music.
+- `src-tauri/src` — Rust backend: the file manager's commands (`fs/`), folder discovery (`scan.rs`), photo sizes (`dims.rs`), decoding, thumbnails and EXIF (`imaging.rs`), the `cs://` protocol (`protocol.rs`), the lock (`lock.rs`) and the SliderPro → CorePro migration (`migrate.rs`).
+- `src/shell` — app rail, module registry, Settings page, first-run wizard; `module.ts` is the contract every feature implements.
+- `src/modules/files` — the file manager: browser, sidebar, path bar, tabs, and the four views (`views/`).
+- `src/modules/gallery` — albums and the virtualized photo grid (`library/`), the zoom viewer (`viewer/`), slideshows (`slideshow/`).
+- `src/modules/video` — the video player (in progress).
+- `src/shared`, `src/ui` — thumbnail loader, DOM helpers, icons, menus.
