@@ -31,6 +31,8 @@ export interface VideoSettings {
   recent: string[];
   /** Control-bar items in order (Customise player); see docs/design/vlc/PLAYER.md. */
   controls: string[];
+  /** Settings of individual video features, by feature id (see `featureSettings` in video/extensions.ts). */
+  ext: Record<string, unknown>;
 }
 
 export const DEFAULT_VIDEO_CONTROLS = ["previous", "play", "next", "seek", "volume", "audio", "subtitles", "settings", "playlist"];
@@ -92,6 +94,7 @@ const DEFAULT_VIDEO: VideoSettings = {
   positions: {},
   recent: [],
   controls: DEFAULT_VIDEO_CONTROLS,
+  ext: {},
 };
 
 function normalizeVideo(raw: Partial<VideoSettings> | undefined): VideoSettings {
@@ -110,6 +113,7 @@ function normalizeVideo(raw: Partial<VideoSettings> | undefined): VideoSettings 
     positions,
     recent: Array.isArray(v.recent) ? v.recent.filter((p) => typeof p === "string").slice(0, 50) : [],
     controls: Array.isArray(v.controls) && v.controls.every((c) => typeof c === "string") ? v.controls : DEFAULT_VIDEO_CONTROLS,
+    ext: v.ext && typeof v.ext === "object" && !Array.isArray(v.ext) ? v.ext : {},
   };
 }
 

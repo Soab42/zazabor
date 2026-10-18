@@ -271,7 +271,7 @@ async fn blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T, String> + 
     tauri::async_runtime::spawn_blocking(work).await.map_err(|e| e.to_string())?
 }
 
-fn with_player<T>(work: impl FnOnce(*mut vlc::libvlc_media_player_t) -> T) -> Option<T> {
+pub(crate) fn with_player<T>(work: impl FnOnce(*mut vlc::libvlc_media_player_t) -> T) -> Option<T> {
     // SAFETY (of the closure's use): the handle is valid while the PLAYER lock is held.
     lock_ignore_poison(&PLAYER).as_ref().map(|p| work(p.handle))
 }

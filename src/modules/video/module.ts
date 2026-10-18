@@ -2,12 +2,14 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { VideoSection } from "../../config";
 import type { AppModule, OpenRequest, ShellContext } from "../../shell/module";
-import { basename, dirname, h, stripExtension } from "../../ui/dom";
+import { basename, dirname, h, isTypingTarget, stripExtension } from "../../ui/dom";
 import { icon, type IconName } from "../../ui/icons";
-import { closeMenu, openMenu } from "../../ui/menu";
+import { closeMenu, openMenu, type MenuItem } from "../../ui/menu";
 import type { VideoSurface } from "./api";
 import { ControlBar } from "./controls";
 import { openCustomize, type CustomizeHandle } from "./customize";
+import type { MenuPlace, PanelTab, VideoContext, VideoFeature } from "./extensions";
+import { FEATURES } from "./features";
 import { formatRate, formatTime } from "./format";
 import { Player } from "./player";
 import { Sections } from "./sections";
@@ -45,6 +47,18 @@ export class VideoModule implements AppModule {
   private readonly sidebarToggle = h("button", { class: "icon-btn", type: "button", title: "Sidebar", "aria-label": "Sidebar" }, icon("sidebar", 18));
   private readonly stage = h("div", { class: "vp-stage" });
   private readonly osd = h("div", { class: "vp-osd" });
+  /** Features draw here, over the video and under the bars (subtitles, prompts). */
+  private readonly stageLayer = h("div", { class: "vp-stage-layer" });
+  /** The right side panel: tabs contributed by features. */
+  private readonly panel = h("aside", { class: "vp-panel", "aria-label": "Player panel" });
+  private readonly panelTabsEl = h("div", { class: "vp-panel-tabs", role: "tablist" });
+  private readonly panelBody = h("div", { class: "vp-panel-body" });
+  private readonly panelToggle = h("button", { class: "icon-btn", type: "button", title: "Player panel", "aria-label": "Player panel" }, icon("settings", 18));
+  private panelOpen = false;
+  private panelTab: string | null = null;
+  private readonly panelPages = new Map<string, HTMLElement>();
+  private readonly features: VideoFeature[] = [];
+  private tabs: PanelTab[] = [];
   private readonly overlay = h("div", { class: "vp-overlay" });
   private readonly unsubscribe: () => void;
 
@@ -82,10 +96,11 @@ export class VideoModule implements AppModule {
 
     this.buildTop();
     this.buildStage();
+    this.panel.append(this.panelTabsEl, this.panelBody);
     const content = h("div", { class: "vp-content" }, this.stage, this.sections.el);
     this.el.append(
       this.rail,
-      h("div", { class: "vp-main" }, this.top, h("div", { class: "vp-body" }, this.sidebar.el, content), this.bar.el),
+      h("div", { class: "vp-main" }, this.top, h("div", { class: "vp-body" }, this.sidebar.el, content, this.panel), this.bar.el),
     );
     this.el.addEventListener("pointermove", () => this.wake());
     this.el.addEventListener("pointerdown", () => this.wake());
@@ -99,6 +114,71 @@ export class VideoModule implements AppModule {
     this.renderRail();
     this.applyView();
     this.unsubscribe = this.player.subscribe(() => this.sync());
+
+    const context = this.context();
+    for (const create of FEATURES) this.features.push(create(context));
+    this.tabs = this.features.flatMap((f) => f.panelTabs ?? []).sort((a, b) => a.order - b.order);
+    this.renderPanelTabs();
+  }
+
+  /** The feature-facing view of the module (see extensions.ts). */
+  private context(): VideoContext {
+    const module = this;
+    return {
+      shell: this.shell,
+      player: this.player,
+      surface: this.surface,
+      stageLayer: this.stageLayer,
+      get showingPlayer() { return module.view === "player"; },
+      get fullscreen() { return module.fullscreen; },
+      play: (path, queue) => this.play(path, queue),
+      showOsd: (text, shortcut) => this.flash(text, shortcut),
+      openPanel: (tab) => this.setPanel(true, tab),
+      closePanel: () => this.setPanel(false),
+      showPlayer: () => this.setView("player"),
+    };
+  }
+
+  /** Menu items contributed by features for a place, grouped with separators. */
+  private featureItems(place: MenuPlace): MenuItem[] {
+    return this.features
+      .map((f) => f.menuItems?.(place) ?? [])
+      .filter((group) => group.length)
+      .flatMap((group): MenuItem[] => ["separator", ...group]);
+  }
+
+  // ---- side panel --------------------------------------------------------------------------
+
+  private renderPanelTabs() {
+    this.panelToggle.hidden = this.tabs.length === 0;
+    this.panelTabsEl.replaceChildren(...this.tabs.map((tab) => {
+      const b = h("button", { class: `vp-panel-tab${tab.id === this.panelTab ? " active" : ""}`, type: "button", role: "tab", title: tab.title },
+        icon(tab.icon, 16), h("span", null, tab.title));
+      b.addEventListener("click", () => this.setPanel(true, tab.id));
+      return b;
+    }));
+  }
+
+  private setPanel(open: boolean, tabId?: string) {
+    if (!this.tabs.length) return;
+    const next = open ? tabId ?? this.panelTab ?? this.tabs[0].id : this.panelTab;
+    const previous = this.panelOpen ? this.tabs.find((t) => t.id === this.panelTab) : undefined;
+    const tab = this.tabs.find((t) => t.id === next) ?? this.tabs[0];
+    if (previous && (!open || previous.id !== tab.id)) previous.hidden?.();
+    this.panelOpen = open;
+    if (open) {
+      let page = this.panelPages.get(tab.id);
+      if (!page) {
+        page = h("div", { class: "vp-panel-page" }, tab.render());
+        this.panelPages.set(tab.id, page);
+      }
+      this.panelBody.replaceChildren(page);
+      const changed = this.panelTab !== tab.id || !previous;
+      this.panelTab = tab.id;
+      if (changed) tab.shown?.();
+    }
+    this.renderPanelTabs();
+    this.applyView();
   }
 
   // ---- building ----------------------------------------------------------------------------
@@ -113,21 +193,30 @@ export class VideoModule implements AppModule {
         { label: "Add Subtitle File…", icon: "subtitles", disabled: !this.player.current, action: () => void this.addSubtitleFile() },
         "separator",
         { label: "Customise Player…", icon: "settings", action: () => this.customise() },
+        ...this.featureItems("top"),
       ]);
     });
     this.sidebarToggle.addEventListener("click", () => this.toggleSidebar());
     const fullscreen = h("button", { class: "icon-btn", type: "button", title: "Fullscreen (F)", "aria-label": "Fullscreen" }, icon("fullscreen", 18));
     fullscreen.addEventListener("click", () => void this.toggleFullscreen());
+    this.panelToggle.addEventListener("click", () => this.setPanel(!this.panelOpen));
     this.top.append(
       h("div", { class: "vp-top-side" }, more, this.sidebarToggle, h("span", { class: "vp-top-sep" }),
         icon("folder", 16), this.crumb),
       this.titleEl,
-      h("div", { class: "vp-top-side end" }, fullscreen),
+      h("div", { class: "vp-top-side end" }, this.panelToggle, fullscreen),
     );
   }
 
   private buildStage() {
-    this.stage.append(this.surface.el, this.osd, this.overlay);
+    this.stage.append(this.surface.el, this.stageLayer, this.osd, this.overlay);
+    this.stage.addEventListener("contextmenu", (e) => {
+      if (this.view !== "player") return;
+      const items = this.featureItems("stage").slice(1);
+      if (!items.length) return;
+      e.preventDefault();
+      openMenu(e.clientX, e.clientY, items);
+    });
     this.stage.addEventListener("click", () => {
       if (this.view !== "player") return;
       // Wait out a possible double click before treating it as play/pause.
@@ -157,6 +246,7 @@ export class VideoModule implements AppModule {
       openMenu(r.right + 6, r.top, [
         { label: "Open File…", icon: "video", action: () => void this.openFile() },
         { label: "Open Folder…", icon: "folder", action: () => void this.openFolder() },
+        ...this.featureItems("open"),
       ]);
     });
     items.push(add);
@@ -198,6 +288,9 @@ export class VideoModule implements AppModule {
     el.toggle("view-browse", !playing);
     el.toggle("fullscreen", this.fullscreen);
     el.toggle("sidebar-open", playing && this.sidebarOpen());
+    el.toggle("panel-open", playing && this.panelOpen);
+    this.panelToggle.classList.toggle("active", playing && this.panelOpen);
+    this.panelToggle.disabled = !playing;
     this.sidebarToggle.classList.toggle("active", playing && this.sidebarOpen());
     this.sidebarToggle.disabled = !playing;
     if (this.active && playing) this.surface.start();
@@ -342,8 +435,9 @@ export class VideoModule implements AppModule {
 
   // ---- keys and feedback -------------------------------------------------------------------
 
-  private flash(text: string) {
-    this.osd.textContent = text;
+  private flash(text: string, shortcut?: string) {
+    this.osd.replaceChildren(h("span", null, text));
+    if (shortcut) this.osd.append(h("kbd", { class: "vp-osd-key" }, shortcut));
     this.osd.classList.add("show");
     clearTimeout(this.osdTimer);
     this.osdTimer = window.setTimeout(() => this.osd.classList.remove("show"), 900);
@@ -365,6 +459,9 @@ export class VideoModule implements AppModule {
       if (e.key !== "Escape") return false;
       this.customizer.close();
       return true;
+    }
+    if (!isTypingTarget(e.target)) {
+      for (const feature of this.features) if (feature.handleKey?.(e)) return true;
     }
     if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "o") {
       void this.openFile();
@@ -465,6 +562,7 @@ export class VideoModule implements AppModule {
     clearTimeout(this.osdTimer);
     clearTimeout(this.clickTimer);
     if (this.fullscreen) void getCurrentWindow().setFullscreen(false).catch(() => undefined);
+    for (const feature of this.features) feature.dispose?.();
     this.unsubscribe();
     this.player.dispose();
     this.surface.dispose();
