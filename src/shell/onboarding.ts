@@ -89,7 +89,7 @@ export class Onboarding {
     return h(
       "div",
       { class: "ob-step ob-center" },
-      h("div", { class: "ob-mark" }, h("img", { src: "/logo.svg", alt: "", width: 64, height: 64 })),
+      h("img", { class: "ob-logo", src: "/logo.svg", alt: "", width: 96, height: 96 }),
       h("h1", { class: "ob-hero" }, "Welcome to CorePro"),
       h("p", { class: "ob-lead" }, "Your files, photos and videos in one calm, beautiful place. Let's make it yours in three quick steps."),
     );

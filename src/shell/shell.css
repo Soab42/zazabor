@@ -22,7 +22,7 @@ body.dropping::after { content: "Drop a folder or a file to open it"; }
   box-shadow: inset -0.5px 0 0 var(--line-strong);
 }
 .rail-mark { display: grid; place-items: center; width: 40px; height: 40px; margin-bottom: 16px; }
-.rail-mark img { display: block; border-radius: 9px; box-shadow: 0 0 0 0.5px var(--line-strong), 0 2px 8px rgba(0, 0, 0, 0.25); }
+.rail-mark img { display: block; border-radius: 7px; box-shadow: 0 0 0 0.5px var(--line-strong), 0 2px 8px rgba(0, 0, 0, 0.25); }
 .rail-items { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .rail-btn {
   position: relative; display: grid; place-items: center; width: 44px; height: 44px; padding: 0;
@@ -121,7 +121,7 @@ input.switch:disabled { opacity: 0.45; cursor: default; }
 }
 .st-soon h2, .st-about h2 { margin: 6px 0 0; font-size: 20px; font-weight: 700; letter-spacing: -0.015em; }
 .st-soon p, .st-about p { max-width: 380px; margin: 0; color: var(--muted); line-height: 1.55; }
-.st-about img { border-radius: 16px; box-shadow: 0 0 0 0.5px var(--line-strong), var(--shadow); }
+.st-about img { border-radius: 14.5px; box-shadow: 0 0 0 0.5px var(--line-strong), var(--shadow); }
 .st-about-version { margin-top: 4px; color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
 .st-about-version .st-value { color: var(--muted); }
 
@@ -145,6 +145,7 @@ input.switch:disabled { opacity: 0.45; cursor: default; }
   background: var(--glass); box-shadow: inset 0 1px 0 var(--shine), 0 0 0 0.5px var(--line-strong), var(--shadow);
 }
 .ob-done { color: var(--accent); }
+.ob-logo { display: block; margin-bottom: 8px; border-radius: 21.7px; box-shadow: 0 0 0 0.5px var(--line-strong), var(--shadow); }
 .ob-hero { margin: 4px 0 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
 .ob-lead { max-width: 400px; margin: 0; color: var(--text-2); font-size: 14px; line-height: 1.55; }
 .ob-head h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.015em; }
