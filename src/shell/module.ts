@@ -13,6 +13,18 @@ export type OpenRequest =
   | { kind: "image"; path: string; siblings?: string[] }
   | { kind: "video"; path: string; siblings?: string[] };
 
+/** The app-wide privacy lock, as seen by modules. */
+export interface ShellLock {
+  /** A lock is configured (password or system). */
+  readonly enabled: boolean;
+  /** Locks the app now (no-op when no lock is configured). */
+  lockNow(): void;
+  /** Re-checks identity for private content; resolves true at once when no lock is set. */
+  authorize(reason: string): Promise<boolean>;
+  /** Opens the lock's settings dialog. */
+  openSettings(): void;
+}
+
 /** What the shell offers every module. */
 export interface ShellContext {
   readonly config: Config;
@@ -23,6 +35,7 @@ export interface ShellContext {
   /** Opens a path with the system's default application. */
   openExternally(path: string): void;
   showModule(id: ModuleId): void;
+  readonly lock: ShellLock;
 }
 
 /** One feature of the app, shown in the workspace when picked on the app rail. */
@@ -40,6 +53,16 @@ export interface AppModule {
   handleKey(e: KeyboardEvent): boolean;
   /** Shows something another module asked for (e.g. Files opening an image in the Gallery viewer). */
   open?(request: OpenRequest): void;
+  /** True while the module is in a full-screen mode (e.g. a slideshow) that shell shortcuts must not interrupt. */
+  readonly modal?: boolean;
+  /** Appearance changed (theme, accent, grid layout, zoom curve); re-apply whatever depends on it. */
+  appearanceChanged?(): void;
+  /** Settings edited the module's part of the config; re-read it. */
+  configChanged?(): void;
+  /** The privacy lock was configured or removed. */
+  lockChanged?(enabled: boolean): void;
+  /** The app is about to lock: close private views, stop playback. */
+  onLock?(): void | Promise<void>;
   /** Called when the feature is turned off in Settings. */
   dispose?(): void;
 }

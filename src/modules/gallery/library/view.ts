@@ -17,7 +17,6 @@ export interface LibraryViewHandlers {
   /** Re-checks identity before private (hidden) albums are shown. */
   authorizePrivate(): Promise<boolean>;
   lockSettings(): void;
-  appearance(): void;
   lockNow(): void;
 }
 
@@ -46,6 +45,7 @@ export class LibraryView {
   private status = h("span", { class: "status-text" });
   private empty = h("div", { class: "empty-state" });
   private filterTimer: number | undefined;
+  private sizeSlider!: HTMLInputElement;
 
   constructor(
     private readonly library: Library,
@@ -76,7 +76,6 @@ export class LibraryView {
         else if (await handlers.authorizePrivate()) library.setShowHidden(true);
       },
       lockSettings: () => handlers.lockSettings(),
-      appearance: () => handlers.appearance(),
     });
 
     this.grid = new Grid(thumbs, config.thumbSize, {
@@ -147,7 +146,7 @@ export class LibraryView {
       h("button", { class: "btn primary", title: "Play slideshow (F5)", onclick: () => this.playSlideshow() }, icon("play", 15), "Slideshow"),
     );
 
-    const slider = h("input", {
+    const slider = this.sizeSlider = h("input", {
       type: "range", class: "size-slider", min: 96, max: 320, step: 8, value: String(config.thumbSize), title: "Thumbnail size",
     });
     slider.addEventListener("input", () => {
@@ -387,6 +386,18 @@ export class LibraryView {
     return Math.round(this.config.thumbSize * 1.15);
   }
 
+  /** Follows `config.sort` and `config.thumbSize` after Settings changed them. */
+  syncConfig() {
+    const size = this.config.thumbSize;
+    this.sizeSlider.value = String(size);
+    this.grid.setCellSize(size);
+    this.albums.setCardSize(this.cardSize());
+    if (this.library.sort !== this.config.sort) {
+      this.library.setSort(this.config.sort);
+      this.updateSortButtons();
+    }
+  }
+
   private setSort(mode: SortMode) {
     this.config.sort = mode;
     saveConfig(this.config);
@@ -454,13 +465,13 @@ export class LibraryView {
       this.empty.append(
         h("div", { class: "spinner large" }),
         h("h2", null, "Looking for photos…"),
-        h("p", { class: "muted" }, "SliderPro is searching your home folder and connected drives. Albums appear here automatically."),
+        h("p", { class: "muted" }, "CorePro is searching your home folder and connected drives. Albums appear here automatically."),
       );
     } else {
       this.empty.append(
         h("div", { class: "empty-icon" }, icon("image", 44)),
         h("h2", null, "No photos found"),
-        h("p", null, "SliderPro looked through your home folder and connected drives, skipping app data and code projects. If your photos live somewhere else, add that folder."),
+        h("p", null, "CorePro looked through your home folder and connected drives, skipping app data and code projects. If your photos live somewhere else, add that folder."),
         h("button", { class: "btn primary large", onclick: () => this.handlers.addFolder() }, icon("folderPlus", 18), "Add a folder"),
       );
     }
