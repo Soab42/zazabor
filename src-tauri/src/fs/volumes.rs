@@ -107,6 +107,10 @@ fn gvfs_label(dir_name: &str) -> String {
     }
 }
 
+pub fn space(path: &str) -> (f64, f64) {
+    statvfs(path)
+}
+
 fn statvfs(path: &str) -> (f64, f64) {
     let Ok(c_path) = CString::new(path) else { return (0.0, 0.0) };
     // SAFETY: `c_path` is a valid NUL-terminated string and `stat` is a plain-data out struct.
