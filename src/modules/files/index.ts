@@ -1,30 +1,47 @@
 import type { AppModule, ModuleFactory } from "../../shell/module";
 import { h } from "../../ui/dom";
-import { icon, type IconName } from "../../ui/icons";
+import { Browser } from "./browser";
+import { Sidebar } from "./sidebar";
+import "./files.css";
 
-/** Placeholder; replaced by the real Files module at merge. */
-class FilesModule implements AppModule {
-  readonly id = "files" as const;
-  readonly title = "Files";
-  readonly icon: IconName = "folder";
-  readonly el = h(
-    "div",
-    { class: "sh-empty-host" },
-    h(
-      "div",
-      { class: "sh-empty" },
-      h("div", { class: "sh-empty-icon" }, icon("folder", 38)),
-      h("h2", null, "Files is getting ready"),
-      h("p", null, "Browse folders, preview anything and organise your files in one calm place. It arrives in the next update."),
-    ),
-  );
+/** The Files module: a Finder-style file manager (sidebar, tabs, four views, live folders). */
+export const createFilesModule: ModuleFactory = (shell) => {
+  const el = h("div", { class: "files" });
 
-  activate() {}
-  deactivate() {}
-  handleKey() {
-    return false;
-  }
-}
+  const browser: Browser = new Browser(shell, {
+    pathChanged: (path) => sidebar.setCurrent(path),
+    pinsChanged: () => sidebar.render(),
+  });
+  const sidebar: Sidebar = new Sidebar(shell, {
+    navigate: (path) => browser.navigate(path),
+    openInNewTab: (path) => browser.newTab(path),
+    unpin: (path) => browser.unpin(path),
+    volumes: (volumes) => browser.setVolumes(volumes),
+  });
+  el.append(sidebar.el, browser.el);
 
-/** Creates the Files module. */
-export const createFilesModule: ModuleFactory = () => new FilesModule();
+  const module: AppModule = {
+    id: "files",
+    title: "Files",
+    icon: "folder",
+    el,
+    activate() {
+      sidebar.activate();
+      browser.activate();
+    },
+    deactivate() {
+      sidebar.deactivate();
+      browser.deactivate();
+    },
+    handleKey: (e) => browser.handleKey(e),
+    configChanged: () => browser.settingsChanged(),
+    open(request) {
+      if (request.kind === "folder") browser.navigate(request.path);
+    },
+    dispose() {
+      sidebar.dispose();
+      browser.dispose();
+    },
+  };
+  return module;
+};
