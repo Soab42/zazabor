@@ -1,5 +1,6 @@
 //! Folder listing for the Files module.
 
+use super::cloud;
 use crate::scan::unix_seconds;
 use serde::Serialize;
 use std::fs::{self, Metadata};
@@ -18,6 +19,12 @@ pub struct FsEntry {
     pub size: f64,
     pub mtime: f64,
     pub ext: String,
+    /// The content type, when the listing knows it (cloud drives).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mime: Option<String>,
+    /// A web address that opens the item (a Google Doc is a link, not a file).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 /// A readable message for the failures a user can run into.
@@ -31,7 +38,7 @@ fn describe(err: &io::Error, path: &Path) -> String {
     }
 }
 
-fn extension_of(name: &str) -> String {
+pub(super) fn extension_of(name: &str) -> String {
     match name.rfind('.') {
         Some(i) if i > 0 && i + 1 < name.len() => name[i + 1..].to_lowercase(),
         _ => String::new(),
@@ -55,10 +62,15 @@ fn entry_from(name: String, path: &Path, own: &Metadata) -> FsEntry {
         name,
         dir,
         link,
+        mime: None,
+        url: None,
     }
 }
 
 pub fn list(path: &Path, show_hidden: bool) -> Result<Vec<FsEntry>, String> {
+    if cloud::is_cloud(path) {
+        return cloud::list(path, show_hidden);
+    }
     let reader = fs::read_dir(path).map_err(|e| describe(&e, path))?;
     let mut entries = Vec::new();
     for item in reader.flatten() {
@@ -75,6 +87,9 @@ pub fn list(path: &Path, show_hidden: bool) -> Result<Vec<FsEntry>, String> {
 }
 
 pub fn stat(path: &Path) -> Result<FsEntry, String> {
+    if cloud::is_cloud(path) {
+        return cloud::stat(path);
+    }
     let own = fs::symlink_metadata(path).map_err(|e| describe(&e, path))?;
     let name = path
         .file_name()

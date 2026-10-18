@@ -1,7 +1,7 @@
-import { formatBytes, formatDateTime, h } from "../../../ui/dom";
+import { formatDateTime, h } from "../../../ui/dom";
 import { photoThumbUrl } from "../../../shared/thumbs";
 import type { FsEntry } from "../api";
-import { categoryOf, folderGlyph, iconNameFor, iconNode, kindLabel } from "../kinds";
+import { categoryOf, folderGlyph, iconNameFor, iconNode, kindLabel, sizeText } from "../kinds";
 import { samePath } from "../path";
 import { clickSelect, moveSelect, selectAll, targetIndex, typeSelectIndex } from "../selection";
 import { attachDragSource } from "../dnd";
@@ -289,7 +289,7 @@ export class ColumnView implements FileView {
       h("div", { class: "cv-pv-name", title: entry.name }, entry.name),
       h("div", { class: "cv-pv-kind" }, kindLabel(entry)),
       h("div", { class: "cv-pv-meta" },
-        row("Size", entry.dir ? "—" : formatBytes(entry.size)),
+        row("Size", sizeText(entry)),
         row("Modified", formatDateTime(entry.mtime))));
     this.el.append(this.preview);
   }

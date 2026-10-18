@@ -1,5 +1,5 @@
 import { api, displayRenderSize, fileUrl, previewUrl, thumbUrl } from "../../api";
-import { categoryOf, folderGlyph, iconNameFor, iconNode, kindLabel } from "../../modules/files/kinds";
+import { categoryOf, folderGlyph, iconNameFor, iconNode, kindLabel, sizeText as entrySize } from "../../modules/files/kinds";
 import { videoThumbUrl } from "../../modules/video/api";
 import type { ShellContext } from "../../shell/module";
 import { formatBytes, formatDateTime, h } from "../../ui/dom";
@@ -37,7 +37,7 @@ export interface Body {
 export function infoCard(item: QuickLookItem, note?: string): HTMLElement {
   const category = categoryOf(item);
   const art = item.dir ? folderGlyph() : iconNode(iconNameFor(category), 56);
-  const rows = [kindLabel(item), item.dir ? "" : formatBytes(item.size), item.mtime ? `Modified ${formatDateTime(item.mtime)}` : ""];
+  const rows = [kindLabel(item), item.dir || item.url ? "" : entrySize(item), item.mtime ? `Modified ${formatDateTime(item.mtime)}` : ""];
   return h("div", { class: "ql-card" },
     h("div", { class: "ql-card-art" }, art),
     h("div", { class: "ql-card-name", title: item.name }, item.name),
@@ -168,7 +168,8 @@ export function buildBody(item: QuickLookItem, ctx: BodyContext): Body {
   if (category === "video") return videoBody(item, ctx);
   if (category === "audio") return audioBody(item);
   if (item.ext === "pdf") return pdfBody(item, ctx);
-  if (category === "archive") return { el: infoCard(item) };
+  // Archives aren't read here; a Google Doc has nothing on disk to read.
+  if (category === "archive" || item.url) return { el: infoCard(item) };
   return textBody(item, ctx);
 }
 

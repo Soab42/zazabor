@@ -1,8 +1,8 @@
-import { formatBytes, formatDateTime, h } from "../../../ui/dom";
+import { formatDateTime, h } from "../../../ui/dom";
 import { photoThumbUrl } from "../../../shared/thumbs";
 import { previewUrl, thumbUrl } from "../../../api";
 import type { FsEntry } from "../api";
-import { categoryOf, folderGlyph, iconNameFor, iconNode, kindLabel } from "../kinds";
+import { categoryOf, folderGlyph, iconNameFor, iconNode, kindLabel, sizeText } from "../kinds";
 import { clickSelect, moveSelect, selectAll, targetIndex, typeSelectIndex } from "../selection";
 import { attachDragSource } from "../dnd";
 import { markDrop, paintCut } from "./marks";
@@ -201,7 +201,7 @@ export class GalleryView implements FileView {
       const ext = entry.ext && entry.ext.length <= 4 ? h("span", { class: "iv-ext" }, entry.ext.toUpperCase()) : null;
       this.stage.replaceChildren(h("div", { class: `gv-glyph ${category}` }, iconNode(iconNameFor(category), 24), ext));
     }
-    const meta = [kindLabel(entry), entry.dir ? "" : formatBytes(entry.size), formatDateTime(entry.mtime)].filter(Boolean).join("  ·  ");
+    const meta = [kindLabel(entry), entry.dir ? "" : sizeText(entry), formatDateTime(entry.mtime)].filter(Boolean).join("  ·  ");
     this.caption.replaceChildren(h("div", { class: "gv-name", title: entry.name }, entry.name), h("div", { class: "gv-meta" }, meta));
   }
 

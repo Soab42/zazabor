@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { learnTitles } from "./cloud";
 
 /**
  * The contract between the Files module and the Rust `fs` backend (src-tauri/src/fs/).
@@ -22,6 +23,10 @@ export interface FsEntry {
   mtime: number;
   /** Lower-case extension without the dot, "" when there is none (always "" for folders). */
   ext: string;
+  /** The content type, when the listing knows it (cloud drives). */
+  mime?: string;
+  /** A web address that opens the item: a Google Doc is a link, not a file. */
+  url?: string;
 }
 
 export type PlaceKind = "home" | "desktop" | "documents" | "downloads" | "pictures" | "videos" | "music" | "trash";
@@ -47,7 +52,11 @@ export interface Volume {
 
 export const fsApi = {
   /** Lists a folder. Rejects with a readable message for missing folders or permission errors. */
-  list: (path: string, showHidden: boolean) => invoke<FsEntry[]>("fs_list", { path, showHidden }),
+  list: async (path: string, showHidden: boolean) => {
+    const entries = await invoke<FsEntry[]>("fs_list", { path, showHidden });
+    learnTitles(entries);
+    return entries;
+  },
   stat: (path: string) => invoke<FsEntry>("fs_stat", { path }),
   places: () => invoke<Place[]>("fs_places"),
   volumes: () => invoke<Volume[]>("fs_volumes"),

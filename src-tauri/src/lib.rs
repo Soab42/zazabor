@@ -257,6 +257,7 @@ pub fn run() {
             log,
             fs::fs_list,
             fs::fs_stat,
+            fs::fs_titles,
             fs::fs_places,
             fs::fs_volumes,
             fs::fs_watch,

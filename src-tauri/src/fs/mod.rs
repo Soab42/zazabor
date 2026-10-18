@@ -4,6 +4,7 @@
 
 mod apps;
 mod archive;
+mod cloud;
 mod info;
 mod jobs;
 mod list;
@@ -39,6 +40,15 @@ pub async fn fs_list(path: String, show_hidden: bool) -> Result<Vec<FsEntry>, St
     tauri::async_runtime::spawn_blocking(move || list::list(Path::new(&path), show_hidden))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// Titles for path-bar steps on cloud drives (ids on disk); `None` for other paths.
+#[tauri::command]
+pub async fn fs_titles(paths: Vec<String>) -> Result<Vec<Option<String>>, String> {
+    ensure_unlocked()?;
+    tauri::async_runtime::spawn_blocking(move || paths.iter().map(|p| cloud::title(Path::new(p))).collect())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

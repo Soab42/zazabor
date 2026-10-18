@@ -1,6 +1,6 @@
-import { categoryOf, iconNameFor, iconNode, kindLabel } from "../../modules/files/kinds";
+import { categoryOf, iconNameFor, iconNode, kindLabel, sizeText } from "../../modules/files/kinds";
 import type { ShellContext } from "../../shell/module";
-import { formatBytes, h } from "../../ui/dom";
+import { h } from "../../ui/dom";
 import { icon } from "../../ui/icons";
 import { buildBody, type Body } from "./bodies";
 import type { QuickLookItem } from "./types";
@@ -33,6 +33,7 @@ export class QuickLook {
   private closeTimer: number | undefined;
   private title!: HTMLElement;
   private sub!: HTMLElement;
+  private externalLabel!: HTMLElement;
   private glyph!: HTMLElement;
   private stage!: HTMLElement;
   private panel!: HTMLElement;
@@ -117,10 +118,11 @@ export class QuickLook {
     this.prev = this.iconButton("chevronLeft", "Previous (←)", () => this.step(-1));
     this.next = this.iconButton("chevronRight", "Next (→)", () => this.step(1));
     this.openBtn = h("button", { class: "btn small ql-open", title: "Open (Enter)", onclick: () => this.openItem() }, "Open");
+    this.externalLabel = h("span", null, "Open with Default App");
     const external = h("button", {
       class: "btn small ghost ql-external", title: "Open with Default App",
-      onclick: () => this.item && this.opts.shell.openExternally(this.item.path),
-    }, icon("external", 14), "Open with Default App");
+      onclick: () => this.item && this.opts.shell.openExternally(this.item.url ?? this.item.path),
+    }, icon("external", 14), this.externalLabel);
     const close = this.iconButton("close", "Close (Esc)", () => this.close());
     const header = h("header", { class: "ql-head" },
       this.glyph,
@@ -159,6 +161,8 @@ export class QuickLook {
     this.updateNav();
     const external = !item.dir && !["image", "video"].includes(categoryOf(item));
     this.openBtn.hidden = external;
+    // A Google Doc opens on the web.
+    this.externalLabel.textContent = item.url ? "Open in Browser" : "Open with Default App";
     this.body = buildBody(item, {
       shell: this.opts.shell,
       siblings: this.opts.items,
@@ -181,7 +185,7 @@ export class QuickLook {
     if (!item) return;
     const list = this.opts.items();
     const index = list.findIndex((i) => i.path === item.path);
-    const parts = [kindLabel(item), item.dir ? "" : formatBytes(item.size), this.extra,
+    const parts = [kindLabel(item), item.dir ? "" : sizeText(item), this.extra,
       index >= 0 && list.length > 1 ? `${index + 1} of ${list.length}` : ""];
     this.sub.textContent = parts.filter(Boolean).join(" · ");
   }
@@ -213,6 +217,6 @@ export class QuickLook {
     else if (category === "image" || category === "video") {
       const siblings = this.opts.items().filter((i) => categoryOf(i) === category).map((i) => i.path);
       shell.open({ kind: category, path: item.path, siblings });
-    } else shell.openExternally(item.path);
+    } else shell.openExternally(item.url ?? item.path);
   }
 }

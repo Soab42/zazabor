@@ -1,5 +1,6 @@
 import { h } from "../../ui/dom";
 import { icon } from "../../ui/icons";
+import { cachedTitle } from "./cloud";
 import { folderName } from "./path";
 import type { Tab } from "./tabs";
 
@@ -20,7 +21,7 @@ export class TabBar {
   render(tabs: Tab[], active: number) {
     this.el.hidden = tabs.length < 2;
     const nodes: Node[] = tabs.map((tab, i) => {
-      const title = tab.path ? folderName(tab.path) : "Files";
+      const title = tab.path ? cachedTitle(tab.path) ?? folderName(tab.path) : "Files";
       const close = h("button", { class: "fs-tab-close", type: "button", title: "Close Tab (Ctrl+W)", tabIndex: -1 }, icon("close", 11));
       close.addEventListener("click", (e) => {
         e.stopPropagation();

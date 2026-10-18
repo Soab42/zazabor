@@ -5,6 +5,7 @@
 //! deletes the source only after the copy was verified; "replace" sends the old item to the
 //! Trash instead of destroying it; every operation reports the records needed to reverse it.
 
+use super::cloud;
 use super::jobs::{Conflict, Decision, JobCtx};
 use super::names::{invalid_name, unique_name, Style};
 use super::trash;
@@ -186,7 +187,9 @@ fn copy_dir(ctx: &mut JobCtx, src: &Path, dst: &Path, meta: &fs::Metadata) -> Op
         for entry in entries {
             ctx.check()?;
             let entry = entry.map_err(|e| OpError::Failed(format!("Couldn’t read “{}”: {}", shown(src), plain(&e))))?;
-            copy_node(ctx, &entry.path(), &tmp.join(entry.file_name()))?;
+            // A cloud drive's files are named by id on disk; copies get their titles.
+            let name = cloud::title(&entry.path()).map(Into::into).unwrap_or_else(|| entry.file_name());
+            copy_node(ctx, &entry.path(), &tmp.join(name))?;
         }
         // Times and permissions last: a read-only source folder must stay writable while filling.
         if let Ok(dir) = fs::File::open(&tmp) {
@@ -271,6 +274,7 @@ fn plan(sources: &[PathBuf], dest: &Path, verb: &str, moving: bool) -> Op<Vec<Pl
             return Err(OpError::Failed(format!("Can’t {verb} “{name}” into itself.")));
         }
         let (_, bytes) = measure(&abs);
+        let name = cloud::title(&abs).unwrap_or(name);
         out.push(Planned { abs, name, is_dir: meta.is_dir(), bytes });
     }
     Ok(out)

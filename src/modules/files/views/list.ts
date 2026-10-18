@@ -1,8 +1,8 @@
-import { formatBytes, formatDateTime, h } from "../../../ui/dom";
+import { formatDateTime, h } from "../../../ui/dom";
 import type { FilesSortKey } from "../../../config";
 import { icon } from "../../../ui/icons";
 import type { FsEntry } from "../api";
-import { categoryOf, iconNameFor, iconNode, kindLabel } from "../kinds";
+import { categoryOf, iconNameFor, iconNode, kindLabel, sizeText } from "../kinds";
 import { clickSelect, moveSelect, selectAll, targetIndex, typeSelectIndex } from "../selection";
 import { attachDragSource } from "../dnd";
 import { markDrop, paintCut, paintTags } from "./marks";
@@ -151,7 +151,7 @@ export class ListView implements FileView {
     markDrop(row, entry, true);
     row.title = entry.name;
     date.textContent = formatDateTime(entry.mtime);
-    size.textContent = entry.dir ? "—" : formatBytes(entry.size);
+    size.textContent = sizeText(entry);
     kind.textContent = kindLabel(entry);
     this.paint(row, entry.path);
   }

@@ -1,3 +1,4 @@
+import { formatBytes } from "../../ui/dom";
 import { icon, type IconName } from "../../ui/icons";
 import type { Volume } from "./api";
 
@@ -16,8 +17,25 @@ const DOCUMENT = set("pdf doc docx odt rtf txt xls xlsx ods ppt pptx odp csv");
 export const isImageExt = (ext: string) => IMAGE.has(ext);
 export const isVideoExt = (ext: string) => VIDEO.has(ext);
 
-export function categoryOf(entry: { dir: boolean; ext: string }): Category {
+const GOOGLE_KINDS: Record<string, string> = {
+  document: "Google Docs", spreadsheet: "Google Sheets", presentation: "Google Slides", form: "Google Forms",
+  drawing: "Google Drawings", map: "Google My Maps", site: "Google Sites", jam: "Jamboard", script: "Apps Script", shortcut: "Shortcut",
+};
+
+/** Google's own document types (links to the web app, not files): "Google Docs", …; null for others. */
+export function webKind(entry: { mime?: string }): string | null {
+  const prefix = "application/vnd.google-apps.";
+  if (!entry.mime?.startsWith(prefix)) return null;
+  return GOOGLE_KINDS[entry.mime.slice(prefix.length)] ?? "Google Drive File";
+}
+
+/** The Size column: a dash for folders and for web documents, which have no file size. */
+export const sizeText = (entry: { dir: boolean; size: number; url?: string; mime?: string }) =>
+  entry.dir || entry.url || webKind(entry) ? "—" : formatBytes(entry.size);
+
+export function categoryOf(entry: { dir: boolean; ext: string; mime?: string }): Category {
   if (entry.dir) return "folder";
+  if (webKind(entry)) return "document";
   const ext = entry.ext;
   if (IMAGE.has(ext)) return "image";
   if (VIDEO.has(ext)) return "video";
@@ -58,8 +76,10 @@ const GENERIC_LABEL: Record<Category, string> = {
 };
 
 /** The text of the Kind column and the preview panels. */
-export function kindLabel(entry: { dir: boolean; ext: string; link?: boolean }): string {
+export function kindLabel(entry: { dir: boolean; ext: string; link?: boolean; mime?: string }): string {
   if (entry.dir) return entry.link ? "Folder Alias" : "Folder";
+  const web = webKind(entry);
+  if (web) return web;
   const category = categoryOf(entry);
   const specific = SPECIFIC[entry.ext];
   if (specific) return specific;

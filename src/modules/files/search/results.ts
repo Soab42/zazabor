@@ -1,10 +1,11 @@
 import { markDrop, paintCut, paintTags } from "../views/marks";
 import type { FilesSettings, FilesSortKey } from "../../../config";
-import { formatBytes, formatDateTime, h } from "../../../ui/dom";
+import { formatDateTime, h } from "../../../ui/dom";
 import { icon } from "../../../ui/icons";
 import type { FsEntry } from "../api";
-import { categoryOf, iconNameFor, iconNode } from "../kinds";
-import { parentOf } from "../path";
+import { fetchTitles, isCloudPath, titledBelow } from "../cloud";
+import { categoryOf, iconNameFor, iconNode, sizeText } from "../kinds";
+import { crumbs, parentOf } from "../path";
 import { clickSelect, moveSelect, selectAll, targetIndex, typeSelectIndex } from "../selection";
 import type { FileView, ViewContext } from "../views/types";
 import { VirtualList } from "../views/vlist";
@@ -23,7 +24,8 @@ export function locationOf(path: string, root: string): string {
   const parent = parentOf(path);
   const base = root.replace(/\/+$/, "");
   if (parent === base || parent === root) return "This Folder";
-  if (parent.startsWith(`${base}/`)) return parent.slice(base.length + 1);
+  // On a cloud drive the folders on disk are ids; show their titles.
+  if (parent.startsWith(`${base}/`)) return isCloudPath(parent) ? titledBelow(parent, base) : parent.slice(base.length + 1);
   return parent;
 }
 
@@ -152,9 +154,12 @@ export class ResultsView implements FileView {
     const where = locationOf(entry.path, this.ctx.path);
     loc.textContent = where;
     loc.title = parentOf(entry.path);
+    if (isCloudPath(entry.path)) {
+      void fetchTitles(crumbs(parentOf(entry.path))).then((arrived) => arrived && this.list.refresh());
+    }
     row.title = entry.path;
     date.textContent = formatDateTime(entry.mtime);
-    size.textContent = entry.dir ? "—" : formatBytes(entry.size);
+    size.textContent = sizeText(entry);
     this.paint(row, entry.path);
   }
 

@@ -84,7 +84,8 @@ export class InfoPanel {
 
     // General: what is already known shows at once; the rest fills in when the backend answers.
     const kind = row("Kind", kindLabel(entry));
-    const size = row("Size", entry.dir ? "Calculating…" : this.sizeText(entry.size));
+    // A Google Doc is a link to the web app: it has no size of its own.
+    const size = row("Size", entry.dir ? "Calculating…" : entry.url ? "—" : this.sizeText(entry.size));
     const copy = h("button", { class: "icon-btn small gi-copy", title: "Copy path", "aria-label": "Copy path" }, icon("copy", 13));
     const where = row("Where", entry.path, copy);
     where.value.title = entry.path;

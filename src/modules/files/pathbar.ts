@@ -1,5 +1,6 @@
 import { h } from "../../ui/dom";
 import { icon } from "../../ui/icons";
+import { cloudCrumbs, fetchTitles, isCloudPath } from "./cloud";
 import { crumbs } from "./path";
 
 export interface PathBarHooks {
@@ -45,7 +46,15 @@ export class PathBar {
   }
 
   private renderTrail() {
-    const list = crumbs(this.path || "/");
+    const path = this.path || "/";
+    let list = crumbs(path);
+    if (isCloudPath(path)) {
+      // A cloud drive starts at its account, and its folders show their titles, not their ids.
+      void fetchTitles(list).then((arrived) => {
+        if (arrived && this.path === path) this.renderTrail();
+      });
+      list = cloudCrumbs(list);
+    }
     const nodes: Node[] = [];
     list.forEach((crumb, i) => {
       if (i > 0) nodes.push(h("span", { class: "pb-sep" }, icon("chevronRight", 11)));

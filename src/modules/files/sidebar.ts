@@ -4,6 +4,7 @@ import { openMenu, type MenuItem } from "../../ui/menu";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import type { ShellContext } from "../../shell/module";
 import { fsApi, type Place, type PlaceKind, type Volume } from "./api";
+import { cachedTitle } from "./cloud";
 import { volumeIcon } from "./kinds";
 import { addressOnMount, subPath } from "./network/address";
 import { openServerSheet, saveServer, tryMount } from "./network/connect";
@@ -161,12 +162,13 @@ export class Sidebar {
     const pinned = this.shell.config.files.pinned.filter((p) => !this.places.some((place) => samePath(place.path, p)));
     const favourites = [
       ...this.places.map((p) => this.pathRow(PLACE_ICONS[p.kind] ?? "folder", p.name, p.path, false)),
-      ...pinned.map((p) => this.pathRow("folder", folderName(p), p, true)),
+      ...pinned.map((p) => this.pathRow("folder", cachedTitle(p) ?? folderName(p), p, true)),
     ];
     const children: Node[] = [this.section("Favourites", favourites)];
     const devices = this.deviceRows();
     if (devices.length) children.push(this.section("Devices", devices.map((r) => this.row(r))));
-    const cloud = this.mounts.filter((m) => m.kind === "cloud");
+    // GIO reports accounts in no fixed order; keep them still between refreshes.
+    const cloud = this.mounts.filter((m) => m.kind === "cloud").sort((a, b) => a.name.localeCompare(b.name));
     if (cloud.length) children.push(this.section("Cloud", cloud.map((m) => this.row(this.mountRow(m)))));
     const network = this.networkRows();
     const add = h("button", {

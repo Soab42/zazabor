@@ -2,9 +2,10 @@
 //! fuzzy fallback, ranked so word starts and consecutive letters come first. The walk runs on
 //! its own thread and streams batches as `fs-search` events; a newer search cancels the old one.
 
+use super::cloud;
 use super::list::{self, FsEntry};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -124,6 +125,9 @@ pub fn run(root: &Path, query: &str, opts: &SearchOptions, cancel: &AtomicBool, 
         sink(Vec::new(), Vec::new(), 0, true, false);
         return;
     }
+    if cloud::is_cloud(root) {
+        return run_cloud(root, &q, opts, cancel, sink);
+    }
     let mut batch: Vec<(FsEntry, u32)> = Vec::new();
     let (mut scanned, mut found, mut truncated) = (0u64, 0usize, false);
     let mut last = Instant::now();
@@ -158,6 +162,43 @@ pub fn run(root: &Path, query: &str, opts: &SearchOptions, cancel: &AtomicBool, 
             }
         }
         if batch.len() >= BATCH || (!batch.is_empty() && last.elapsed() >= BATCH_EVERY) {
+            flush(&mut batch, scanned, false, false, sink);
+            last = Instant::now();
+        }
+    }
+    if cancel.load(Ordering::SeqCst) {
+        return;
+    }
+    flush(&mut batch, scanned, true, truncated, sink);
+}
+
+/// The same search on a cloud drive, folder by folder through GIO, matching titles (on disk the
+/// names are ids). Each folder is a network request, so results arrive as folders are read.
+fn run_cloud(root: &Path, q: &str, opts: &SearchOptions, cancel: &AtomicBool, sink: &mut Sink) {
+    let mut batch: Vec<(FsEntry, u32)> = Vec::new();
+    let (mut scanned, mut found, mut truncated) = (0u64, 0usize, false);
+    let mut last = Instant::now();
+    let mut folders = VecDeque::from([root.to_path_buf()]);
+    'walk: while let Some(folder) = folders.pop_front() {
+        let Ok(entries) = cloud::list(&folder, opts.show_hidden) else { continue };
+        for entry in entries {
+            if cancel.load(Ordering::SeqCst) {
+                return;
+            }
+            scanned += 1;
+            if entry.dir && (opts.include_ignored || !ignored(&entry.name)) {
+                folders.push_back(entry.path.clone().into());
+            }
+            if let Some(s) = score(&entry.name, q) {
+                batch.push((entry, s));
+                found += 1;
+                if found >= MAX_RESULTS {
+                    truncated = true;
+                    break 'walk;
+                }
+            }
+        }
+        if !batch.is_empty() && (batch.len() >= BATCH || last.elapsed() >= BATCH_EVERY) {
             flush(&mut batch, scanned, false, false, sink);
             last = Instant::now();
         }

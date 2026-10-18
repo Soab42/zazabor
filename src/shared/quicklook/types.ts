@@ -12,4 +12,8 @@ export interface QuickLookItem {
   mtime: number;
   /** Lower-case extension without the dot, "" for none. */
   ext: string;
+  /** The content type, when known (cloud drives). */
+  mime?: string;
+  /** A web address that opens the item (a Google Doc), instead of a file to read. */
+  url?: string;
 }

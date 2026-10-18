@@ -702,6 +702,9 @@ export class Browser {
   private openEntry(entry: FsEntry, folder: FsEntry[] = this.visible) {
     if (entry.dir) {
       this.navigate(entry.path);
+    } else if (entry.url) {
+      // A Google Doc, Sheet or Slides file lives on the web.
+      this.shell.openExternally(entry.url);
     } else if (isImageExt(entry.ext)) {
       this.shell.open({ kind: "image", path: entry.path, siblings: folder.filter((e) => isImageExt(e.ext)).map((e) => e.path) });
     } else if (isVideoExt(entry.ext)) {
