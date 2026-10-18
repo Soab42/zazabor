@@ -1,6 +1,6 @@
 import { clamp } from "../../../ui/dom";
 import { Canvas2DDrawer, GLDrawer, GRID_ABOVE, type DrawItem, type ZoomDrawer } from "./drawers";
-import { cubicBezier, easeFrom, easeMove, slopeAt, startSlope, WHEEL_CURVE, type Curve } from "./easing";
+import { cubicBezier, easeFrom, easeMove, slopeAt, WHEEL_CURVE, type Curve } from "./easing";
 import type { Tile, TiledImage } from "./tiles";
 
 export interface ZoomLayer {
@@ -457,7 +457,7 @@ export class ZoomView {
       if (slope > 0 && ease === this.stepEase) {
         // Steps keep the chosen curve whole, every notch: the step's length is what changes, so the
         // curve starts at the speed the zoom already has (within reason).
-        const start = startSlope(this.stepCurve);
+        const start = slopeAt(this.stepEase, 0);
         if (start > 0) duration = clamp((duration * start) / slope, duration * STEP_STRETCH[0], duration * STEP_STRETCH[1]);
       } else if (slope > 0) {
         ease = easeFrom(slope, this.stepCurve);
