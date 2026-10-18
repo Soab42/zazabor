@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use walkdir::{DirEntry, WalkDir};
 
+use crate::dims;
+
 pub const IMAGE_EXTS: &[&str] = &[
     "jpg", "jpeg", "jpe", "jfif", "png", "gif", "webp", "bmp", "tif", "tiff",
 ];
@@ -32,6 +34,9 @@ pub struct Photo {
     pub name: String,
     pub size: u64,
     pub mtime: f64,
+    /// Upright display size; 0×0 when the header could not be read.
+    pub width: u32,
+    pub height: u32,
 }
 
 #[derive(Serialize)]
@@ -194,8 +199,11 @@ fn walk(walker: WalkDir, root: &Path, discovering: bool) -> Vec<Folder> {
             name: entry.file_name().to_string_lossy().into_owned(),
             size: meta.len(),
             mtime: unix_seconds(meta.modified()),
+            width: 0,
+            height: 0,
         });
     }
+    dims::fill(&mut groups.values_mut().flatten().collect::<Vec<_>>());
 
     groups
         .into_iter()

@@ -4,7 +4,7 @@ import { clamp, h } from "../ui/dom";
 import { GLRenderer } from "./gl";
 import { planMotion } from "./motion";
 import type { SlideFrame, SlideTexture } from "./renderer";
-import { GRADES, TRANSITION_IDS, themeOf, transitionLabel, type SlideshowSettings, type TransitionKind } from "./settings";
+import { GRADES, TRANSITION_IDS, transitionLabel, transitionPool, type SlideshowSettings, type TransitionKind } from "./settings";
 
 const HOLD_MS = 450;
 const PLAY_MS = 1300;
@@ -92,8 +92,8 @@ export class TransitionPreview {
   private current(): TransitionKind {
     if (this.hovered) return this.hovered;
     const choice = this.settings.transition;
-    if (choice === "theme") {
-      const pool = themeOf(this.settings.theme).transitions;
+    if (choice === "theme" || choice === "custom") {
+      const pool = transitionPool(this.settings);
       return pool[this.cycle % pool.length][0];
     }
     if (choice === "random") return ALL[(this.cycle * 7) % ALL.length];

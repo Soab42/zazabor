@@ -6,6 +6,9 @@ export interface Photo {
   name: string;
   size: number;
   mtime: number;
+  /** Upright display size; 0×0 (or absent, from an older cache) when unknown. */
+  width: number;
+  height: number;
   folder: Folder;
 }
 

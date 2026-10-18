@@ -46,6 +46,30 @@ pub fn read_orientation(path: &Path) -> u32 {
     read_exif(path).map(|e| orientation_of(&e)).unwrap_or(1)
 }
 
+/// Dimensions and orientation of a JPEG, from the markers before its image data.
+fn jpeg_header(path: &Path) -> Option<(u32, u32, u32)> {
+    let mut decoder = jpeg_decoder::Decoder::new(BufReader::new(File::open(path).ok()?));
+    decoder.read_info().ok()?;
+    let info = decoder.info()?;
+    let orientation = decoder
+        .exif_data()
+        .and_then(|raw| exif::Reader::new().read_raw(raw.to_vec()).ok())
+        .map(|exif| orientation_of(&exif))
+        .unwrap_or(1);
+    Some((info.width.into(), info.height.into(), orientation))
+}
+
+/// The size a photo displays at once its EXIF orientation is applied, read from the file
+/// header without decoding any pixels.
+pub fn display_size(path: &Path) -> Option<(u32, u32)> {
+    let header = if is_jpeg(path) { jpeg_header(path) } else { None };
+    let (w, h, orientation) = header.or_else(|| {
+        let (w, h) = ImageReader::open(path).ok()?.with_guessed_format().ok()?.into_dimensions().ok()?;
+        Some((w, h, read_orientation(path)))
+    })?;
+    Some(if orientation >= 5 { (h, w) } else { (w, h) })
+}
+
 /// Rotates/flips a decoded image so it displays upright for the given EXIF orientation.
 pub fn apply_orientation(img: DynamicImage, orientation: u32) -> DynamicImage {
     match orientation {
@@ -377,6 +401,35 @@ mod tests {
         let ccw = apply_orientation(img, 8);
         assert_eq!(ccw.dimensions(), (1, 2));
         assert_eq!(ccw.get_pixel(0, 1).0[0], 255);
+    }
+
+    #[test]
+    fn display_size_reads_headers_and_honours_orientation() {
+        use image::ImageEncoder;
+        let dir = std::env::temp_dir().join(format!("sliderpro-size-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let pixels = RgbImage::new(40, 20);
+
+        let png = dir.join("wide.png");
+        pixels.save(&png).unwrap();
+        assert_eq!(display_size(&png), Some((40, 20)));
+
+        // A big-endian TIFF block with one entry: Orientation = 6 (rotate 90° clockwise).
+        let exif = vec![
+            b'M', b'M', 0, 42, 0, 0, 0, 8, 0, 1, //
+            0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0, //
+            0, 0, 0, 0,
+        ];
+        let jpg = dir.join("rotated.jpg");
+        let mut encoder = JpegEncoder::new(BufWriter::new(File::create(&jpg).unwrap()));
+        encoder.set_exif_metadata(exif).unwrap();
+        encoder.write_image(pixels.as_raw(), 40, 20, image::ExtendedColorType::Rgb8).unwrap();
+        assert_eq!(display_size(&jpg), Some((20, 40)));
+
+        let junk = dir.join("junk.jpg");
+        fs::write(&junk, b"not an image").unwrap();
+        assert_eq!(display_size(&junk), None);
+        let _ = fs::remove_dir_all(dir);
     }
 }
 

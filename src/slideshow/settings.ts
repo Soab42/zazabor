@@ -11,11 +11,13 @@ export const TRANSITION_GROUPS = [
 
 type GroupItem = (typeof TRANSITION_GROUPS)[number]["items"][number];
 export type TransitionKind = GroupItem[0];
-export type TransitionChoice = "theme" | "random" | TransitionKind;
+/** "custom" draws from the user's own mix (`customTransitions`). */
+export type TransitionChoice = "theme" | "random" | "custom" | TransitionKind;
 
 export const TRANSITIONS: { id: TransitionChoice; label: string }[] = [
   { id: "theme", label: "Match theme" },
   { id: "random", label: "Surprise me (all)" },
+  { id: "custom", label: "My mix" },
   ...TRANSITION_GROUPS.flatMap((g) => g.items.map(([id, label]) => ({ id, label }))),
 ];
 
@@ -96,6 +98,8 @@ export interface SlideshowSettings {
   /** Transition length in seconds. */
   transitionTime: number;
   transition: TransitionChoice;
+  /** The user's own transition mix, used by the Custom style and "My mix". */
+  customTransitions: TransitionKind[];
   /** 0 disables Ken Burns motion; 1 is the strongest. */
   kenBurns: number;
   framing: Framing;
@@ -191,6 +195,12 @@ export const THEMES = [
     look: { duration: 3, transitionTime: 0.9, kenBurns: 0.7, look: "natural", grain: 0.05, vignette: 0.15, letterbox: false },
   },
   {
+    id: "custom", label: "Custom", blurb: "Your own style: keeps your timing, look and music, with your own mix of transitions",
+    track: "cinematic", beatsPerCut: 2,
+    transitions: [],
+    look: { duration: 4.5, transitionTime: 1.4, kenBurns: 0.55, look: "natural", grain: 0.1, vignette: 0.25, letterbox: false },
+  },
+  {
     id: "noir", label: "Noir", blurb: "Black and white, moody: ink, slices and slow fades",
     track: "jazz", beatsPerCut: 2,
     transitions: [["dip", 22], ["dissolve", 20], ["luma", 16], ["ink", 14], ["slices", 10], ["shutter", 10], ["clock", 8]],
@@ -202,8 +212,35 @@ export type ThemeId = (typeof THEMES)[number]["id"];
 
 export const themeOf = (id: ThemeId): Theme => THEMES.find((t) => t.id === id) ?? THEMES[0];
 
-/** Applies a theme's pacing, look, transitions and soundtrack (keeping a user's own music file). */
+/** The transitions a show draws from, weighted: the user's own mix, or the theme's. */
+export function transitionPool(settings: SlideshowSettings): ReadonlyArray<readonly [TransitionKind, number]> {
+  if (settings.transition === "custom" || settings.theme === "custom") {
+    return settings.customTransitions.length ? settings.customTransitions.map((kind) => [kind, 1] as const) : [["dissolve", 1]];
+  }
+  return themeOf(settings.theme).transitions;
+}
+
+/** Switches to the user's own mix, starting it from whatever was playing if it is empty. */
+export function useCustomMix(settings: SlideshowSettings) {
+  if (!settings.customTransitions.length) {
+    const choice = settings.transition;
+    settings.customTransitions = choice === "random" ? [...ALL_KINDS]
+      : choice === "theme" || choice === "custom" ? transitionPool(settings).map(([kind]) => kind)
+      : [choice];
+  }
+  settings.transition = "custom";
+}
+
+/**
+ * Applies a theme's pacing, look, transitions and soundtrack (keeping a user's own music file).
+ * The Custom style keeps whatever the user has set and plays their own mix.
+ */
 export function applyTheme(settings: SlideshowSettings, id: ThemeId) {
+  if (id === "custom") {
+    useCustomMix(settings);
+    settings.theme = id;
+    return;
+  }
   const theme = themeOf(id);
   settings.theme = id;
   Object.assign(settings, theme.look);
@@ -216,9 +253,11 @@ export function pickTransition(settings: SlideshowSettings, previous: Transition
     const pool = ALL_KINDS.filter((k) => k !== previous);
     return pool[Math.floor(random() * pool.length)];
   }
-  if (settings.transition !== "theme") return settings.transition;
-  // Never repeat a transition back to back unless it is a plain dissolve.
-  const pool = themeOf(settings.theme).transitions.filter(([kind]) => kind === "dissolve" || kind !== previous);
+  if (settings.transition !== "theme" && settings.transition !== "custom") return settings.transition;
+  // Never repeat a transition back to back unless it is a plain dissolve (or the only one).
+  const full = transitionPool(settings);
+  const fresh = full.filter(([kind]) => kind === "dissolve" || kind !== previous);
+  const pool = fresh.length ? fresh : full;
   const total = pool.reduce((sum, [, w]) => sum + w, 0);
   let roll = random() * total;
   for (const [kind, weight] of pool) {
@@ -230,7 +269,7 @@ export function pickTransition(settings: SlideshowSettings, previous: Transition
 
 function defaults(): SlideshowSettings {
   const settings: SlideshowSettings = {
-    theme: "cinematic", duration: 5, transitionTime: 1.6, transition: "theme", kenBurns: 0.55, framing: "smart",
+    theme: "cinematic", duration: 5, transitionTime: 1.6, transition: "theme", customTransitions: [], kenBurns: 0.55, framing: "smart",
     look: "film", grain: 0.3, vignette: 0.35, letterbox: true, captions: false, titleCard: true,
     shuffle: false, loop: true, music: null, musicVolume: 0.8, beatSync: true,
   };
@@ -245,6 +284,7 @@ export function normalizeSettings(raw: Partial<SlideshowSettings> | undefined): 
   const s = { ...defaults(), ...raw };
   if (!THEMES.some((t) => t.id === s.theme)) s.theme = "cinematic";
   if (!TRANSITIONS.some((t) => t.id === s.transition)) s.transition = "theme";
+  s.customTransitions = Array.isArray(s.customTransitions) ? s.customTransitions.filter((k) => k in TRANSITION_IDS) : [];
   if (!LOOKS.some((l) => l.id === s.look)) s.look = "film";
   if (!["smart", "fill", "fit"].includes(s.framing)) s.framing = "smart";
   return s;

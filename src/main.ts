@@ -2,6 +2,7 @@ import "./styles.css";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, forwardLogsToTerminal } from "./api";
+import { applyAppearance, openAppearanceDialog } from "./appearance";
 import { askForAccess, lockApi, openLockSettings, type LockStatus } from "./lock";
 import { loadConfig, saveConfig, type Config } from "./config";
 import { Library, makeFolder } from "./library/model";
@@ -34,6 +35,7 @@ class App {
       authorizePrivate: async () =>
         this.lock.mode === "off" || askForAccess(this.lock.mode, "confirm", "Hidden albums are private."),
       lockSettings: () => this.openLockSettings(),
+      appearance: () => openAppearanceDialog(this.config.appearance, () => this.appearanceChanged()),
       lockNow: () => this.lockApp(),
     });
     this.viewer = new Viewer(config, this.thumbs, {
@@ -44,6 +46,11 @@ class App {
       slideshow: (scopes) => this.startSlideshow(scopes),
     });
     document.getElementById("app")!.append(this.libraryView.el, this.viewer.el);
+    this.applyAppearance();
+    // "System" follows the desktop's light or dark setting as it changes.
+    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+      if (this.config.appearance.mode === "system") this.applyAppearance();
+    });
     window.addEventListener("keydown", (e) => this.onKey(e));
     // WebKitGTK reports mouse back/forward buttons only as mouse events, with button 3 and 4.
     window.addEventListener("mouseup", (e) => {
@@ -68,6 +75,19 @@ class App {
     this.libraryView.refresh();
     this.setupDragDrop().catch((err) => console.warn("Drag and drop unavailable:", err));
     await Promise.all([this.library.load(this.config.roots, this.config.hiddenAlbums, this.config.favoriteAlbums), this.openLaunchPath()]);
+  }
+
+  private applyAppearance() {
+    const appearance = this.config.appearance;
+    applyAppearance(appearance);
+    this.libraryView.grid.setLayout(appearance.layout, appearance.gap);
+    this.viewer.setZoomCurve(appearance.zoomCurve);
+    this.viewer.themeChanged();
+  }
+
+  private appearanceChanged() {
+    this.applyAppearance();
+    saveConfig(this.config);
   }
 
   private onMouseNavigate(direction: 1 | -1) {

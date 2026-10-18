@@ -16,6 +16,8 @@ export interface DrawOptions {
   /** Pixel-grid opacity (0 hides it). */
   grid: number;
   dpr: number;
+  /** Behind the photo, as RGB in 0–1. */
+  background: readonly [number, number, number];
 }
 
 /** Draws image layers onto the zoom canvas; implemented with WebGL2 or Canvas2D. */
@@ -28,7 +30,6 @@ export interface ZoomDrawer {
   release(image: CanvasImageSource): void;
 }
 
-const BACKGROUND: [number, number, number] = [0.043, 0.043, 0.047];
 
 // ---- WebGL2 ------------------------------------------------------------------------------
 
@@ -214,7 +215,7 @@ export class GLDrawer implements ZoomDrawer {
     const gl = this.gl;
     this.frameCount++;
     gl.viewport(0, 0, this.width, this.height);
-    gl.clearColor(...BACKGROUND, 1);
+    gl.clearColor(...options.background, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
     if (!items.length) return;
     gl.useProgram(this.program);
@@ -297,7 +298,7 @@ export class Canvas2DDrawer implements ZoomDrawer {
     const H = this.canvas.height;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1;
-    ctx.fillStyle = "#0b0b0c";
+    ctx.fillStyle = `rgb(${options.background.map((c) => Math.round(c * 255)).join(", ")})`;
     ctx.fillRect(0, 0, W, H);
     for (const item of items) this.drawItem(item, options, W, H);
     ctx.setTransform(1, 0, 0, 1, 0, 0);

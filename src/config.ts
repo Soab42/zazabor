@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { normalizeAppearance, type Appearance } from "./appearance";
 import { normalizeSettings, type SlideshowSettings } from "./slideshow/settings";
 import type { SortMode } from "./library/model";
 
@@ -15,6 +16,7 @@ export interface Config {
   showInfo: boolean;
   showFilmstrip: boolean;
   slideshow: SlideshowSettings;
+  appearance: Appearance;
 }
 
 const DEFAULTS: Config = {
@@ -28,6 +30,7 @@ const DEFAULTS: Config = {
   showInfo: false,
   showFilmstrip: true,
   slideshow: normalizeSettings(undefined),
+  appearance: normalizeAppearance(undefined),
 };
 
 export async function loadConfig(): Promise<Config> {
@@ -44,6 +47,7 @@ export async function loadConfig(): Promise<Config> {
       libraryView: parsed.libraryView === "photos" || parsed.libraryView === "favorites" ? parsed.libraryView : "albums",
       sort: parsed.sort === "name" ? "name" : "date",
       slideshow: normalizeSettings(parsed.slideshow),
+      appearance: normalizeAppearance(parsed.appearance),
     };
   } catch (err) {
     console.warn("Could not read config, using defaults:", err);

@@ -1,6 +1,6 @@
 import { clamp } from "../ui/dom";
 import { Canvas2DDrawer, GLDrawer, GRID_ABOVE, type DrawItem, type ZoomDrawer } from "./drawers";
-import { easeMove, easeWheel } from "./easing";
+import { cubicBezier, easeFrom, easeMove, slopeAt, WHEEL_CURVE, type Curve } from "./easing";
 import type { Tile, TiledImage } from "./tiles";
 
 export interface ZoomLayer {
@@ -27,7 +27,7 @@ export interface Readout {
 export const MAX_SCALE = 128;
 /** Device pixels per image pixel above which pixels are drawn as crisp squares. */
 const CRISP_ABOVE = 2.5;
-const WHEEL_MS = 240;
+const STEP_MS = 300;
 const MOVE_MS = 320;
 /** A new photo fades up from the background; the previous one is never drawn over it. */
 const FADE_IN_MS = 140;
@@ -44,7 +44,8 @@ type Tween = TweenPath & { start: number; duration: number; ease: (t: number) =>
 
 /**
  * GPU-accelerated pan/zoom view. Zoom changes are cubic-bezier tweens anchored under the
- * cursor; each wheel notch retargets the running tween so fast scrolling travels further.
+ * cursor; each wheel notch or key press retargets the running tween, keeping its speed, so
+ * fast scrolling travels further and repeated steps glide instead of stuttering.
  *
  * Coordinate spaces: source pixels → (toUpright) upright image → (user rotation) view →
  * (scale, translate) CSS pixels → (devicePixelRatio) canvas pixels.
@@ -64,6 +65,9 @@ export class ZoomView {
   private vh = 0;
   private dpr = 1;
   private tween: Tween | null = null;
+  private stepCurve = WHEEL_CURVE;
+  private background: readonly [number, number, number] = [0.047, 0.047, 0.055];
+  private stepEase = cubicBezier(...WHEEL_CURVE);
   private velocity: { x: number; y: number } | null = null;
   private drag: { id: number; x: number; y: number; t: number; vx: number; vy: number } | null = null;
   private pointer: { x: number; y: number } | null = null;
@@ -208,8 +212,25 @@ export class ZoomView {
     this.startTween({ kind: "center", fromX: center.x, fromY: center.y, toX: w / 2, toY: h / 2 }, this.homeScale, MOVE_MS, easeMove);
   }
 
-  /** Zooms to `scale` (CSS pixels per image pixel), keeping the point under (ax, ay) fixed. */
-  zoomTo(scale: number, ax = this.vw / 2, ay = this.vh / 2, wheel = false) {
+  /** The colour behind the photo, as #rrggbb (other values are ignored). */
+  setBackground(color: string) {
+    const hex = /^#([0-9a-f]{6})$/i.exec(color.trim())?.[1];
+    if (!hex) return;
+    this.background = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255) as [number, number, number];
+    this.invalidate();
+  }
+
+  /** The curve for zoom steps (wheel, keys, slider). */
+  setStepCurve(curve: Curve) {
+    this.stepCurve = curve;
+    this.stepEase = cubicBezier(...curve);
+  }
+
+  /**
+   * Zooms to `scale` (CSS pixels per image pixel), keeping the point under (ax, ay) fixed.
+   * A `step` is part of a series (wheel, keys, slider) and follows the step curve.
+   */
+  zoomTo(scale: number, ax = this.vw / 2, ay = this.vh / 2, step = false) {
     if (!this.hasImage) return;
     const next = clamp(scale, this.minScale, MAX_SCALE);
     if (next <= this.homeScale * 1.0001) {
@@ -220,13 +241,13 @@ export class ZoomView {
     this.velocity = null;
     const ix = (ax - this.tx) / this.scale;
     const iy = (ay - this.ty) / this.scale;
-    this.startTween({ kind: "anchor", ax, ay, ix, iy }, next, wheel ? WHEEL_MS : MOVE_MS, wheel ? easeWheel : easeMove);
+    this.startTween({ kind: "anchor", ax, ay, ix, iy }, next, step ? STEP_MS : MOVE_MS, step ? this.stepEase : easeMove);
   }
 
-  /** Multiplies the zoom, compounding with any zoom still in flight. */
-  zoomBy(factor: number, ax?: number, ay?: number, wheel = false) {
+  /** Multiplies the zoom as a step, compounding with any zoom still in flight. */
+  zoomBy(factor: number, ax?: number, ay?: number) {
     const base = this.tween ? Math.exp(this.tween.toLog) : this.scale;
-    this.zoomTo(base * factor, ax, ay, wheel);
+    this.zoomTo(base * factor, ax, ay, true);
   }
 
   rotate(quarterTurns: number) {
@@ -328,7 +349,7 @@ export class ZoomView {
     // A touchpad pinch arrives as ctrl+wheel with small deltas; mouse notches are large.
     const sensitivity = e.ctrlKey ? 0.012 : 0.0042;
     const delta = clamp(e.deltaY * unit, -240, 240);
-    this.zoomBy(Math.exp(-delta * sensitivity), e.offsetX, e.offsetY, true);
+    this.zoomBy(Math.exp(-delta * sensitivity), e.offsetX, e.offsetY);
   }
 
   private onPointerDown(e: PointerEvent) {
@@ -422,7 +443,19 @@ export class ZoomView {
   // ---- animation & drawing -------------------------------------------------------------
 
   private startTween(path: TweenPath, scale: number, duration: number, ease: (t: number) => number) {
-    this.tween = { ...path, start: performance.now(), duration, ease, fromLog: Math.log(this.scale), toLog: Math.log(scale) };
+    const now = performance.now();
+    const fromLog = Math.log(this.scale);
+    const toLog = Math.log(scale);
+    // A zoom already under way hands its speed on, so the new curve starts where the old one was
+    // heading rather than lurching forward or stopping dead.
+    const running = this.tween;
+    if (running && toLog !== fromLog) {
+      const t = Math.min(1, (now - running.start) / running.duration);
+      const speed = ((running.toLog - running.fromLog) * slopeAt(running.ease, t)) / running.duration;
+      const slope = (speed * duration) / (toLog - fromLog);
+      if (slope > 0) ease = easeFrom(slope, this.stepCurve);
+    }
+    this.tween = { ...path, start: now, duration, ease, fromLog, toLog };
     this.startLoop();
   }
 
@@ -563,6 +596,7 @@ export class ZoomView {
       crisp: k >= CRISP_ABOVE,
       grid: k >= GRID_ABOVE ? clamp((k - GRID_ABOVE) / 24, 0, 1) * 0.45 : 0,
       dpr: this.dpr,
+      background: this.background,
     });
   }
 

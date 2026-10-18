@@ -1,3 +1,4 @@
+mod dims;
 mod imaging;
 mod lock;
 mod music;
@@ -21,9 +22,13 @@ fn ensure_unlocked() -> Result<(), String> {
 async fn scan_folder(path: String, recursive: Option<bool>) -> Result<Vec<scan::Folder>, String> {
     ensure_unlocked()?;
     let recursive = recursive.unwrap_or(true);
-    tauri::async_runtime::spawn_blocking(move || scan::scan(Path::new(&path), recursive))
-        .await
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let folders = scan::scan(Path::new(&path), recursive);
+        dims::save();
+        folders
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 fn library_cache_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -41,6 +46,7 @@ async fn discover_photos(app: tauri::AppHandle) -> Result<Vec<scan::Folder>, Str
     let cache = library_cache_path(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         let folders = scan::discover(&roots);
+        dims::save();
         if let Ok(json) = serde_json::to_string(&folders) {
             if let Some(dir) = cache.parent() {
                 let _ = fs::create_dir_all(dir);
@@ -211,8 +217,9 @@ pub fn run() {
             protocol::handle(request, responder)
         })
         .setup(|app| {
-            let cache = app.path().app_cache_dir()?.join("renders");
-            protocol::init(cache);
+            let cache = app.path().app_cache_dir()?;
+            protocol::init(cache.join("renders"));
+            dims::init(cache.join("dimensions.json"));
             lock::init(app.path().app_config_dir()?);
             #[cfg(target_os = "linux")]
             if let Some(window) = app.get_webview_window("main") {

@@ -12,6 +12,7 @@ import { Filmstrip } from "./filmstrip";
 import { computeHistogram } from "./histogram";
 import { InfoPanel } from "./info";
 import { swapsAxes } from "./orient";
+import type { Curve } from "./easing";
 import { TiledImage } from "./tiles";
 import { ZoomView, type ZoomLayer } from "./zoom";
 
@@ -22,6 +23,10 @@ export interface ViewerHandlers {
 
 const CACHE_LIMIT = 4;
 const ZOOM_STEP = 1.6;
+/** Holding a zoom key glides: each auto-repeat adds this much on top of the first step. */
+const ZOOM_REPEAT_STEP = 1.08;
+const MINIMAP_W = 120;
+const MINIMAP_H = 62;
 
 function remember<T>(cache: Map<string, T>, key: string, make: () => T): T {
   let value = cache.get(key);
@@ -48,8 +53,10 @@ export class Viewer {
   private readout = h("div", { class: "v-readout", hidden: true });
   private minimap = h("canvas", { class: "v-minimap", hidden: true });
   private loading = h("div", { class: "v-loading", hidden: true }, h("span", { class: "spinner" }), "Loading full resolution…");
-  private prevButton = h("button", { class: "v-nav prev", title: "Previous (←)" }, icon("chevronLeft", 30));
-  private nextButton = h("button", { class: "v-nav next", title: "Next (→)" }, icon("chevronRight", 30));
+  private prevButton = h("button", { class: "v-nav", title: "Previous (←)" }, icon("chevronLeft", 22));
+  private nextButton = h("button", { class: "v-nav", title: "Next (→)" }, icon("chevronRight", 22));
+  /** Status, previous/next, the filmstrip and the navigator, kept below the photo rather than on it. */
+  private bottom = h("footer", { class: "v-bottom" });
   private infoButton: HTMLButtonElement;
   private info = new InfoPanel();
   private film: Filmstrip;
@@ -75,7 +82,13 @@ export class Viewer {
 
     this.prevButton.addEventListener("click", () => this.step(-1));
     this.nextButton.addEventListener("click", () => this.step(1));
-    this.stage.append(this.prevButton, this.nextButton, this.readout, this.minimap, this.loading);
+    this.bottom.append(
+      h("div", { class: "v-side" }, this.loading, this.readout),
+      this.prevButton,
+      this.film.el,
+      this.nextButton,
+      h("div", { class: "v-side end" }, this.minimap),
+    );
     this.setupMinimap();
 
     this.zoomSlider.addEventListener("pointerdown", () => (this.sliderActive = true));
@@ -97,9 +110,9 @@ export class Viewer {
       h(
         "div",
         { class: "v-zoom" },
-        h("button", { class: "icon-btn", title: "Zoom out (−)", onclick: () => this.zoom.zoomBy(1 / ZOOM_STEP) }, icon("zoomOut")),
+        h("button", { class: "icon-btn", title: "Zoom out (− or ↓)", onclick: () => this.zoom.zoomBy(1 / ZOOM_STEP) }, icon("zoomOut")),
         this.zoomSlider,
-        h("button", { class: "icon-btn", title: "Zoom in (+)", onclick: () => this.zoom.zoomBy(ZOOM_STEP) }, icon("zoomIn")),
+        h("button", { class: "icon-btn", title: "Zoom in (+ or ↑)", onclick: () => this.zoom.zoomBy(ZOOM_STEP) }, icon("zoomIn")),
         this.zoomLabel,
         h("button", { class: "icon-btn", title: "Fit to window (0)", onclick: () => this.zoom.home() }, icon("fit")),
         h("button", { class: "text-btn", title: "Actual pixels (1)", onclick: () => this.zoom.zoomTo(this.actualScale) }, "1:1"),
@@ -115,16 +128,25 @@ export class Viewer {
       ),
     );
 
-    this.el.append(top, h("div", { class: "v-body" }, this.stage, this.info.el), this.film.el);
+    this.el.append(top, h("div", { class: "v-body" }, this.stage, this.info.el), this.bottom);
     this.info.el.hidden = !config.showInfo;
     this.infoButton.classList.toggle("active", config.showInfo);
-    this.film.el.hidden = !config.showFilmstrip;
+    this.bottom.hidden = !config.showFilmstrip;
 
     this.el.addEventListener("pointermove", () => this.wake());
   }
 
   get isOpen() {
     return !this.el.hidden;
+  }
+
+  setZoomCurve(curve: Curve) {
+    this.zoom.setStepCurve(curve);
+  }
+
+  /** Matches the photo's backdrop to the theme's --stage colour. */
+  themeChanged() {
+    this.zoom.setBackground(getComputedStyle(this.el).getPropertyValue("--stage"));
   }
 
   get currentPhoto(): Photo | null {
@@ -176,11 +198,11 @@ export class Viewer {
       case "End":
         this.show(this.photos.length - 1);
         return true;
-      case "+": case "=":
-        this.zoom.zoomBy(ZOOM_STEP);
+      case "+": case "=": case "ArrowUp":
+        this.zoom.zoomBy(e.repeat ? ZOOM_REPEAT_STEP : ZOOM_STEP);
         return true;
-      case "-": case "_":
-        this.zoom.zoomBy(1 / ZOOM_STEP);
+      case "-": case "_": case "ArrowDown":
+        this.zoom.zoomBy(1 / (e.repeat ? ZOOM_REPEAT_STEP : ZOOM_STEP));
         return true;
       case "0":
         this.zoom.home();
@@ -205,8 +227,8 @@ export class Viewer {
         return true;
       case "h": case "H":
         this.config.showFilmstrip = !this.config.showFilmstrip;
-        this.film.el.hidden = !this.config.showFilmstrip;
-        if (!this.film.el.hidden) this.film.setCurrent(this.index);
+        this.bottom.hidden = !this.config.showFilmstrip;
+        if (!this.bottom.hidden) this.film.setCurrent(this.index);
         saveConfig(this.config);
         return true;
       default:
@@ -265,7 +287,7 @@ export class Viewer {
     clearTimeout(this.idleTimer);
     if (!this.immersive) return;
     this.idleTimer = window.setTimeout(() => {
-      if (!this.el.querySelector(".v-top:hover, .film:hover")) this.el.classList.add("idle");
+      if (!this.el.querySelector(".v-top:hover, .v-bottom:hover")) this.el.classList.add("idle");
     }, 2200);
   }
 
@@ -281,7 +303,7 @@ export class Viewer {
     this.sub.textContent = `${index + 1} of ${this.photos.length}   ·   ${photo.folder.label}`;
     this.prevButton.disabled = index === 0;
     this.nextButton.disabled = index === this.photos.length - 1;
-    if (!this.film.el.hidden) this.film.setCurrent(index);
+    if (!this.bottom.hidden) this.film.setCurrent(index);
     this.loading.hidden = true;
 
     const preview = this.loadPreview(photo);
@@ -417,8 +439,9 @@ export class Viewer {
     if (this.minimap.hidden || !img) return;
     const quarter = vp.rotation % 2 === 1;
     const aspect = quarter ? img.naturalHeight / img.naturalWidth : img.naturalWidth / img.naturalHeight;
-    const cssW = aspect >= 1 ? 200 : Math.round(150 * aspect);
-    const cssH = aspect >= 1 ? Math.round(200 / aspect) : 150;
+    // Sized to sit inside the bottom bar.
+    const cssW = Math.round(Math.min(MINIMAP_W, MINIMAP_H * aspect));
+    const cssH = Math.round(Math.min(MINIMAP_H, MINIMAP_W / aspect));
     const dpr = window.devicePixelRatio || 1;
     const W = Math.round(cssW * dpr);
     const H = Math.round(cssH * dpr);
@@ -442,7 +465,7 @@ export class Viewer {
     ctx.rect(0, 0, W, H);
     ctx.rect(x, y, w, h);
     ctx.fill("evenodd");
-    ctx.strokeStyle = "#f0b34a";
+    ctx.strokeStyle = getComputedStyle(this.el).getPropertyValue("--accent-hover").trim() || "#f0b34a";
     ctx.lineWidth = 1.5 * dpr;
     ctx.strokeRect(x + 0.75 * dpr, y + 0.75 * dpr, Math.max(1, w - 1.5 * dpr), Math.max(1, h - 1.5 * dpr));
   }

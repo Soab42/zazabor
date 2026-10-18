@@ -7,7 +7,7 @@ import { icon } from "../ui/icons";
 import { builtinTracks, isPreviewing, previewMusic, stopPreview, yourMusic } from "./music";
 import { TransitionPreview } from "./preview";
 import {
-  applyTheme, BUILTIN_MUSIC, LOOKS, THEMES, TRANSITION_GROUPS,
+  applyTheme, BUILTIN_MUSIC, LOOKS, THEMES, TRANSITION_GROUPS, useCustomMix,
   type Framing, type SlideshowSettings, type TransitionChoice, type TransitionKind,
 } from "./settings";
 
@@ -204,22 +204,36 @@ export class SettingsForm {
     return grid;
   }
 
-  /** Category pills over a small set of chips; hovering a chip previews it. */
+  /**
+   * Category pills over a small set of chips; hovering a chip previews it. In "My mix" mode the
+   * chips add and remove transitions from the user's own mix instead of picking just one.
+   */
   private transitionLibrary() {
     const chips = new Map<TransitionChoice, HTMLButtonElement>();
+    const special = (id: TransitionChoice) => id === "theme" || id === "random" || id === "custom";
     const chip = (id: TransitionChoice, label: string, extra = "") => {
       const button = h("button", { type: "button", class: `tchip${extra}` }, label);
       button.addEventListener("click", () => {
-        this.settings.transition = id;
+        const mix = this.settings.customTransitions;
+        if (id === "custom") {
+          useCustomMix(this.settings);
+          this.settings.theme = "custom";
+        } else if (this.settings.transition === "custom" && !special(id)) {
+          const kind = id as TransitionKind;
+          this.settings.customTransitions = mix.includes(kind) ? mix.filter((k) => k !== kind) : [...mix, kind];
+        } else {
+          this.settings.transition = id;
+        }
         this.changed("transition");
       });
-      if (id !== "theme" && id !== "random") {
+      if (!special(id)) {
         button.addEventListener("pointerenter", () => this.preview.show(id as TransitionKind));
         button.addEventListener("pointerleave", () => this.preview.show(null));
       }
       chips.set(id, button);
       return button;
     };
+    const specials = h("div", { class: "tlib-row" }, chip("theme", "Match theme", " special"), chip("random", "Surprise me (all 50)", " special"), chip("custom", "My mix", " special"));
     const categories = h("div", { class: "tcats" });
     const rows = TRANSITION_GROUPS.map((group) => h("div", { class: "tlib-row", hidden: true }, ...group.items.map(([id, label]) => chip(id, label))));
     const pills = TRANSITION_GROUPS.map((group, i) => {
@@ -234,15 +248,24 @@ export class SettingsForm {
     };
     const selected = TRANSITION_GROUPS.findIndex((g) => g.items.some(([id]) => id === this.settings.transition));
     showCategory(Math.max(0, selected));
-    this.syncers.push(() => chips.forEach((button, id) => button.classList.toggle("active", this.settings.transition === id)));
+    const hint = h("p", { class: "sf-hint" });
+    this.syncers.push(() => {
+      const mixing = this.settings.transition === "custom";
+      const mix = this.settings.customTransitions;
+      chips.forEach((button, id) => button.classList.toggle("active", mixing && !special(id) ? mix.includes(id as TransitionKind) : this.settings.transition === id));
+      chips.get("custom")!.textContent = mixing ? `My mix (${mix.length})` : "My mix";
+      hint.textContent = mixing
+        ? "Click transitions to add them to your mix or take them out; the show picks among them at random. Hover to preview."
+        : "Hover a transition to preview it; click to use it for the whole show, or choose My mix to combine several.";
+    });
     this.syncers[this.syncers.length - 1]();
     return h(
       "div",
       { class: "tlib" },
-      h("div", { class: "tlib-row" }, chip("theme", "Match theme", " special"), chip("random", "Surprise me (all 50)", " special")),
+      specials,
       categories,
       ...rows,
-      h("p", { class: "sf-hint" }, "Hover a transition to preview it; click to use it for the whole show."),
+      hint,
     );
   }
 

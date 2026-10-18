@@ -1,10 +1,13 @@
 import { thumbUrl } from "../api";
 import type { Photo } from "./model";
 
-/** Thumbnail sizes the backend renders; picking from a few keeps the disk cache small. */
+/**
+ * Thumbnail sizes the backend renders; picking from a few keeps the disk cache small.
+ * The smallest that is at least as large as the display is used, so none is upscaled.
+ */
 export function thumbBucket(displayPx: number) {
   const px = displayPx * (window.devicePixelRatio || 1);
-  return px <= 200 ? 256 : 512;
+  return px <= 256 ? 256 : 512;
 }
 
 const RETRY_MS = 5000;

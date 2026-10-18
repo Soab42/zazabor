@@ -5,6 +5,9 @@ export interface PhotoFile {
   name: string;
   size: number;
   mtime: number;
+  /** Upright display size; 0×0 when unknown, and absent from libraries cached by older versions. */
+  width: number;
+  height: number;
 }
 
 export interface FolderScan {

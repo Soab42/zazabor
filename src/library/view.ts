@@ -17,6 +17,7 @@ export interface LibraryViewHandlers {
   /** Re-checks identity before private (hidden) albums are shown. */
   authorizePrivate(): Promise<boolean>;
   lockSettings(): void;
+  appearance(): void;
   lockNow(): void;
 }
 
@@ -75,6 +76,7 @@ export class LibraryView {
         else if (await handlers.authorizePrivate()) library.setShowHidden(true);
       },
       lockSettings: () => handlers.lockSettings(),
+      appearance: () => handlers.appearance(),
     });
 
     this.grid = new Grid(thumbs, config.thumbSize, {

@@ -1,13 +1,16 @@
 import { formatDate, h, rafThrottle } from "../ui/dom";
 import { icon } from "../ui/icons";
+import type { GridLayout } from "../appearance";
 import type { Group, Photo } from "./model";
 import { photoThumbUrl, type ThumbLoader } from "./thumbs";
 
 const PAD = 24;
-const GAP = 10;
 const HEADER = 62;
 const GROUP_GAP = 18;
 const OVERSCAN = 700;
+/** Very tall or wide photos are cropped to these proportions so one cannot flatten a row. */
+const MIN_ASPECT = 0.5;
+const MAX_ASPECT = 3;
 
 interface Row {
   y: number;
@@ -17,6 +20,74 @@ interface Row {
   /** Index of the first photo in this row, within its group. */
   start: number;
   count: number;
+  /**
+   * Left edge of each photo, from the left padding, then the row's right edge plus a gap;
+   * photo `k` is `edges[k + 1] - edges[k] - gap` wide.
+   */
+  edges: number[];
+}
+
+/** Width over height as displayed; photos of unknown size are laid out square. */
+function aspectOf(photo: Photo) {
+  return photo.width > 0 && photo.height > 0 ? photo.width / photo.height : 1;
+}
+
+/** Long edge of a photo scaled to cover a w×h cell, which its thumbnail must match. */
+function coverLongEdge(photo: Photo, w: number, h: number) {
+  const aspect = aspectOf(photo);
+  return aspect >= 1 ? Math.max(w, h * aspect) : Math.max(h, w / aspect);
+}
+
+type RowShape = { start: number; count: number; h: number; edges: number[] };
+
+/**
+ * Packs photos into rows that fill `width` exactly, gaps included, each as close to `target`
+ * tall as the photos allow. The last row keeps the target height rather than stretching.
+ * Edges and heights are whole pixels so every gap is exactly `gap` wide.
+ */
+function justify(aspects: number[], width: number, target: number, gap: number) {
+  const rows: RowShape[] = [];
+  let start = 0;
+  while (start < aspects.length) {
+    let end = start;
+    let sum = 0;
+    while (end < aspects.length) {
+      const next = sum + aspects[end];
+      // The gaps in the row if this photo joins it.
+      const gaps = (end - start) * gap;
+      if (end > start && next * target + gaps > width) {
+        // Squeeze the photo in if that strays less from the target than a taller row without it.
+        if ((target * next) / (width - gaps) < (width - gaps + gap) / (sum * target)) {
+          sum = next;
+          end++;
+        }
+        break;
+      }
+      sum = next;
+      end++;
+    }
+    const count = end - start;
+    const h = Math.min((width - (count - 1) * gap) / sum, end === aspects.length ? target : Infinity);
+    const edges = [0];
+    let x = 0;
+    for (let i = 1; i <= count; i++) edges.push(Math.round((x += aspects[start + i - 1]) * h) + i * gap);
+    rows.push({ start, count, h: Math.round(h), edges });
+    start = end;
+  }
+  return rows;
+}
+
+/** Equal square tiles, as many across as come closest to `target`, filling `width` exactly. */
+function squares(count: number, width: number, target: number, gap: number) {
+  const cols = Math.max(1, Math.round((width + gap) / (target + gap)));
+  const size = (width - (cols - 1) * gap) / cols;
+  const rows: RowShape[] = [];
+  for (let start = 0; start < count; start += cols) {
+    const edges = [0];
+    for (let i = 1; i <= Math.min(cols, count - start); i++) edges.push(Math.round(i * size) + i * gap);
+    rows.push({ start, count: edges.length - 1, h: Math.round(size), edges });
+  }
+  return rows;
 }
 
 interface Location {
@@ -32,7 +103,10 @@ export interface GridHandlers {
   activeGroupChanged(index: number): void;
 }
 
-/** A virtualized thumbnail grid with one header per folder, in the spirit of Picasa. */
+/**
+ * A virtualized photo grid with one header per folder. Like Google Photos, photos keep their
+ * proportions in rows that fill the width, or sit in square tiles; `cell` is the row height.
+ */
 export class Grid {
   readonly el = h("div", { class: "grid-scroll", tabIndex: 0 });
   private content = h("div", { class: "grid-content" });
@@ -42,7 +116,13 @@ export class Grid {
   private folderIndex = new Map<string, number>();
   private rows: Row[] = [];
   private headerRow: number[] = [];
-  private cols = 1;
+  /** The row each photo sits in, by flat index. */
+  private rowOf = new Int32Array(0);
+  private layout: GridLayout = "justified";
+  private gap = 2;
+  /** Space kept clear under the frosted toolbar and above the status bar (from CSS). */
+  private insetTop = 0;
+  private insetBottom = 0;
   private width = 0;
   private nodes = new Map<string, HTMLElement>();
   private activeGroup = -1;
@@ -80,6 +160,8 @@ export class Grid {
   }
 
   setGroups(groups: Group[]) {
+    // Found while the rows still describe the old groups, so the view can stay on that photo.
+    const keep = this.topVisiblePhoto();
     this.groups = groups;
     this.flat = [];
     this.where.clear();
@@ -102,12 +184,20 @@ export class Grid {
     }
     this.activeGroup = -1;
     this.pinnedGroup = null;
-    this.relayout();
+    this.relayout(keep);
   }
 
   setCellSize(px: number) {
     if (px === this.cell) return;
     this.cell = px;
+    this.relayout();
+  }
+
+  /** Justified rows or square tiles, with `gap` pixels between photos. */
+  setLayout(layout: GridLayout, gap: number) {
+    if (layout === this.layout && gap === this.gap) return;
+    this.layout = layout;
+    this.gap = gap;
     this.relayout();
   }
 
@@ -134,7 +224,7 @@ export class Grid {
     if (!row) return;
     this.pinnedGroup = index;
     this.setActiveGroup(index);
-    this.el.scrollTo({ top: Math.max(0, row.y - 6), behavior: "smooth" });
+    this.el.scrollTo({ top: Math.max(0, row.y - this.insetTop - 6), behavior: "smooth" });
   }
 
   /** Focuses and selects a photo, scrolling it into view (used when returning from the viewer). */
@@ -179,11 +269,6 @@ export class Grid {
     if (!loc) {
       return ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(key) ? 0 : undefined;
     }
-    const cols = this.cols;
-    const group = this.groups[loc.group];
-    const rowStart = Math.floor(loc.index / cols) * cols;
-    const col = loc.index - rowStart;
-    const flatOf = (g: number, i: number) => this.where.get(this.groups[g].photos[i].path)!.flat;
     switch (key) {
       case "ArrowLeft":
         return Math.max(0, loc.flat - 1);
@@ -193,22 +278,27 @@ export class Grid {
         return 0;
       case "End":
         return this.flat.length - 1;
-      case "ArrowUp": {
-        if (rowStart > 0) return flatOf(loc.group, rowStart - cols + col);
-        if (loc.group === 0) return loc.flat;
-        const prev = this.groups[loc.group - 1].photos.length;
-        const lastRow = Math.floor((prev - 1) / cols) * cols;
-        return flatOf(loc.group - 1, Math.min(lastRow + col, prev - 1));
-      }
-      case "ArrowDown": {
-        if (rowStart + cols < group.photos.length)
-          return flatOf(loc.group, Math.min(rowStart + cols + col, group.photos.length - 1));
-        if (loc.group === this.groups.length - 1) return loc.flat;
-        return flatOf(loc.group + 1, Math.min(col, this.groups[loc.group + 1].photos.length - 1));
-      }
+      case "ArrowUp":
+        return this.verticalNeighbour(loc, -1);
+      case "ArrowDown":
+        return this.verticalNeighbour(loc, 1);
       default:
         return undefined;
     }
+  }
+
+  /** The photo above or below the middle of this one, across folders; itself at either end. */
+  private verticalNeighbour(loc: Location, step: -1 | 1) {
+    const from = this.rows[this.rowOf[loc.flat]];
+    let r = this.rowOf[loc.flat] + step;
+    while (this.rows[r]?.header) r += step;
+    const row = this.rows[r];
+    if (!row) return loc.flat;
+    const k = loc.index - from.start;
+    const mid = (from.edges[k] + from.edges[k + 1] - this.gap) / 2;
+    let best = 0;
+    while (best < row.count - 1 && row.edges[best + 1] <= mid) best++;
+    return this.where.get(this.groups[row.group].photos[row.start + best].path)!.flat;
   }
 
   private moveFocus(flatIndex: number, extend: boolean) {
@@ -237,16 +327,18 @@ export class Grid {
   private ensureVisible(path: string, block: "nearest" | "center") {
     const loc = this.where.get(path);
     if (!loc) return;
-    const row = this.rows[this.headerRow[loc.group] + 1 + Math.floor(loc.index / this.cols)];
+    const index = this.rowOf[loc.flat];
+    const row = this.rows[index];
     if (!row) return;
-    const top = this.el.scrollTop;
-    const height = this.el.clientHeight;
+    // The visible band lies between the bars.
+    const top = this.el.scrollTop + this.insetTop;
+    const height = this.el.clientHeight - this.insetTop - this.insetBottom;
     if (block === "center") {
-      this.el.scrollTop = row.y + row.h / 2 - height / 2;
+      this.el.scrollTop = row.y + row.h / 2 - height / 2 - this.insetTop;
     } else if (row.y < top + 8) {
-      this.el.scrollTop = row.y - (row.y === this.rows[this.headerRow[loc.group] + 1].y ? HEADER + 8 : 8);
+      this.el.scrollTop = row.y - this.insetTop - (this.rows[index - 1]?.header ? HEADER + 8 : 8);
     } else if (row.y + row.h > top + height - 8) {
-      this.el.scrollTop = row.y + row.h - height + 8;
+      this.el.scrollTop = row.y + row.h - height + 8 - this.insetTop;
     }
     this.render();
   }
@@ -313,29 +405,36 @@ export class Grid {
   }
 
   /** Recomputes rows for the current width, keeping the photo at the top of the view in place. */
-  private relayout() {
-    const keep = this.topVisiblePhoto();
+  private relayout(keep = this.topVisiblePhoto()) {
     this.width = this.el.clientWidth;
+    const style = getComputedStyle(this.el);
+    this.insetTop = parseFloat(style.getPropertyValue("--inset-top")) || 0;
+    this.insetBottom = parseFloat(style.getPropertyValue("--inset-bottom")) || 0;
     const usable = Math.max(this.cell, this.width - PAD * 2);
-    this.cols = Math.max(1, Math.floor((usable + GAP) / (this.cell + GAP)));
     this.rows = [];
     this.headerRow = [];
-    let y = 8;
+    this.rowOf = new Int32Array(this.flat.length);
+    let y = this.insetTop + 8;
+    let first = 0;
     this.groups.forEach((group, g) => {
       this.headerRow.push(this.rows.length);
-      this.rows.push({ y, h: HEADER, group: g, header: true, start: 0, count: 0 });
+      this.rows.push({ y, h: HEADER, group: g, header: true, start: 0, count: 0, edges: [] });
       y += HEADER;
-      for (let start = 0; start < group.photos.length; start += this.cols) {
-        const count = Math.min(this.cols, group.photos.length - start);
-        this.rows.push({ y, h: this.cell + GAP, group: g, header: false, start, count });
-        y += this.cell + GAP;
+      const shapes = this.layout === "square"
+        ? squares(group.photos.length, usable, this.cell, this.gap)
+        : justify(group.photos.map((p) => Math.min(MAX_ASPECT, Math.max(MIN_ASPECT, aspectOf(p)))), usable, this.cell, this.gap);
+      for (const { start, count, h, edges } of shapes) {
+        this.rowOf.fill(this.rows.length, first + start, first + start + count);
+        this.rows.push({ y, h, group: g, header: false, start, count, edges });
+        y += h + this.gap;
       }
+      first += group.photos.length;
       y += GROUP_GAP;
     });
-    this.content.style.height = `${y + 24}px`;
+    this.content.style.height = `${y + 24 + this.insetBottom}px`;
     if (keep) {
       const loc = this.where.get(keep.path);
-      const row = loc && this.rows[this.headerRow[loc.group] + 1 + Math.floor(loc.index / this.cols)];
+      const row = loc && this.rows[this.rowOf[loc.flat]];
       if (row) this.el.scrollTop = row.y - keep.offset;
     }
     this.render();
@@ -345,7 +444,7 @@ export class Grid {
     if (!this.rows.length) return null;
     const top = this.el.scrollTop;
     if (top <= 0) return null;
-    for (let i = this.firstRowBelow(top); i < this.rows.length; i++) {
+    for (let i = this.firstRowBelow(top + this.insetTop); i < this.rows.length; i++) {
       const row = this.rows[i];
       if (!row.header) return { path: this.groups[row.group].photos[row.start].path, offset: row.y - top };
     }
@@ -369,7 +468,6 @@ export class Grid {
     const top = this.el.scrollTop;
     const bottom = top + this.el.clientHeight;
     const used = new Set<string>();
-    const step = this.cell + GAP;
     for (let i = this.firstRowBelow(top - OVERSCAN); i < this.rows.length; i++) {
       const row = this.rows[i];
       if (row.y > bottom + OVERSCAN) break;
@@ -396,9 +494,12 @@ export class Grid {
           this.nodes.set(photo.path, node);
           this.content.append(node);
         }
-        node.style.transform = `translate(${PAD + k * step}px, ${row.y}px)`;
-        node.style.width = node.style.height = `${this.cell}px`;
-        this.thumbs.load(node.querySelector("img")!, photoThumbUrl(photo, this.cell));
+        const x = row.edges[k];
+        const w = row.edges[k + 1] - x - this.gap;
+        node.style.transform = `translate(${PAD + x}px, ${row.y}px)`;
+        node.style.width = `${w}px`;
+        node.style.height = `${row.h}px`;
+        this.thumbs.load(node.querySelector("img")!, photoThumbUrl(photo, coverLongEdge(photo, w, row.h)));
       }
     }
     for (const [key, node] of this.nodes) {
@@ -413,7 +514,7 @@ export class Grid {
 
   private updateActiveGroup(top: number) {
     if (this.pinnedGroup !== null) return;
-    const row = this.rows[this.firstRowBelow(top + HEADER / 2)];
+    const row = this.rows[this.firstRowBelow(top + this.insetTop + HEADER / 2)];
     this.setActiveGroup(row ? row.group : -1);
   }
 

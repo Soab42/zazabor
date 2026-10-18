@@ -12,6 +12,7 @@ export interface SidebarHandlers {
   addFolder(): void;
   toggleHidden(): void;
   lockSettings(): void;
+  appearance(): void;
 }
 
 export interface SidebarState {
@@ -45,6 +46,7 @@ export class Sidebar {
       { class: "sb-foot" },
       h("button", { class: "sb-foot-btn", title: "Include a folder SliderPro didn't find on its own", onclick: () => handlers.addFolder() }, icon("folderPlus", 15), "Add a folder"),
       this.hiddenButton,
+      h("button", { class: "sb-foot-btn", title: "Layout, colours, zoom animation and custom CSS", onclick: () => handlers.appearance() }, icon("palette", 15), "Appearance"),
       h("button", { class: "sb-foot-btn", title: "Lock SliderPro with a password", onclick: () => handlers.lockSettings() }, icon("lock", 15), "Privacy lock"),
     );
     this.list.addEventListener("click", (e) => {
