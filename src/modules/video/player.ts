@@ -20,6 +20,8 @@ export class Player {
   shuffle = false;
   /** Set when opening failed before the backend could report it. */
   openError: string | null = null;
+  /** Set when a file opened part-way through at its resume point; the UI offers "Start over". */
+  resumeOffer: { path: string; time: number } | null = null;
 
   private readonly listeners = new Set<() => void>();
   private unlisten: UnlistenFn | undefined;
@@ -91,6 +93,7 @@ export class Player {
     this.openError = null;
     this.endedHandled = false;
     this.state = { ...this.blankState(path), time: startAt, length: saved?.length ?? 0 };
+    this.resumeOffer = startAt > 0 ? { path, time: startAt } : null;
     this.queue = siblings && siblings.includes(path) ? siblings : [path];
     this.settings.recent = addRecent(this.settings.recent, path);
     this.shell.saveConfig();
@@ -128,6 +131,7 @@ export class Player {
     this.token++;
     this.current = null;
     this.openError = null;
+    this.resumeOffer = null;
     this.state = this.blankState(null);
     this.emit();
     try {
@@ -187,6 +191,21 @@ export class Player {
   toggleShuffle() {
     this.shuffle = !this.shuffle;
     this.emit();
+  }
+
+  // ---- resume offer (the prompt itself is features/quick/resume.ts) ----------------------------
+
+  /** Keeps playing from the resume point and forgets the offer. */
+  dismissResumeOffer() {
+    if (!this.resumeOffer) return;
+    this.resumeOffer = null;
+    this.emit();
+  }
+
+  /** Plays the current file from the start instead of the resume point. */
+  startOver() {
+    this.resumeOffer = null;
+    this.seekTo(0);
   }
 
   // ---- sound and speed ----------------------------------------------------------------------
