@@ -9,9 +9,12 @@ export const MODULE_IDS: readonly ModuleId[] = ["files", "gallery", "video"];
 /** Something one module asks the shell to show, usually in another module. */
 export type OpenRequest =
   | { kind: "folder"; path: string }
-  /** `siblings` is the list to browse through (e.g. the other images in that folder). */
-  | { kind: "image"; path: string; siblings?: string[] }
-  | { kind: "video"; path: string; siblings?: string[] };
+  /**
+   * `siblings` is the list to browse through (e.g. the other images in that folder). `alone`: the
+   * window exists only for this file, so show it without the module's library around it.
+   */
+  | { kind: "image"; path: string; siblings?: string[]; alone?: boolean }
+  | { kind: "video"; path: string; siblings?: string[]; alone?: boolean };
 
 /** The app-wide privacy lock, as seen by modules. */
 export interface ShellLock {

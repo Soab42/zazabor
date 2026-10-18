@@ -19,6 +19,15 @@ export const windowStart: WindowStart | null = (window as { __COREPRO_WINDOW__?:
 export const windowLabel = getCurrentWindow().label;
 export const isMainWindow = windowLabel === "main";
 
+/**
+ * A window for one picture or one video: only the viewer or the player, nothing around it. (A
+ * Files window with a path is the file manager in that folder.)
+ */
+export const isFileWindow = !!windowStart?.path && (windowStart.module === "gallery" || windowStart.module === "video");
+
+/** Closes this window. */
+export const closeThisWindow = () => void getCurrentWindow().close().catch(() => undefined);
+
 /** Opens another window on a module (Files can start in `path`). */
 export function openWindow(module: ModuleId, path?: string) {
   invoke("open_window", { module, path: path ?? null }).catch((err) => console.warn("Could not open a window:", err));

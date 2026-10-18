@@ -2,6 +2,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../../api";
 import { saveConfig } from "../../config";
 import type { AppModule, ModuleFactory, OpenRequest, ShellContext } from "../../shell/module";
+import { closeThisWindow, isFileWindow } from "../../shell/windows";
 import { dirname, h, isTypingTarget } from "../../ui/dom";
 import type { IconName } from "../../ui/icons";
 import { Library, makeFolder } from "./library/model";
@@ -33,6 +34,9 @@ class GalleryModule implements AppModule {
     this.onMouseNavigate(e.button === 3 ? -1 : 1);
   };
 
+  /** This window shows one picture: the viewer only. */
+  private alone = false;
+
   constructor(private readonly shell: ShellContext) {
     const config = shell.config;
     this.library.sort = config.sort;
@@ -46,6 +50,8 @@ class GalleryModule implements AppModule {
     });
     this.viewer = new Viewer(config, this.thumbs, {
       close: (photo) => {
+        // A window opened for one picture has nothing else to show.
+        if (this.alone) return closeThisWindow();
         if (photo) this.libraryView.reveal(photo);
         else this.libraryView.focusContent();
       },
@@ -56,7 +62,8 @@ class GalleryModule implements AppModule {
     this.libraryView.setLockEnabled(shell.lock.enabled);
     this.libraryView.refresh();
     window.addEventListener("mouseup", this.onMouseUp);
-    void this.library.load(config.roots, config.hiddenAlbums, config.favoriteAlbums);
+    // A window for one picture never shows the library, so it doesn't scan for one.
+    if (!isFileWindow) void this.library.load(config.roots, config.hiddenAlbums, config.favoriteAlbums);
   }
 
   get modal() {
@@ -105,7 +112,14 @@ class GalleryModule implements AppModule {
 
   open(request: OpenRequest) {
     if (request.kind === "folder") void this.addRoot(request.path);
-    else if (request.kind === "image") void this.openFile(request.path);
+    else if (request.kind === "image") {
+      if (request.alone) {
+        this.alone = true;
+        this.viewer.setStandalone();
+        this.el.classList.add("alone");
+      }
+      void this.openFile(request.path);
+    }
   }
 
   dispose() {

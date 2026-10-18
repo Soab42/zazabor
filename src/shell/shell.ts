@@ -5,7 +5,7 @@ import { api } from "../api";
 import { applyAppearance } from "../appearance";
 import { adoptConfig, CONFIG_SAVED, parseConfig, saveConfig, type Config } from "../config";
 import { askForAccess, dismissUnlockPrompt, lockApi, openLockSettings, type LockStatus } from "../lock";
-import { h, isTypingTarget } from "../ui/dom";
+import { basename, h, isTypingTarget } from "../ui/dom";
 import { MODULE_IDS, type AppModule, type ModuleId, type OpenRequest, type ShellContext, type ShellLock } from "./module";
 import { Onboarding } from "./onboarding";
 import { Rail } from "./rail";
@@ -14,7 +14,7 @@ import { classifyPath } from "./router";
 import { Settings } from "./settings";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
-import { isMainWindow, onOthers, openWindow, tellOthers, windowStart } from "./windows";
+import { closeThisWindow, isFileWindow, isMainWindow, onOthers, openWindow, tellOthers, windowStart } from "./windows";
 
 /** Activity in one window resets the auto-lock in the others, at most this often. */
 const ACTIVITY_EVERY_MS = 20_000;
@@ -55,7 +55,12 @@ export class Shell implements ShellContext {
       close: () => this.closeSettings(),
     });
     this.workspace.append(this.settings.el);
-    document.getElementById("app")!.append(this.rail.el, this.workspace);
+    // An extra window is one section on its own: no app rail, no Settings, no switching.
+    if (isMainWindow) document.getElementById("app")!.append(this.rail.el, this.workspace);
+    else {
+      document.body.classList.add("solo-window");
+      document.getElementById("app")!.append(this.workspace);
+    }
     this.rail.setItems(this.enabledModules());
     this.applyAppearance();
 
@@ -97,8 +102,10 @@ export class Shell implements ShellContext {
     const path = windowStart?.path;
     if (path && first === wanted) {
       if (first === "files") this.open({ kind: "folder", path });
-      else if (first === "gallery") this.open({ kind: "image", path });
-      else if (first === "video") this.open({ kind: "video", path });
+      else if (first === "gallery") this.open({ kind: "image", path, alone: isFileWindow });
+      else if (first === "video") this.open({ kind: "video", path, alone: isFileWindow });
+      // A window for one file is called after it.
+      if (isFileWindow) void getCurrentWindow().setTitle(basename(path)).catch(() => undefined);
     }
     if (isMainWindow) await this.openLaunchPath();
   }
@@ -131,6 +138,8 @@ export class Shell implements ShellContext {
     adoptConfig(this.config, incoming);
     if (JSON.stringify(this.config.appearance) !== before.appearance) this.appearanceChanged(false);
     if (JSON.stringify(this.config.features) !== before.features) {
+      // A window for a section that was turned off has nothing left to show.
+      if (!isMainWindow && this.active && !this.config.features[this.active]) return closeThisWindow();
       for (const id of MODULE_IDS) if (!this.config.features[id] && this.modules.has(id)) this.dropModule(id);
       this.rail.setItems(this.enabledModules());
       if (!this.active || !this.config.features[this.active]) void this.activate(this.enabledModules()[0]);
@@ -327,6 +336,16 @@ export class Shell implements ShellContext {
     }
     if (this.onboarding) return;
     const active = this.active ? this.modules.get(this.active) : undefined;
+    // Settings and switching sections belong to the main window.
+    if (!isMainWindow) {
+      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "n" && !active?.modal && this.active) {
+        e.preventDefault();
+        this.openModuleWindow(this.active);
+        return;
+      }
+      if (active && (active.modal || !isTypingTarget(e.target)) && active.handleKey(e)) e.preventDefault();
+      return;
+    }
     if (mod && e.key === "," && !active?.modal) {
       e.preventDefault();
       this.toggleSettings();

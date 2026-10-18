@@ -41,6 +41,16 @@
 .vp-stage { position: absolute; inset: 0; overflow: hidden; background: black; }
 .vp-stage canvas { display: block; width: 100%; height: 100%; }
 .vp.view-browse .vp-stage { visibility: hidden; }
+
+/* A window for one video: the player alone, no library rail. */
+.vp.alone .vp-rail { display: none; }
+.vp-alone-card {
+  position: absolute; inset: 0; z-index: 3; display: grid; place-content: center; justify-items: center; gap: 10px;
+  padding: 24px; background: black; color: rgba(255, 255, 255, 0.6); text-align: center;
+}
+.vp-alone-card[hidden] { display: none; }
+.vp-alone-title { max-width: 520px; overflow: hidden; color: rgba(255, 255, 255, 0.92); font-size: var(--text-lg); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.vp-alone-card p { max-width: 380px; margin: 0 0 6px; font-size: var(--text-md); line-height: 1.5; }
 .vp-sections { position: absolute; inset: 0; overflow-y: auto; }
 .vp.view-player .vp-sections { display: none; }
 

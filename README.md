@@ -12,7 +12,7 @@ See `docs/PLAN.md` for the roadmap and `docs/DESIGN.md` for the design rules.
 - Frosted-glass macOS-style interface in dark, light or system theme, with accent colours and background tones.
 
 **Windows**
-- Any section can open in its own window (right-click its rail button, a middle click, or Ctrl+N), and any file can too: right-click → Open in New Window, or New Window in Quick Look. Folders open in Files, pictures in the Gallery viewer, videos in the player, PDFs and other files in a viewer.
+- Any section can open in its own window (right-click its rail button, a middle click, or Ctrl+N): just that section, without the app rail or Settings. Any file can too (right-click → Open in New Window, or New Window in Quick Look): a picture gets only the viewer, a video only the player, a folder the file manager, PDFs and other files a viewer, text and code the editor.
 - Windows share settings and the privacy lock: change the theme in one and the others follow; locking one locks them all.
 
 **Code editor**

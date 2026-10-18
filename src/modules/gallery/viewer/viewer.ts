@@ -48,6 +48,7 @@ export class Viewer {
   private zoom: ZoomView;
   private name = h("div", { class: "v-name" });
   private sub = h("div", { class: "v-sub" });
+  private backButton = h("button", { class: "btn ghost", title: "Back to library (Esc)", onclick: () => void this.close() }, icon("back", 17), "Library");
   private zoomLabel = h("button", { class: "zoom-label", title: "Toggle fit / actual size (double-click the photo)" });
   private zoomSlider = h("input", { type: "range", class: "zoom-slider", min: 0, max: 1000, step: 1, title: "Zoom" });
   private readout = h("div", { class: "v-readout", hidden: true });
@@ -105,7 +106,7 @@ export class Viewer {
     const top = h(
       "header",
       { class: "v-top" },
-      h("button", { class: "btn ghost", title: "Back to library (Esc)", onclick: () => this.close() }, icon("back", 17), "Library"),
+      this.backButton,
       h("div", { class: "v-title" }, this.name, this.sub),
       h(
         "div",
@@ -169,6 +170,15 @@ export class Viewer {
   goTo(photo: Photo) {
     const i = this.photos.findIndex((p) => p.path === photo.path);
     if (i >= 0) this.show(i);
+  }
+
+  /**
+   * The window shows only this viewer (a picture opened in its own window): the back button
+   * closes the window instead of going to the library.
+   */
+  setStandalone() {
+    this.backButton.replaceChildren(icon("close", 16), "Close");
+    this.backButton.title = "Close (Esc)";
   }
 
   async close() {

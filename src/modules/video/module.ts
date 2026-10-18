@@ -59,6 +59,11 @@ export class VideoModule implements AppModule {
   private readonly top = h("header", { class: "vp-top" });
   private readonly crumb = h("span", { class: "vp-top-crumb" });
   private readonly titleEl = h("div", { class: "vp-top-title" });
+  /** A window for one video (see `showAlone`). */
+  private alone = false;
+  private alonePath = "";
+  private aloneSidebar = false;
+  private readonly aloneCard = h("div", { class: "vp-alone-card", hidden: true });
   private readonly sidebarToggle = h("button", { class: "icon-btn", type: "button", title: "Sidebar", "aria-label": "Sidebar" }, icon("sidebar", 18));
   private readonly stage = h("div", { class: "vp-stage" });
   private readonly osd = h("div", { class: "vp-osd" });
@@ -249,7 +254,7 @@ export class VideoModule implements AppModule {
   }
 
   private buildStage() {
-    this.stage.append(this.surface.el, this.stageLayer, this.osd, this.overlay);
+    this.stage.append(this.surface.el, this.stageLayer, this.osd, this.overlay, this.aloneCard);
     this.stage.addEventListener("contextmenu", (e) => {
       if (this.view !== "player") return;
       e.preventDefault();
@@ -321,11 +326,14 @@ export class VideoModule implements AppModule {
   }
 
   private sidebarOpen() {
+    // A window for one video starts with only the picture; its queue opens on request.
+    if (this.alone) return this.aloneSidebar;
     return this.fullscreen ? this.fullscreenSidebar : this.shell.config.video.sidebar;
   }
 
   private toggleSidebar() {
-    if (this.fullscreen) this.fullscreenSidebar = !this.fullscreenSidebar;
+    if (this.alone) this.aloneSidebar = !this.aloneSidebar;
+    else if (this.fullscreen) this.fullscreenSidebar = !this.fullscreenSidebar;
     else this.shell.config.video.sidebar = !this.shell.config.video.sidebar;
     this.shell.saveConfig();
     this.applyView();
@@ -359,7 +367,13 @@ export class VideoModule implements AppModule {
       this.sidebar.setCurrent(current);
       if (current) {
         this.view = "player";
+        this.aloneCard.hidden = true;
         if (dirname(current) !== this.sidebar.browsing) void this.sidebar.browse(dirname(current));
+      } else if (this.alone) {
+        // A window for one video stays a player: the video stopped or moved to another window.
+        this.uiHidden = false;
+        if (this.fullscreen) void this.setFullscreen(false);
+        this.aloneCard.hidden = false;
       } else {
         this.view = "browse";
         this.uiHidden = false;
@@ -631,7 +645,21 @@ export class VideoModule implements AppModule {
   }
 
   open(request: OpenRequest) {
-    if (request.kind === "video") void this.play(request.path, request.siblings);
+    if (request.kind !== "video") return;
+    if (request.alone) this.showAlone(request.path);
+    void this.play(request.path, request.siblings);
+  }
+
+  /** This window plays one video: just the player, no library rail or sections. */
+  private showAlone(path: string) {
+    this.alone = true;
+    this.alonePath = path;
+    this.el.classList.add("alone");
+    this.aloneCard.replaceChildren(
+      icon("video", 34),
+      h("div", { class: "vp-alone-title" }, stripExtension(basename(path))),
+      h("p", null, "Not playing here. Playback stopped, or this video went to another window."),
+      h("button", { class: "btn primary", type: "button", onclick: () => void this.play(this.alonePath) }, icon("play", 15), "Play Here"));
   }
 
   async onLock() {

@@ -364,6 +364,8 @@ select option { background: var(--bg-raised); color: var(--text); }
 
 /* ---- library ------------------------------------------------------------------------------ */
 
+/* A window for one picture shows only the viewer. */
+.gallery-module.alone .library { visibility: hidden; }
 .library { display: grid; grid-template-columns: 252px minmax(0, 1fr); height: 100%; }
 
 .sidebar {

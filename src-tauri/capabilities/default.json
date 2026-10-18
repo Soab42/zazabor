@@ -21,6 +21,7 @@
     "core:window:allow-unmaximize",
     "core:window:allow-is-maximized",
     "core:window:allow-destroy",
+    "core:window:allow-close",
     "dialog:allow-open"
   ]
 }
