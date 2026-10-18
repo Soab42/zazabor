@@ -1,5 +1,5 @@
 import { h } from "../../../ui/dom";
-import { photoThumbUrl } from "../../../shared/thumbs";
+import { fileThumb } from "../../../shared/file-thumbs";
 import type { FsEntry } from "../api";
 import { categoryOf, folderGlyph, iconNameFor, iconNode } from "../kinds";
 import { clickSelect, moveSelect, selectAll, targetIndex, typeSelectIndex } from "../selection";
@@ -206,14 +206,19 @@ export class IconView implements FileView {
     art.className = `iv-art ${category}`;
     if (category === "folder") {
       art.replaceChildren(folderGlyph());
-    } else if (category === "image") {
-      const img = h("img", { class: "iv-thumb", alt: "", draggable: false, decoding: "async" });
-      art.replaceChildren(h("div", { class: "iv-sheet photo" }, iconNode("image", 24), img));
-      this.ctx.thumbs.load(img, photoThumbUrl(entry, this.iconSize));
-    } else {
-      const badge = entry.ext && entry.ext.length <= 4 ? h("span", { class: "iv-ext" }, entry.ext.toUpperCase()) : null;
-      art.replaceChildren(h("div", { class: "iv-sheet" }, iconNode(iconNameFor(category), 24), badge));
+      return;
     }
+    const thumb = fileThumb(entry, this.iconSize);
+    const badge = entry.ext && entry.ext.length <= 4 ? h("span", { class: "iv-ext" }, entry.ext.toUpperCase()) : null;
+    if (!thumb) {
+      art.replaceChildren(h("div", { class: "iv-sheet" }, iconNode(iconNameFor(category), 24), badge));
+      return;
+    }
+    // The type icon shows until the thumbnail has loaded, and stays when there is none to show.
+    const img = h("img", { class: "iv-thumb", alt: "", draggable: false, decoding: "async" });
+    const mark = thumb.look === "video" ? h("span", { class: "iv-play" }, iconNode("play", 10)) : thumb.look === "photo" ? null : badge;
+    art.replaceChildren(h("div", { class: `iv-sheet ${thumb.look}` }, iconNode(iconNameFor(category), 24), img, mark));
+    this.ctx.thumbs.load(img, thumb.source);
   }
 
   private paint(tile: HTMLElement, path: string) {

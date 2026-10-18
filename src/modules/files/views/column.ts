@@ -1,5 +1,5 @@
 import { formatDateTime, h } from "../../../ui/dom";
-import { photoThumbUrl } from "../../../shared/thumbs";
+import { fileThumb } from "../../../shared/file-thumbs";
 import type { FsEntry } from "../api";
 import { categoryOf, folderGlyph, iconNameFor, iconNode, kindLabel, sizeText } from "../kinds";
 import { samePath } from "../path";
@@ -272,12 +272,17 @@ export class ColumnView implements FileView {
 
   private showPreview(entry: FsEntry) {
     const category = categoryOf(entry);
+    const thumb = category === "folder" ? null : fileThumb(entry, 260);
     let art: HTMLElement;
-    if (category === "image") {
-      const img = h("img", { class: "cv-pv-img", alt: "", draggable: false, decoding: "async" });
+    if (thumb) {
+      const img = h("img", { class: `cv-pv-img ${thumb.look}`, alt: "", draggable: false, decoding: "async" });
       this.previewImg = img;
-      this.ctx.thumbs.load(img, photoThumbUrl(entry, 260));
-      art = h("div", { class: "cv-pv-art photo" }, img);
+      this.ctx.thumbs.load(img, thumb.source);
+      // Other files show their type on a sheet until the thumbnail is drawn (or for good, when
+      // it cannot be).
+      art = thumb.look === "photo"
+        ? h("div", { class: "cv-pv-art photo" }, img)
+        : h("div", { class: "cv-pv-art" }, h("div", { class: `cv-pv-sheet ${category}` }, iconNode(iconNameFor(category), 24)), img);
     } else if (category === "folder") {
       art = h("div", { class: "cv-pv-art" }, folderGlyph());
     } else {

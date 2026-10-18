@@ -47,10 +47,11 @@ pub struct Folder {
     pub photos: Vec<Photo>,
 }
 
+/// The lower-case extension that says what kind of file this is. Cloud drives name their files
+/// by id on disk, so there it comes from the file's title.
 pub fn extension(path: &Path) -> Option<String> {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase())
+    let own = |path: &Path| path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase());
+    own(path).or_else(|| crate::fs::cloud_title(path).and_then(|title| own(Path::new(&title))))
 }
 
 pub fn is_image(path: &Path) -> bool {

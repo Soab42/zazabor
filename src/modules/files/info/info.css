@@ -28,7 +28,7 @@
 .gi-close { position: absolute; top: var(--space-2); right: var(--space-2); z-index: 2; }
 .gi-scroll { flex: 1; min-height: 0; padding: var(--space-5) var(--space-4) var(--space-4); overflow-x: hidden; overflow-y: auto; animation: fade-in 160ms var(--ease-out); }
 
-.gi-preview { display: grid; place-items: center; height: 148px; margin-bottom: var(--space-3); }
+.gi-preview { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; height: 148px; margin-bottom: var(--space-3); }
 .gi-name {
   padding: 0 var(--space-4); text-align: center; overflow-wrap: anywhere;
   font-size: var(--text-lg); font-weight: 650; letter-spacing: -0.01em; line-height: 1.3;

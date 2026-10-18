@@ -42,6 +42,12 @@ pub async fn fs_list(path: String, show_hidden: bool) -> Result<Vec<FsEntry>, St
         .map_err(|e| e.to_string())?
 }
 
+/// What people call a path's last part on a cloud drive, where files are named by id on disk;
+/// `None` for other paths.
+pub fn cloud_title(path: &Path) -> Option<String> {
+    cloud::title(path)
+}
+
 /// Titles for path-bar steps on cloud drives (ids on disk); `None` for other paths.
 #[tauri::command]
 pub async fn fs_titles(paths: Vec<String>) -> Result<Vec<Option<String>>, String> {

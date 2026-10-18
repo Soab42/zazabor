@@ -3,6 +3,7 @@
 use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
 use image::{DynamicImage, GrayImage, ImageFormat, ImageReader, RgbImage};
+use jpeg_decoder::PixelFormat;
 use serde::Serialize;
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter};
@@ -46,8 +47,8 @@ pub fn read_orientation(path: &Path) -> u32 {
     read_exif(path).map(|e| orientation_of(&e)).unwrap_or(1)
 }
 
-/// Dimensions and orientation of a JPEG, from the markers before its image data.
-fn jpeg_header(path: &Path) -> Option<(u32, u32, u32)> {
+/// Dimensions, orientation and pixel format of a JPEG, from the markers before its image data.
+fn jpeg_header(path: &Path) -> Option<(u32, u32, u32, PixelFormat)> {
     let mut decoder = jpeg_decoder::Decoder::new(BufReader::new(File::open(path).ok()?));
     decoder.read_info().ok()?;
     let info = decoder.info()?;
@@ -56,13 +57,13 @@ fn jpeg_header(path: &Path) -> Option<(u32, u32, u32)> {
         .and_then(|raw| exif::Reader::new().read_raw(raw.to_vec()).ok())
         .map(|exif| orientation_of(&exif))
         .unwrap_or(1);
-    Some((info.width.into(), info.height.into(), orientation))
+    Some((info.width.into(), info.height.into(), orientation, info.pixel_format))
 }
 
 /// The size a photo displays at once its EXIF orientation is applied, read from the file
 /// header without decoding any pixels.
 pub fn display_size(path: &Path) -> Option<(u32, u32)> {
-    let header = if is_jpeg(path) { jpeg_header(path) } else { None };
+    let header = if is_jpeg(path) { jpeg_header(path).map(|(w, h, o, _)| (w, h, o)) } else { None };
     let (w, h, orientation) = header.or_else(|| {
         let (w, h) = ImageReader::open(path).ok()?.with_guessed_format().ok()?.into_dimensions().ok()?;
         Some((w, h, read_orientation(path)))
@@ -103,10 +104,10 @@ fn decode_jpeg_scaled(path: &Path, min_long: u32) -> Option<DynamicImage> {
     }
     let pixels = decoder.decode().ok()?;
     match info.pixel_format {
-        jpeg_decoder::PixelFormat::RGB24 => {
+        PixelFormat::RGB24 => {
             RgbImage::from_raw(w, h, pixels).map(DynamicImage::ImageRgb8)
         }
-        jpeg_decoder::PixelFormat::L8 => {
+        PixelFormat::L8 => {
             GrayImage::from_raw(w, h, pixels).map(DynamicImage::ImageLuma8)
         }
         _ => None,
@@ -145,13 +146,9 @@ pub fn render(path: &Path, max_dim: u32) -> Result<DynamicImage, String> {
     })
 }
 
-/// Returns a cached render of `path` at `max_dim`, producing it on a miss.
-/// Opaque images are stored as JPEG; images with transparency as PNG.
-pub fn cached_render(
-    path: &Path,
-    max_dim: u32,
-    cache_dir: &Path,
-) -> Result<(PathBuf, &'static str), String> {
+/// The cache file name (without extension) of a render of `path` at `max_dim`; it changes
+/// whenever the file does.
+fn cache_stem(path: &Path, max_dim: u32) -> Result<String, String> {
     let meta = fs::metadata(path).map_err(|e| e.to_string())?;
     let key = format!(
         "{CACHE_VERSION}|{}|{}|{}|{max_dim}",
@@ -159,7 +156,45 @@ pub fn cached_render(
         meta.len(),
         unix_seconds(meta.modified())
     );
-    let stem = format!("{:016x}", xxh3_64(key.as_bytes()));
+    Ok(format!("{:016x}", xxh3_64(key.as_bytes())))
+}
+
+/// A thumbnail the webview drew for a file this side cannot render (a PDF's first page), if one
+/// was stored for the file as it is now.
+pub fn stored_thumb(path: &Path, max_dim: u32, cache_dir: &Path) -> Option<PathBuf> {
+    let file = cache_dir.join(format!("{}.jpg", cache_stem(path, max_dim).ok()?));
+    file.exists().then_some(file)
+}
+
+/// Keeps a JPEG thumbnail the webview drew for `path`, served by the `thumb` route from then on.
+pub fn store_thumb(path: &Path, max_dim: u32, cache_dir: &Path, jpeg: &[u8]) -> Result<(), String> {
+    if !jpeg.starts_with(&[0xff, 0xd8]) {
+        return Err("not a JPEG".into());
+    }
+    let stem = cache_stem(path, max_dim)?;
+    let tmp = cache_dir.join(format!(
+        "{stem}.{}.{}.tmp",
+        std::process::id(),
+        TMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    let out = cache_dir.join(format!("{stem}.jpg"));
+    fs::write(&tmp, jpeg)
+        .and_then(|_| fs::rename(&tmp, &out))
+        .map_err(|e| {
+            let _ = fs::remove_file(&tmp);
+            e.to_string()
+        })
+}
+
+/// Returns a cached render of `path` at `max_dim`, producing it on a miss, or the file itself
+/// when it can be shown as it is.
+/// Opaque images are stored as JPEG; images with transparency as PNG.
+pub fn cached_render(
+    path: &Path,
+    max_dim: u32,
+    cache_dir: &Path,
+) -> Result<(PathBuf, &'static str), String> {
+    let stem = cache_stem(path, max_dim)?;
     let jpg = cache_dir.join(format!("{stem}.jpg"));
     let png = cache_dir.join(format!("{stem}.png"));
     if jpg.exists() {
@@ -167,6 +202,15 @@ pub fn cached_render(
     }
     if png.exists() {
         return Ok((png, "image/png"));
+    }
+    // A JPEG that already fits and is stored upright is served as it is: re-encoding it would
+    // only cost time (and its colour profile).
+    if is_jpeg(path) {
+        if let Some((w, h, 1, PixelFormat::RGB24 | PixelFormat::L8)) = jpeg_header(path) {
+            if max_dim == 0 || w.max(h) <= max_dim {
+                return Ok((path.to_path_buf(), "image/jpeg"));
+            }
+        }
     }
 
     let img = render(path, max_dim)?;
@@ -359,10 +403,12 @@ fn exif_summary(exif: &exif::Exif) -> Vec<(String, String)> {
 
 pub fn photo_info(path: &Path) -> Result<PhotoInfo, String> {
     let meta = fs::metadata(path).map_err(|e| e.to_string())?;
-    let (width, height) = image::image_dimensions(path).unwrap_or((0, 0));
+    // From the content, not the name: a cloud drive's files are named by id.
+    let reader = ImageReader::open(path).ok().and_then(|r| r.with_guessed_format().ok());
+    let kind = reader.as_ref().and_then(|r| r.format());
+    let (width, height) = reader.and_then(|r| r.into_dimensions().ok()).unwrap_or((0, 0));
     let exif = read_exif(path);
-    let format = ImageFormat::from_path(path)
-        .ok()
+    let format = kind
         .and_then(|f| f.extensions_str().first().copied())
         .unwrap_or("unknown")
         .to_uppercase();
@@ -429,6 +475,64 @@ mod tests {
         let junk = dir.join("junk.jpg");
         fs::write(&junk, b"not an image").unwrap();
         assert_eq!(display_size(&junk), None);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_stored_thumbnail_is_found_until_its_file_changes() {
+        let dir = std::env::temp_dir().join(format!("sliderpro-stored-{}", std::process::id()));
+        let cache = dir.join("cache");
+        fs::create_dir_all(&cache).unwrap();
+        let pdf = dir.join("paper.pdf");
+        fs::write(&pdf, b"%PDF-1.7").unwrap();
+        assert_eq!(stored_thumb(&pdf, 256, &cache), None);
+        assert!(store_thumb(&pdf, 256, &cache, b"not a jpeg").is_err());
+
+        store_thumb(&pdf, 256, &cache, &[0xff, 0xd8, 0xff, 0xd9]).unwrap();
+        let stored = stored_thumb(&pdf, 256, &cache).unwrap();
+        assert_eq!(fs::read(stored).unwrap(), [0xff, 0xd8, 0xff, 0xd9]);
+        // Kept per size, and forgotten once the file is different.
+        assert_eq!(stored_thumb(&pdf, 512, &cache), None);
+        fs::write(&pdf, b"%PDF-1.7 edited").unwrap();
+        assert_eq!(stored_thumb(&pdf, 256, &cache), None);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn cached_render_serves_an_upright_jpeg_that_fits_as_it_is() {
+        use image::ImageEncoder;
+        let dir = std::env::temp_dir().join(format!("sliderpro-asis-{}", std::process::id()));
+        let cache = dir.join("cache");
+        fs::create_dir_all(&cache).unwrap();
+        let pixels = RgbImage::new(40, 20);
+        let write = |name: &str, exif: Option<Vec<u8>>| {
+            let path = dir.join(name);
+            let mut encoder = JpegEncoder::new(BufWriter::new(File::create(&path).unwrap()));
+            if let Some(exif) = exif {
+                encoder.set_exif_metadata(exif).unwrap();
+            }
+            encoder.write_image(pixels.as_raw(), 40, 20, image::ExtendedColorType::Rgb8).unwrap();
+            path
+        };
+
+        let upright = write("upright.jpg", None);
+        assert_eq!(cached_render(&upright, 64, &cache).unwrap().0, upright);
+        assert_eq!(cached_render(&upright, 0, &cache).unwrap().0, upright);
+        // Larger than asked for: rendered down into the cache.
+        let (small, _) = cached_render(&upright, 16, &cache).unwrap();
+        assert!(small.starts_with(&cache));
+        assert_eq!(image::image_dimensions(&small).unwrap(), (16, 8));
+
+        // Orientation = 6: the file needs turning, so it is rendered upright.
+        let exif = vec![
+            b'M', b'M', 0, 42, 0, 0, 0, 8, 0, 1, //
+            0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0, //
+            0, 0, 0, 0,
+        ];
+        let rotated = write("rotated.jpg", Some(exif));
+        let (turned, _) = cached_render(&rotated, 64, &cache).unwrap();
+        assert!(turned.starts_with(&cache));
+        assert_eq!(image::image_dimensions(&turned).unwrap(), (20, 40));
         let _ = fs::remove_dir_all(dir);
     }
 }

@@ -5,7 +5,7 @@ import { api } from "../api";
 import { applyAppearance } from "../appearance";
 import { adoptConfig, CONFIG_SAVED, parseConfig, saveConfig, type Config } from "../config";
 import { askForAccess, dismissUnlockPrompt, lockApi, openLockSettings, type LockStatus } from "../lock";
-import { basename, h, isTypingTarget } from "../ui/dom";
+import { h, isTypingTarget } from "../ui/dom";
 import { MODULE_IDS, type AppModule, type ModuleId, type OpenRequest, type ShellContext, type ShellLock } from "./module";
 import { Onboarding } from "./onboarding";
 import { Rail } from "./rail";
@@ -104,11 +104,10 @@ export class Shell implements ShellContext {
     await this.activate(first);
     const path = windowStart?.path;
     if (path && first === wanted) {
+      const siblings = (windowStart?.module !== "viewer" && windowStart?.siblings) || undefined;
       if (first === "files") this.open({ kind: "folder", path });
-      else if (first === "gallery") this.open({ kind: "image", path, alone: isFileWindow });
-      else if (first === "video") this.open({ kind: "video", path, alone: isFileWindow });
-      // A window for one file is called after it.
-      if (isFileWindow) void getCurrentWindow().setTitle(basename(path)).catch(() => undefined);
+      else if (first === "gallery") this.open({ kind: "image", path, siblings, alone: isFileWindow });
+      else if (first === "video") this.open({ kind: "video", path, siblings, alone: isFileWindow });
     }
     if (isMainWindow) await this.openLaunchPath();
   }

@@ -145,6 +145,37 @@ async fn photo_info(path: String) -> Result<imaging::PhotoInfo, String> {
         .map_err(|e| e.to_string())?
 }
 
+/// Keeps a thumbnail the webview drew (a PDF's first page) in the render cache, where the `thumb`
+/// route finds it next time. The JPEG is the raw request body; the `thumb` header says what it is
+/// of, as `p=<path>&s=<size>` (URL-encoded).
+#[tauri::command]
+async fn thumb_store(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    ensure_unlocked()?;
+    let tauri::ipc::InvokeBody::Raw(jpeg) = request.body() else {
+        return Err("expected the thumbnail as the request body".into());
+    };
+    if jpeg.len() > 4 << 20 {
+        return Err("thumbnail too large".into());
+    }
+    let query = request.headers().get("thumb").and_then(|v| v.to_str().ok()).unwrap_or("");
+    let (mut path, mut size) = (None, 0u32);
+    for (key, value) in url::form_urlencoded::parse(query.as_bytes()) {
+        match key.as_ref() {
+            "p" => path = Some(PathBuf::from(value.into_owned())),
+            "s" => size = value.parse().unwrap_or(0),
+            _ => {}
+        }
+    }
+    let path = path.ok_or("missing path")?;
+    let jpeg = jpeg.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = protocol::cache_dir().ok_or("cache unavailable")?;
+        imaging::store_thumb(&path, size, dir, &jpeg)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// "dir", "image", "audio", "file" or "missing" — used to route drag-and-drop and launch paths.
 #[tauri::command]
 fn path_kind(path: String) -> &'static str {
@@ -198,12 +229,18 @@ fn save_config(app: tauri::AppHandle, json: String) -> Result<(), String> {
 }
 
 /// Opens another CorePro window on a module (and, for Files, a folder): the same app with its own
-/// workspace. The page reads where to start from `window.__COREPRO_WINDOW__`.
+/// workspace. The page reads where to start from `window.__COREPRO_WINDOW__`. `siblings` are the
+/// files a window for one file browses through, in order (the pictures of the folder it came from).
 #[tauri::command]
-async fn open_window(app: tauri::AppHandle, module: String, path: Option<String>) -> Result<(), String> {
+async fn open_window(
+    app: tauri::AppHandle,
+    module: String,
+    path: Option<String>,
+    siblings: Option<Vec<String>>,
+) -> Result<(), String> {
     static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(2);
     let label = format!("window-{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
-    let start = serde_json::json!({ "module": module, "path": path });
+    let start = serde_json::json!({ "module": module, "path": path, "siblings": siblings });
     let window = tauri::WebviewWindowBuilder::new(&app, label, tauri::WebviewUrl::App("index.html".into()))
         .title("CorePro")
         .inner_size(1280.0, 820.0)
@@ -298,6 +335,7 @@ pub fn run() {
             lock::confirm_identity,
             lock::set_lock,
             photo_info,
+            thumb_store,
             path_kind,
             launch_path,
             load_config,

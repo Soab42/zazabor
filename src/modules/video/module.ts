@@ -382,6 +382,8 @@ export class VideoModule implements AppModule {
       }
       this.renderRail();
       this.applyView();
+      // A window for one video is called after the video playing in it.
+      if (this.alone && current) void getCurrentWindow().setTitle(this.titleEl.textContent || basename(current)).catch(() => undefined);
     }
     this.bar.update();
     const error = this.player.error;

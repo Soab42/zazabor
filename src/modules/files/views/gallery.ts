@@ -1,5 +1,6 @@
 import { formatDateTime, h } from "../../../ui/dom";
-import { photoThumbUrl } from "../../../shared/thumbs";
+import { fileThumb } from "../../../shared/file-thumbs";
+import { resolveThumb } from "../../../shared/thumbs";
 import { previewUrl, thumbUrl } from "../../../api";
 import type { FsEntry } from "../api";
 import { categoryOf, folderGlyph, iconNameFor, iconNode, kindLabel, sizeText } from "../kinds";
@@ -11,6 +12,8 @@ import { VirtualList } from "./vlist";
 
 const CELL = 84;
 const PREVIEW_PX = 1536;
+/** The size other files' thumbnails are asked for on the stage. */
+const STAGE_PX = 720;
 
 /** Gallery view: a large preview of the focused item over a horizontal, virtualized filmstrip. */
 export class GalleryView implements FileView {
@@ -132,10 +135,11 @@ export class GalleryView implements FileView {
     this.dropThumb(cell);
     const category = categoryOf(entry);
     thumb.className = `gv-thumb ${category}`;
-    if (category === "image") {
-      const img = h("img", { class: "gv-img-thumb", alt: "", draggable: false, decoding: "async" });
-      thumb.replaceChildren(iconNode("image", 20), img);
-      this.ctx.thumbs.load(img, photoThumbUrl(entry, CELL - 12));
+    const art = category === "folder" ? null : fileThumb(entry, CELL - 12);
+    if (art) {
+      const img = h("img", { class: `gv-img-thumb ${art.look}`, alt: "", draggable: false, decoding: "async" });
+      thumb.replaceChildren(iconNode(iconNameFor(category), 20), img);
+      this.ctx.thumbs.load(img, art.source);
     } else if (category === "folder") {
       thumb.replaceChildren(folderGlyph());
     } else {
@@ -200,6 +204,18 @@ export class GalleryView implements FileView {
     } else {
       const ext = entry.ext && entry.ext.length <= 4 ? h("span", { class: "iv-ext" }, entry.ext.toUpperCase()) : null;
       this.stage.replaceChildren(h("div", { class: `gv-glyph ${category}` }, iconNode(iconNameFor(category), 24), ext));
+      // A video's frame or a document's first page takes the glyph's place once it is drawn.
+      const art = fileThumb(entry, STAGE_PX);
+      if (art) {
+        this.previewTimer = window.setTimeout(() => {
+          resolveThumb(art.source).then((url) => {
+            if (token !== this.token) return;
+            const img = h("img", { class: `gv-img ${art.look}`, alt: "", draggable: false });
+            img.onload = () => token === this.token && this.stage.replaceChildren(img);
+            img.src = url;
+          }, () => {});
+        }, 140);
+      }
     }
     const meta = [kindLabel(entry), entry.dir ? "" : sizeText(entry), formatDateTime(entry.mtime)].filter(Boolean).join("  ·  ");
     this.caption.replaceChildren(h("div", { class: "gv-name", title: entry.name }, entry.name), h("div", { class: "gv-meta" }, meta));

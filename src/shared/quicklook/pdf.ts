@@ -6,17 +6,23 @@ const MAX_PAGES = 12;
 /** Larger files get the fallback card instead of being loaded whole. */
 const MAX_BYTES = 64 * 1024 * 1024;
 
+/** pdf.js, loaded on first use, with its worker set up. */
+export async function loadPdfjs() {
+  const [pdfjs, worker] = await Promise.all([
+    import("pdfjs-dist"),
+    import("pdfjs-dist/build/pdf.worker.min.mjs?url"),
+  ]);
+  pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
+  return pdfjs;
+}
+
 /**
  * Renders the first pages of a PDF as canvases with pdf.js (loaded on first use).
  * `isCurrent` lets the caller abandon the work when the user has moved on.
  * Rejects when the file cannot be read as a PDF.
  */
 export async function renderPdf(path: string, width: number, isCurrent: () => boolean): Promise<HTMLElement> {
-  const [pdfjs, worker] = await Promise.all([
-    import("pdfjs-dist"),
-    import("pdfjs-dist/build/pdf.worker.min.mjs?url"),
-  ]);
-  pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
+  const pdfjs = await loadPdfjs();
   const doc = await pdfjs.getDocument({ data: new Uint8Array(await readBinary(path, MAX_BYTES)) }).promise;
   const pages = h("div", { class: "ql-pdf" });
   const count = Math.min(doc.numPages, MAX_PAGES);

@@ -133,7 +133,7 @@ export class QuickLook {
         const item = this.item;
         if (!item) return;
         this.close();
-        openFileWindow(item);
+        openFileWindow(item, this.opts.items());
       },
     }, icon("columns", 14), this.windowLabel);
     const close = this.iconButton("close", "Close (Esc)", () => this.close());
@@ -176,8 +176,8 @@ export class QuickLook {
     this.openBtn.hidden = external;
     // A Google Doc opens on the web.
     this.externalLabel.textContent = item.url ? "Open in Browser" : "Open with Default App";
-    // Text and code open in the editor in their window.
-    this.windowBtn.hidden = !!item.url;
+    // Text and code open in the editor in their window; a picture's or video's Open is already one.
+    this.windowBtn.hidden = !!item.url || opensInWindow(item, this.opts.shell);
     this.windowLabel.textContent = editable(item) ? "Edit" : "New Window";
     this.body = buildBody(item, {
       shell: this.opts.shell,
@@ -189,6 +189,7 @@ export class QuickLook {
         this.updateSub();
       },
       width: () => this.stage.clientWidth,
+      open: () => this.openItem(),
     });
     const fresh = h("div", { class: "ql-stage" }, this.body.el);
     this.stage.replaceChildren(fresh);
@@ -230,11 +231,19 @@ export class QuickLook {
     const category = categoryOf(item);
     this.close();
     if (item.dir) shell.open({ kind: "folder", path: item.path });
+    // A picture or video opens in a viewer or player window of its own, like from Files.
+    else if (opensInWindow(item, shell)) openFileWindow(item, this.opts.items());
     else if (category === "image" || category === "video") {
       const siblings = this.opts.items().filter((i) => categoryOf(i) === category).map((i) => i.path);
       shell.open({ kind: category, path: item.path, siblings });
     } else shell.openExternally(item.url ?? item.path);
   }
+}
+
+/** A picture or video whose section is on: Open shows it in a viewer or player window of its own. */
+function opensInWindow(item: QuickLookItem, shell: ShellContext): boolean {
+  const category = categoryOf(item);
+  return (category === "image" && shell.config.features.gallery) || (category === "video" && shell.config.features.video);
 }
 
 /** A file the editor can take: not a folder, picture, video, sound, archive, PDF or web document. */

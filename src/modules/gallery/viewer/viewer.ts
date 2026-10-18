@@ -18,6 +18,8 @@ import { ZoomView, type ZoomLayer } from "./zoom";
 
 export interface ViewerHandlers {
   close(photo: Photo | null): void;
+  /** Another photo is on show. */
+  shown?(photo: Photo): void;
   slideshow(scopes: SlideshowScope[]): void;
 }
 
@@ -173,12 +175,11 @@ export class Viewer {
   }
 
   /**
-   * The window shows only this viewer (a picture opened in its own window): the back button
-   * closes the window instead of going to the library.
+   * The window shows only this viewer (a picture opened in its own window): there is no library
+   * to go back to, and the window's own close button closes it (as does Esc).
    */
   setStandalone() {
-    this.backButton.replaceChildren(icon("close", 16), "Close");
-    this.backButton.title = "Close (Esc)";
+    this.backButton.hidden = true;
   }
 
   async close() {
@@ -311,6 +312,7 @@ export class Viewer {
     const current = () => token === this.token;
     this.name.textContent = photo.name;
     this.sub.textContent = `${index + 1} of ${this.photos.length}   ·   ${photo.folder.label}`;
+    this.handlers.shown?.(photo);
     this.prevButton.disabled = index === 0;
     this.nextButton.disabled = index === this.photos.length - 1;
     if (!this.bottom.hidden) this.film.setCurrent(index);

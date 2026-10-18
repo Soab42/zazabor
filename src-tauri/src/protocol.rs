@@ -1,6 +1,7 @@
 //! The `cs://` scheme serves photos to the webview:
 //!
-//! - `cs://localhost/thumb?p=<path>&s=<px>`   cached, oriented thumbnail (long edge <= s)
+//! - `cs://localhost/thumb?p=<path>&s=<px>`   cached, oriented thumbnail (long edge <= s); for
+//!   other files, one the webview drew and stored (`thumb_store`), or 404
 //! - `cs://localhost/preview?p=<path>&s=<px>` cached, oriented render (s = 0: full size)
 //! - `cs://localhost/file?p=<path>`           the original bytes of an image or audio file
 //! - `cs://localhost/frame?after=<n>`         the newest decoded video frame (see `video`)
@@ -108,6 +109,16 @@ fn respond(route: &str, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
                 .and_then(|(file, mime)| read(&file).map(|bytes| (bytes, mime))),
             None => Err("cache unavailable".into()),
         },
+        // Other files' thumbnails (a PDF's first page) are drawn by the webview and stored with
+        // `thumb_store`; until then the page is told to draw one.
+        "thumb" => match cache_dir().and_then(|dir| imaging::stored_thumb(&path, size, dir)) {
+            Some(file) => read(&file).map(|bytes| (bytes, "image/jpeg")),
+            None => {
+                let mut response = error(StatusCode::NOT_FOUND, "no thumbnail stored");
+                response.headers_mut().insert("Cache-Control", "no-store".parse().expect("static header"));
+                return response;
+            }
+        },
         "full" if is_image(&path) => imaging::full_image(&path).map(|image| {
             (format!(r#"{{"width":{},"height":{}}}"#, image.width(), image.height()).into_bytes(), "application/json")
         }),
@@ -115,7 +126,7 @@ fn respond(route: &str, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
         "file" if is_image(&path) || is_audio(&path) => {
             read(&path).map(|bytes| (bytes, mime_for(&path)))
         }
-        "thumb" | "preview" | "file" | "full" | "tile" => {
+        "preview" | "file" | "full" | "tile" => {
             return error(StatusCode::FORBIDDEN, "unsupported file type")
         }
         _ => return error(StatusCode::NOT_FOUND, "unknown route"),

@@ -15,34 +15,51 @@ const RETRY_MS = 5000;
 export const photoThumbUrl = (photo: { path: string; mtime: number }, displayPx: number) =>
   thumbUrl(photo.path, photo.mtime, thumbBucket(displayPx));
 
+/** A thumbnail drawn on demand (a document's first page): `key` names it, `make` gives its URL. */
+export interface LazyThumb {
+  key: string;
+  make(): Promise<string>;
+}
+
+/** What a thumbnail is loaded from: a URL, or a page drawn on demand. */
+export type ThumbSource = string | LazyThumb;
+
+const keyOf = (source: ThumbSource) => (typeof source === "string" ? source : source.key);
+
+/** The URL to show for a thumbnail source. */
+export const resolveThumb = (source: ThumbSource) => (typeof source === "string" ? Promise.resolve(source) : source.make());
+
 /**
  * Loads thumbnails with bounded concurrency, newest requests first in line after the
  * ones already visible. Elements that leave the screen are cancelled before they start.
  */
 export class ThumbLoader {
   private queue: HTMLImageElement[] = [];
-  private wanted = new Map<HTMLImageElement, string>();
+  private wanted = new Map<HTMLImageElement, ThumbSource>();
   private active = 0;
   private ready = new Set<string>();
-  /** When a URL last failed (e.g. while the app was locked); retried after a pause. */
+  /** When a source last failed (e.g. while the app was locked); retried after a pause. */
   private failedAt = new Map<string, number>();
+  /** Sources already retried once without being asked again. */
+  private retried = new Set<string>();
 
   constructor(private readonly concurrency = 10) {}
 
-  load(img: HTMLImageElement, url: string) {
-    if (img.dataset.src === url) {
-      const failed = this.failedAt.get(url);
+  load(img: HTMLImageElement, source: ThumbSource) {
+    const key = keyOf(source);
+    if (img.dataset.src === key) {
+      const failed = this.failedAt.get(key);
       if (failed === undefined || performance.now() - failed < RETRY_MS || this.wanted.has(img)) return;
       img.classList.remove("failed");
       delete img.dataset.src;
     }
-    img.dataset.src = url;
+    img.dataset.src = key;
     this.cancel(img);
-    if (this.ready.has(url)) {
-      this.show(img, url);
+    if (this.ready.has(key)) {
+      this.show(img, key);
       return;
     }
-    this.wanted.set(img, url);
+    this.wanted.set(img, source);
     this.queue.push(img);
     this.pump();
   }
@@ -63,27 +80,39 @@ export class ThumbLoader {
   private pump() {
     while (this.active < this.concurrency && this.queue.length) {
       const img = this.queue.shift()!;
-      const url = this.wanted.get(img);
+      const source = this.wanted.get(img);
       this.wanted.delete(img);
-      if (!url) continue;
+      if (!source) continue;
+      const key = keyOf(source);
       this.active++;
-      // Load through a detached element so a re-pointed <img> can never strand a slot.
-      const probe = new Image();
-      const finish = (ok: boolean) => {
+      const finish = (url: string | null) => {
         this.active--;
-        if (ok) {
-          this.failedAt.delete(url);
-          this.ready.add(url);
-          if (img.dataset.src === url) this.show(img, url);
+        if (url) {
+          this.failedAt.delete(key);
+          // A drawn page's URL is the drawer's to keep (it may be let go), so it is asked again.
+          if (typeof source === "string") this.ready.add(key);
+          if (img.dataset.src === key) this.show(img, url);
         } else {
-          this.failedAt.set(url, performance.now());
-          if (img.dataset.src === url) img.classList.add("failed");
+          this.failedAt.set(key, performance.now());
+          if (img.dataset.src === key) {
+            img.classList.add("failed");
+            // A first failure can pass (the video decoder still starting up), so a thumbnail
+            // still on screen tries once more.
+            if (!this.retried.has(key)) {
+              this.retried.add(key);
+              window.setTimeout(() => img.isConnected && img.dataset.src === key && this.load(img, source), RETRY_MS + 50);
+            }
+          }
         }
         this.pump();
       };
-      probe.onload = () => finish(true);
-      probe.onerror = () => finish(false);
-      probe.src = url;
+      resolveThumb(source).then((url) => {
+        // Load through a detached element so a re-pointed <img> can never strand a slot.
+        const probe = new Image();
+        probe.onload = () => finish(url);
+        probe.onerror = () => finish(null);
+        probe.src = url;
+      }, () => finish(null));
     }
   }
 }

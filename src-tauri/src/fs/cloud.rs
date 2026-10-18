@@ -141,4 +141,18 @@ mod tests {
             println!("{:40} dir={} size={} mtime={} ext={:?} mime={:?} url={}", e.name, e.dir, e.size, e.mtime, e.ext, e.mime, e.url.is_some());
         }
     }
+
+    /// A picture named by id on disk is known by its title, so previews and the viewer take it.
+    /// `CS_CLOUD_PICTURE=/run/user/1000/gvfs/google-drive:…/<id> cargo test cloud -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn a_real_picture_is_known_by_its_title() {
+        let Ok(path) = std::env::var("CS_CLOUD_PICTURE") else { return };
+        let path = Path::new(&path);
+        assert!(crate::scan::is_image(path));
+        let info = crate::imaging::photo_info(path).unwrap();
+        let render = crate::imaging::render(path, 256).unwrap();
+        println!("{:?}: {} {}×{}, rendered {}×{}", title(path), info.format, info.width, info.height, render.width(), render.height());
+        assert!(info.width > 0 && render.width() > 0);
+    }
 }

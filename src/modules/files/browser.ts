@@ -143,9 +143,11 @@ export class Browser {
       get sel() { return browser.tab.sel; },
       get path() { return browser.tab.path; },
       selectionChanged: () => this.updateStatus(),
-      // A double-click previews a file (Quick Look); Enter and the menu's Open still open it.
+      // A double-click opens a picture or video (in a viewer or player window of its own) and
+      // previews other files (Quick Look); Enter and the menu's Open open those.
       open: (entry, folder) => {
-        if (!entry.dir && this.extensions.some((x) => x.quickOpen?.(entry, this.context))) return;
+        const media = isImageExt(entry.ext) || isVideoExt(entry.ext);
+        if (!entry.dir && !media && this.extensions.some((x) => x.quickOpen?.(entry, this.context))) return;
         this.openEntry(entry, folder);
       },
       contextMenu: (e, entry) => this.contextMenu(e, entry),
@@ -719,10 +721,13 @@ export class Browser {
     } else if (entry.url) {
       // A Google Doc, Sheet or Slides file lives on the web.
       this.shell.openExternally(entry.url);
-    } else if (isImageExt(entry.ext)) {
-      this.shell.open({ kind: "image", path: entry.path, siblings: folder.filter((e) => isImageExt(e.ext)).map((e) => e.path) });
-    } else if (isVideoExt(entry.ext)) {
-      this.shell.open({ kind: "video", path: entry.path, siblings: folder.filter((e) => isVideoExt(e.ext)).map((e) => e.path) });
+    } else if (isImageExt(entry.ext) || isVideoExt(entry.ext)) {
+      // Like a desktop file manager: a picture opens in a photo viewer window of its own and a
+      // video in a player window, which step through the folder's pictures or videos in the
+      // order shown here.
+      const section = isImageExt(entry.ext) ? "gallery" : "video";
+      if (this.shell.config.features[section]) openFileWindow(entry, folder);
+      else this.shell.openExternally(entry.path);
     } else {
       this.shell.openExternally(entry.path);
     }
@@ -778,7 +783,7 @@ export class Browser {
       items = [
         { label: "Open", icon: iconNameFor(categoryOf(entry)), shortcut: "Enter", action: () => this.openEntry(entry, this.view.focused()?.folder) },
         ...(entry.dir ? [{ label: "Open in New Tab", icon: "plus" as const, action: () => this.newTab(entry.path) }] : []),
-        { label: "Open in New Window", icon: "columns", action: () => openFileWindow(entry) },
+        { label: "Open in New Window", icon: "columns", action: () => openFileWindow(entry, this.view.focused()?.folder ?? this.visible) },
         { label: "Open with Default App", icon: "external", action: () => this.shell.openExternally(entry.path) },
         ...(this.resultsMode
           ? [{ label: "Show in Enclosing Folder", icon: "folder" as const, action: () => this.navigate(parentOf(entry.path), { select: entry.path }) }]

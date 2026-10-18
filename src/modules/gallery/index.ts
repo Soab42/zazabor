@@ -1,9 +1,11 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { api } from "../../api";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { saveConfig } from "../../config";
+import { fsApi } from "../files/api";
+import { isImageExt } from "../files/kinds";
 import type { AppModule, ModuleFactory, OpenRequest, ShellContext } from "../../shell/module";
 import { closeThisWindow, isFileWindow } from "../../shell/windows";
-import { dirname, h, isTypingTarget } from "../../ui/dom";
+import { basename, dirname, h, isTypingTarget } from "../../ui/dom";
 import type { IconName } from "../../ui/icons";
 import { Library, makeFolder } from "./library/model";
 import { LibraryView } from "./library/view";
@@ -54,6 +56,10 @@ class GalleryModule implements AppModule {
         if (this.alone) return closeThisWindow();
         if (photo) this.libraryView.reveal(photo);
         else this.libraryView.focusContent();
+      },
+      // A picture's own window is called after the picture on show.
+      shown: (photo) => {
+        if (this.alone) void getCurrentWindow().setTitle(photo.name).catch(() => undefined);
       },
       slideshow: (scopes) => this.startSlideshow(scopes),
     });
@@ -118,7 +124,7 @@ class GalleryModule implements AppModule {
         this.viewer.setStandalone();
         this.el.classList.add("alone");
       }
-      void this.openFile(request.path);
+      void this.openFile(request.path, request.siblings);
     }
   }
 
@@ -149,13 +155,25 @@ class GalleryModule implements AppModule {
     await scanned;
   }
 
-  /** Opens a single photo with its siblings, as for "Open with CorePro" or a dropped file. */
-  private async openFile(path: string) {
+  /**
+   * Opens a single photo with the others of its folder, as for "Open with CorePro", a dropped file
+   * or a picture opened from Files. `siblings` are the pictures to browse, in order (as Files shows
+   * them); without them, the folder's pictures in the library's order.
+   */
+  private async openFile(path: string, siblings?: string[]) {
     const dir = dirname(path);
-    const scans = await api.scanFolder(dir, false);
-    const scan = scans.find((s) => s.path === dir) ?? scans[0];
-    if (!scan || this.disposed) return;
-    const folder = makeFolder(scan, dir, this.library.sort);
+    // Listed the way Files lists it: on a cloud drive that brings the titles (files there are named by id).
+    const [entries, title] = await Promise.all([
+      fsApi.list(dir, true).catch(async () => [await fsApi.stat(path)]),
+      fsApi.stat(dir).then((folder) => folder.name, () => basename(dir)),
+    ]);
+    if (this.disposed) return;
+    const order = siblings && new Map(siblings.map((p, i) => [p, i]));
+    const photos = entries
+      .filter((e) => e.path === path || (!e.dir && isImageExt(e.ext) && (order ? order.has(e.path) : !e.hidden)))
+      .map(({ path, name, size, mtime }) => ({ path, name, size, mtime, width: 0, height: 0 }));
+    const folder = makeFolder({ path: dir, name: title, photos }, dir, this.library.sort);
+    if (order) folder.photos.sort((a, b) => (order.get(a.path) ?? -1) - (order.get(b.path) ?? -1));
     const index = folder.photos.findIndex((p) => p.path === path);
     this.viewer.open(folder.photos, Math.max(0, index));
   }

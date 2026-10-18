@@ -48,11 +48,19 @@
 /* ---- images and video posters ---------------------------------------------------------------- */
 
 .ql-image-frame, .ql-video { position: absolute; inset: 0; display: grid; place-items: center; padding: var(--space-4); }
+/* One cell the size of the frame: an auto row would grow to the picture's natural height and
+   centre it below the fold. A size container, so a picture can be fitted with cq units. */
+.ql-image-frame { grid-template: minmax(0, 1fr) / minmax(0, 1fr); container-type: size; }
 .ql-image {
   display: block; max-width: 100%; max-height: 100%; object-fit: contain; border-radius: var(--radius-sm);
   box-shadow: var(--elev-2); background: var(--tile); opacity: 0; transition: opacity 250ms var(--ease-out);
 }
 .ql-image.loaded { opacity: 1; }
+/* Fitted to the photo's own size (--w × --h), not the file's: a small placeholder thumbnail
+   then shows as large as the sharp render that replaces it. */
+.ql-image.fitted {
+  width: min(100cqw, var(--w) * 1px, 100cqh * var(--w) / var(--h)); height: auto; aspect-ratio: var(--w) / var(--h);
+}
 /* The poster sizes itself (a grid here would let the 72px button decide the row height). */
 .ql-poster { position: relative; display: block; max-width: 100%; line-height: 0; }
 .ql-poster .ql-image { max-width: 100%; max-height: calc(100vh - 220px); }
@@ -163,6 +171,8 @@ h4.md-h, h5.md-h, h6.md-h { font-size: var(--text-md); }
 /* ---- compact preview thumbnail (Get Info) ---------------------------------------------------- */
 
 .ql-thumb, .ql-thumb-art { display: grid; place-items: center; width: 100%; height: 100%; }
+/* One cell the size of the box, so a tall picture is fitted inside it, not grown past it. */
+.ql-thumb { grid-template: minmax(0, 1fr) / minmax(0, 1fr); }
 .ql-thumb-art { color: var(--accent); }
 .ql-thumb-art .folder-glyph { width: 84px; height: auto; }
 .ql-thumb-img {
@@ -170,6 +180,8 @@ h4.md-h, h5.md-h, h6.md-h { font-size: var(--text-md); }
   opacity: 0; transition: opacity 250ms var(--ease-out);
 }
 .ql-thumb-img.loaded { opacity: 1; }
+.ql-thumb-img.page, .ql-thumb-img.drawing { background: #fff; box-shadow: 0 0 0 0.5px var(--line-strong); }
+.ql-thumb-img.drawing { box-sizing: border-box; padding: 8%; }
 
 @media (prefers-reduced-motion: reduce) {
   .ql-panel, .ql-overlay.closing .ql-panel { animation: fade-in var(--dur-med) var(--ease-out); }
