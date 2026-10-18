@@ -66,16 +66,20 @@ export function sanitizeControls(ids: string[]): string[] {
   });
 }
 
-/** The bar as laid out by the redesign: transport and volume on the left, tracks, queue, side panel and fullscreen on the right. */
-export const REDESIGN_CONTROLS = ["previous", "play", "next", "volume", "seek", "audio", "subtitles", "playlist", "settings", "fullscreen"];
+/** The bar as in the Figma frame: transport, the seek bar, volume, then tracks, queue, side panel and fullscreen. */
+export const REDESIGN_CONTROLS = ["previous", "play", "next", "seek", "volume", "audio", "subtitles", "playlist", "settings", "fullscreen"];
 
-/** The default bar before the redesign; saved bars that equal it get the new one. */
-const OLD_DEFAULT_CONTROLS = ["previous", "play", "next", "seek", "volume", "audio", "subtitles", "settings", "playlist"];
+/** Earlier stock bars; a saved bar that equals one of them gets the current one. */
+const OLD_DEFAULT_CONTROLS = [
+  ["previous", "play", "next", "seek", "volume", "audio", "subtitles", "settings", "playlist"],
+  // The two-row bar (seek bar along the bottom edge) had volume before it.
+  ["previous", "play", "next", "volume", "seek", "audio", "subtitles", "playlist", "settings", "fullscreen"],
+];
 
-/** The bar to show for a saved list: the old stock layout is upgraded, custom layouts are kept. */
+/** The bar to show for a saved list: an old stock layout is upgraded, custom layouts are kept. */
 export function effectiveControls(saved: string[]): string[] {
-  const same = saved.length === OLD_DEFAULT_CONTROLS.length && saved.every((id, i) => id === OLD_DEFAULT_CONTROLS[i]);
-  return same ? REDESIGN_CONTROLS : saved;
+  const stock = OLD_DEFAULT_CONTROLS.some((old) => saved.length === old.length && saved.every((id, i) => id === old[i]));
+  return stock ? REDESIGN_CONTROLS : saved;
 }
 
 /** Items that sit at the right end of the bar; the first one present pushes the group right. */

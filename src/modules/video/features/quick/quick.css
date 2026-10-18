@@ -8,60 +8,27 @@
 .vp-menu .vp-menu-heading { opacity: 1; color: var(--faint); font-size: var(--text-xs); font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; cursor: default; }
 .vp-menu .vp-menu-heading:hover { background: transparent; }
 
-/* ---- control bar: buttons on top, the seek bar along the bottom edge ---- */
-.vp { --vp-bar-h: 84px; }
-.vp.customizing { --vp-bar-h: 54px; }
-.vp .vp-bar {
-  flex-direction: column; align-items: stretch; justify-content: center; gap: 0; padding: 8px 20px 6px; height: var(--vp-bar-h);
-}
-.vp .vp-bar.no-seek { height: 56px; padding-bottom: 8px; }
-.vp .vp-bar.editing { flex-direction: row; align-items: center; justify-content: flex-start; gap: 14px; padding: 0 20px; height: 54px; }
-.vp .vp-bar.editing .vp-bar-row { flex: 1; height: auto; }
-.vp .vp-bar-row { display: flex; align-items: center; gap: 10px; height: 42px; min-width: 0; }
-.vp .vp-bar-seek { display: flex; align-items: center; height: 22px; }
-.vp .vp-bar-seek:empty { display: none; }
+/* ---- control bar: one 54px row as in the Figma frame (PLAYER.md); the base layout is in video.css ---- */
 .vp .vc-right { margin-left: auto; }
-.vp .vc-previous, .vp .vc-next { width: 36px; height: 36px; }
+.vp .vc-previous, .vp .vc-next { width: 32px; height: 32px; }
 .vp .vc-btn { transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform 0.1s var(--ease-out); }
 .vp .vc-btn:active:not(:disabled) { transform: scale(0.94); }
 .vp .vc-btn:disabled { opacity: 0.4; }
 
-/* play: bottom-left, a little bigger than its neighbours */
-.vp .vc-play { width: 60px; height: 38px; border-radius: var(--radius-md); }
-.vp .vc-play:active { transform: scale(0.96); }
-
-/* ---- seek bar ---- */
-.vp .vc-seek { position: relative; flex: 1; gap: 10px; min-width: 140px; }
-.vp .vc-time { min-width: 44px; font-size: var(--text-sm); font-weight: 550; letter-spacing: 0.01em; }
-.vp .vc-track {
-  --g: 8px; flex: 1; height: 22px; border-radius: 0; background: transparent; box-shadow: none;
-}
-.vp .vc-track::before {
-  content: ""; position: absolute; left: 0; right: 0; top: 50%; height: var(--g); transform: translateY(-50%);
-  border-radius: 999px; background: rgba(var(--fg), 0.14); box-shadow: inset 0 0 0 0.5px var(--line);
-  transition: height var(--dur-fast) var(--ease-out);
-}
-.vp .vc-track:hover::before, .vp .vc-track.dragging::before { height: 12px; }
-.vp .vc-played {
-  left: 0; top: 50%; bottom: auto; height: 8px; width: calc(var(--p) * 100%); transform: translateY(-50%); border-radius: 999px;
-  background: var(--accent); transition: width 250ms linear, height var(--dur-fast) var(--ease-out);
-}
-.vp .vc-track:hover .vc-played, .vp .vc-track.dragging .vc-played { height: 12px; }
-.vp .vc-track.dragging .vc-played { transition: height var(--dur-fast) var(--ease-out); }
-.vp .vc-thumb {
-  top: 50%; bottom: auto; left: calc(var(--p) * 100%); width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%;
-  background: var(--accent); box-shadow: 0 0 0 3px var(--glass-strong), 0 1px 4px rgba(0, 0, 0, 0.4);
-  transform: scale(0); transition: left 250ms linear, transform var(--dur-fast) var(--ease-spring);
-}
-.vp .vc-track:hover .vc-thumb, .vp .vc-track.dragging .vc-thumb { transform: scale(1); }
-.vp .vc-track.dragging .vc-thumb { transition: transform var(--dur-fast) var(--ease-spring); }
-.vp .vc-track.empty .vc-thumb { transform: scale(0); }
-.vp .vc-track.empty::before { opacity: 0.5; }
+/* ---- seek bar: the rounded, recessed 28px track with the played part inset and an accent thumb ---- */
+.vp .vc-seek { position: relative; }
+.vp .vc-time { min-width: 52px; font-size: var(--text-md); font-weight: 550; letter-spacing: 0.01em; }
+.vp .vc-track { border-radius: 7px; transition: background-color var(--dur-fast) var(--ease-out); }
+.vp .vc-track:hover, .vp .vc-track.dragging { background: rgba(var(--fg), 0.09); }
+.vp .vc-played { border-radius: 5px; }
+.vp .vc-thumb { border-radius: 5px; transition: left 250ms linear, transform var(--dur-fast) var(--ease-out); }
+.vp .vc-track:hover .vc-thumb, .vp .vc-track.dragging .vc-thumb { transform: scaleY(1.12); }
+.vp .vc-track.dragging .vc-played, .vp .vc-track.dragging .vc-thumb { transition: none; }
 
 /* chapter and bookmark ticks */
 .vp .vc-marks { position: absolute; inset: 0; pointer-events: none; }
 .vp .vc-mark { position: absolute; transform: translateX(-50%); }
-.vp .vc-mark.chapter { top: 50%; width: 2px; height: 12px; margin-top: -6px; border-radius: 1px; background: rgba(var(--fg), 0.5); }
+.vp .vc-mark.chapter { top: 50%; width: 2px; height: 10px; margin-top: -5px; border-radius: 1px; background: rgba(var(--fg), 0.3); }
 .vp .vc-mark.bookmark { top: 1px; width: 8px; height: 8px; border-radius: 2px; background: var(--accent); transform: translateX(-50%) rotate(45deg) scale(0.9); box-shadow: 0 0 0 1.5px var(--glass-strong); }
 
 /* hover / drag preview card */

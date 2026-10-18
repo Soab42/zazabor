@@ -49,11 +49,9 @@ export function openPlayerMenu(x: number, y: number, items: MenuItem[]) {
 /** The action of a menu heading (a disabled label that names the group below it). */
 export const HEADING = () => undefined;
 
-/** The glass control bar: buttons on top, the seek bar along the bottom edge. Built from the configured item ids. */
+/** The glass control bar: one row, the seek bar between transport and the track buttons. Built from the configured item ids. */
 export class ControlBar {
   readonly el = h("footer", { class: "vp-bar" });
-  private readonly row = h("div", { class: "vp-bar-row" });
-  private readonly seekRow = h("div", { class: "vp-bar-seek" });
   private built: Built[] = [];
   private ids: string[] = [];
   private editing = false;
@@ -61,9 +59,9 @@ export class ControlBar {
   constructor(private readonly host: ControlHost) {}
 
   /**
-   * Rebuilds the bar. While `editing`, every item sits in a dashed slot in one flat row and does
-   * nothing; otherwise the seek bar goes along the bottom edge and the first item of the right-hand
-   * group (tracks, queue, panel, fullscreen) pushes the rest to the right.
+   * Rebuilds the bar. While `editing`, every item sits in a dashed slot and does nothing; otherwise
+   * the seek bar takes the free width, and without one the first item of the right-hand group
+   * (tracks, queue, panel, fullscreen) pushes the rest to the right.
    */
   render(ids: string[], editing = false) {
     for (const item of this.built) item.dispose?.();
@@ -71,29 +69,16 @@ export class ControlBar {
     this.editing = editing;
     this.built = this.ids.map((id) => this.build(id));
     this.el.classList.toggle("editing", editing);
-    const row: HTMLElement[] = [];
-    const seek: HTMLElement[] = [];
     let pushed = false;
-    this.built.forEach((b, i) => {
+    this.el.replaceChildren(...this.built.map((b, i) => {
       const id = this.ids[i];
-      if (editing) {
-        row.push(h("div", { class: `vc-slot${id === "seek" ? " grow" : ""}`, "data-index": i, "data-id": id, title: CONTROL_DEFS[id].label }, b.el));
-        return;
-      }
-      if (id === "seek") {
-        seek.push(b.el);
-        return;
-      }
+      if (editing) return h("div", { class: `vc-slot${id === "seek" ? " grow" : ""}`, "data-index": i, "data-id": id, title: CONTROL_DEFS[id].label }, b.el);
       if (!pushed && RIGHT_GROUP.has(id)) {
         pushed = true;
         b.el.classList.add("vc-right");
       }
-      row.push(b.el);
-    });
-    this.row.replaceChildren(...row);
-    this.seekRow.replaceChildren(...seek);
-    this.el.classList.toggle("no-seek", seek.length === 0);
-    this.el.replaceChildren(this.row, this.seekRow);
+      return b.el;
+    }));
     this.update();
   }
 
