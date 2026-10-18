@@ -336,7 +336,19 @@ pub fn run() {
             video::music::music_library_refresh,
             video::streams::streams_import,
             video::streams::streams_channels,
-            video::streams::streams_forget
+            video::streams::streams_forget,
+            // video: open, convert, cast
+            video::capture::video_capture_devices,
+            video::capture::video_resolve_playlist,
+            video::convert::video_convert_start,
+            video::convert::video_convert_cancel,
+            video::convert::video_convert_jobs,
+            video::convert::video_convert_clear,
+            video::options::video_set_options,
+            video::renderers::video_cast_discover,
+            video::renderers::video_cast_state,
+            video::renderers::video_cast_to,
+            video::renderers::video_cast_stop_discovery
         ])
         .run(tauri::generate_context!())
         .expect("error while running CorePro");

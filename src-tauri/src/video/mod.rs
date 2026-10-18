@@ -7,13 +7,17 @@
 //! while playing), which keeps libVLC player calls out of libVLC's own callbacks.
 
 pub mod audio_out;
+pub mod capture;
 pub mod chapters;
+pub mod convert;
 mod frame;
 pub mod fx;
 pub mod library;
 mod list;
 pub mod meta;
 pub mod music;
+pub mod options;
+pub mod renderers;
 pub mod sprite;
 pub mod streams;
 mod thumb;
@@ -123,28 +127,47 @@ fn rate() -> f32 {
 }
 
 /// The shared libVLC instance, created on first use. Hardware decoding is requested with
-/// `--avcodec-hw=any`; if libVLC rejects it we retry without.
+/// `--avcodec-hw=any` (see `options`); if libVLC rejects the options we retry without. When the
+/// wanted options changed and nothing plays or converts, the instance is recreated first.
 pub(crate) fn instance() -> Result<*mut vlc::libvlc_instance_t, String> {
     let mut slot = lock_ignore_poison(&INSTANCE);
     if let Some(i) = slot.as_ref() {
-        return Ok(i.0);
+        if !(options::pending() && idle()) {
+            return Ok(i.0);
+        }
+        renderers::stop_all();
+        // SAFETY: players and media hold their own references; ours is released exactly once.
+        unsafe { options::libvlc_release(i.0) };
+        *slot = None;
     }
-    let create = |args: &[&str]| {
-        let args: Vec<CString> = args.iter().map(|a| CString::new(*a).expect("static arg")).collect();
+    let create = |args: &[String]| {
+        let args: Vec<CString> = args.iter().map(|a| CString::new(a.as_str()).expect("option without NUL")).collect();
         let argv: Vec<*const c_char> = args.iter().map(|a| a.as_ptr()).collect();
         // SAFETY: argv points at NUL-terminated strings that outlive the call.
         unsafe { vlc::libvlc_new(argv.len() as c_int, argv.as_ptr()) }
     };
-    let base = ["--quiet", "--no-xlib", "--no-video-title-show"];
-    let mut ptr = create(&[base[0], base[1], base[2], "--avcodec-hw=any"]);
+    let base: Vec<String> = ["--quiet", "--no-xlib", "--no-video-title-show"].iter().map(|a| a.to_string()).collect();
+    let wanted = options::wanted();
+    let mut ptr = create(&[base.clone(), wanted.args()].concat());
     if ptr.is_null() {
         ptr = create(&base);
     }
     if ptr.is_null() {
         return Err("libVLC could not start. Is VLC installed?".into());
     }
+    options::mark_applied(wanted);
     *slot = Some(Instance(ptr));
     Ok(ptr)
+}
+
+/// Nothing is playing or converting, so the instance may be recreated.
+fn idle() -> bool {
+    let no_player = match PLAYER.try_lock() {
+        Ok(player) => player.is_none(),
+        Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner().is_none(),
+        Err(std::sync::TryLockError::WouldBlock) => false,
+    };
+    no_player && !convert::busy()
 }
 
 fn wake() {
@@ -286,10 +309,14 @@ pub(crate) fn with_player<T>(work: impl FnOnce(*mut vlc::libvlc_media_player_t) 
 }
 
 fn open(path: String, max_width: u32, max_height: u32, start_at: i64) -> Result<(), String> {
-    if !Path::new(&path).is_file() {
+    // Web addresses and device MRLs (http://…, v4l2:///dev/video0) are opened as they are.
+    if !capture::is_location(&path) && !Path::new(&path).is_file() {
         return Err("That file could not be found.".into());
     }
-    let cpath = CString::new(path.clone()).map_err(|e| e.to_string())?;
+    // New instance options take effect now: the old player is about to be replaced anyway.
+    if options::pending() {
+        stop_player();
+    }
     let instance = instance()?;
     let mut slot = lock_ignore_poison(&PLAYER);
     frame::set_current(None);
@@ -306,7 +333,7 @@ fn open(path: String, max_width: u32, max_height: u32, start_at: i64) -> Result<
     // SAFETY: plain libVLC calls. The opaque pointer is the Arc inside `Player`, which outlives
     // libVLC's use of it (see Player::drop).
     unsafe {
-        let media = vlc::libvlc_media_new_path(instance, cpath.as_ptr());
+        let media = capture::new_media(instance, &path);
         if media.is_null() {
             return Err("libVLC could not open the file".into());
         }
@@ -329,6 +356,7 @@ fn open(path: String, max_width: u32, max_height: u32, start_at: i64) -> Result<
         }
         vlc::libvlc_audio_set_volume(handle, VOLUME.load(Ordering::Relaxed) as c_int);
         vlc::libvlc_audio_set_mute(handle, MUTED.load(Ordering::Relaxed) as c_int);
+        renderers::apply(handle);
         if vlc::libvlc_media_player_play(handle) != 0 {
             return Err("libVLC could not start playback".into());
         }
@@ -343,6 +371,8 @@ fn open(path: String, max_width: u32, max_height: u32, start_at: i64) -> Result<
 /// Stops playback and unloads the file when the app locks. Frames stop flowing at once; the
 /// player itself is torn down on a thread so the caller is never held up by libVLC.
 pub fn stop_all() {
+    convert::cancel_all();
+    renderers::stop_all();
     frame::set_current(None);
     std::thread::spawn(stop_player);
 }

@@ -6,6 +6,9 @@ import { clear, h } from "../ui/dom";
 import { icon, type IconName } from "../ui/icons";
 import { MODULE_IDS, type ModuleId } from "./module";
 import { MODULES } from "./registry";
+import { videoShortcuts } from "../modules/video/features/hotkeys";
+import { mediaSettings } from "../modules/video/features/profiles/settings";
+import { videoCategories } from "./settings-video";
 
 /** What the Settings page needs from the shell. */
 export interface SettingsHost {
@@ -22,11 +25,11 @@ export interface SettingsHost {
   close(): void;
 }
 
-interface Category {
+export interface Category {
   id: string;
   title: string;
   icon: IconName;
-  section: "App" | "Modules" | "About";
+  section: "App" | "Modules" | "Video" | "About";
   groups: SettingsGroup[];
   /** Shown above the groups. */
   intro?: HTMLElement;
@@ -133,8 +136,9 @@ const SHORTCUTS: { title: string; rows: [string, string[][]][] }[] = [
   },
 ];
 
-function keyboardGroups(): SettingsGroup[] {
-  return SHORTCUTS.map(({ title, rows }) => ({
+function keyboardGroups(config: Config): SettingsGroup[] {
+  const video = videoShortcuts(mediaSettings({ config })).map((group) => ({ title: `Video · ${group.title}`, rows: group.rows }));
+  return [...SHORTCUTS, ...video].map(({ title, rows }) => ({
     title,
     rows: rows.map(([label, combos]) => {
       const keys = h("div", { class: "st-keys" });
@@ -286,7 +290,7 @@ export class Settings {
       { id: "appearance", title: "Appearance", icon: "palette", section: "App", groups: this.appearance.appearance() },
       this.featuresCategory(),
       this.privacyCategory(),
-      { id: "keyboard", title: "Keyboard", icon: "terminal", section: "App", groups: keyboardGroups() },
+      { id: "keyboard", title: "Keyboard", icon: "terminal", section: "App", groups: keyboardGroups(config) },
       {
         id: "files", title: "Files", icon: "folder", section: "Modules",
         groups: [{
@@ -308,14 +312,7 @@ export class Settings {
           ],
         }],
       },
-      {
-        id: "video", title: "Video", icon: "video", section: "Modules",
-        groups: [],
-        intro: h("div", { class: "st-soon" },
-          h("div", { class: "st-soon-icon" }, icon("video", 26)),
-          h("h2", null, "Video settings are coming soon"),
-          h("p", null, "Playback, subtitles, audio and library options will appear here when the VLC-based player arrives.")),
-      },
+      ...videoCategories(this.host),
       this.aboutCategory(),
     ];
   }
