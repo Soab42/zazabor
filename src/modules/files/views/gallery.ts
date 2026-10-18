@@ -4,6 +4,8 @@ import { previewUrl, thumbUrl } from "../../../api";
 import type { FsEntry } from "../api";
 import { categoryOf, folderGlyph, iconNameFor, iconNode, kindLabel } from "../kinds";
 import { clickSelect, moveSelect, selectAll, targetIndex, typeSelectIndex } from "../selection";
+import { attachDragSource } from "../dnd";
+import { markDrop, paintCut } from "./marks";
 import type { FileView, ViewContext } from "./types";
 import { VirtualList } from "./vlist";
 
@@ -35,6 +37,15 @@ export class GalleryView implements FileView {
     this.strip.el.classList.add("gv-strip", "fv-scroll");
     this.strip.el.tabIndex = 0;
     this.el.append(this.stage, this.caption, this.strip.el);
+    attachDragSource(this.strip.el, {
+      entryAt: (t) => {
+        const i = this.indexAt({ target: t } as unknown as Event);
+        return i >= 0 ? this.entries[i] : null;
+      },
+      isSelected: (p) => ctx.sel.selection.has(p),
+      select: (entry) => this.pick(this.indexOf(entry.path)),
+      paths: () => Array.from(ctx.sel.selection),
+    });
 
     this.strip.el.addEventListener("click", (e) => {
       const i = this.indexAt(e);
@@ -105,6 +116,7 @@ export class GalleryView implements FileView {
       sel.anchor = sel.focus = entries[0].path;
       this.ctx.selectionChanged();
     }
+    this.el.dataset.dropPath = this.ctx.path;
     if (!keep) this.shown = null;
     this.strip.setCount(entries.length);
     this.renderSelection();
@@ -115,6 +127,7 @@ export class GalleryView implements FileView {
     cell.dataset.i = String(i);
     cell.dataset.path = entry.path;
     cell.title = entry.name;
+    markDrop(cell, entry, true);
     const thumb = cell.firstElementChild as HTMLElement;
     this.dropThumb(cell);
     const category = categoryOf(entry);
@@ -130,6 +143,7 @@ export class GalleryView implements FileView {
     }
     cell.classList.toggle("selected", this.ctx.sel.selection.has(entry.path));
     cell.classList.toggle("focus", this.ctx.sel.focus === entry.path);
+    paintCut(cell, this.ctx, entry.path);
   }
 
   private dropThumb(cell: HTMLElement) {
@@ -147,8 +161,13 @@ export class GalleryView implements FileView {
       const path = cell.dataset.path ?? "";
       cell.classList.toggle("selected", sel.selection.has(path));
       cell.classList.toggle("focus", sel.focus === path);
+      paintCut(cell, this.ctx, path);
     });
     this.renderStage();
+  }
+
+  refreshMarks() {
+    this.strip.forEachRendered((cell) => paintCut(cell, this.ctx, cell.dataset.path ?? ""));
   }
 
   /** Shows the focused item large: a thumbnail at once, sharpened by a preview render. */

@@ -5,6 +5,7 @@ import type { BrowserContext, BrowserExtension } from "../browser";
 import { opsApi, type JobEvent, type JobKind, type UndoOp } from "../ops-api";
 import { samePath } from "../path";
 import { doneTitle, jobTitle } from "./format";
+import { cutSet } from "./cutset";
 import { atTrashRoot, inTrash, pasteTarget, singleTarget } from "./paths";
 import { JobsPanel } from "./panel";
 import { confirmSheet, conflictSheet, nameSheet, type ConflictSheet } from "./sheets";
@@ -85,21 +86,21 @@ export class FileOps implements BrowserExtension {
       const root = atTrashRoot(ctx.folder);
       return [
         ...(root ? [{ label: "Put Back", icon: "back", action: () => void this.restore(ctx, entries) } satisfies MenuItem] : []),
-        { label: "Copy", icon: "copy", action: () => this.copy(ctx, false, entries) },
-        ...(root ? [{ label: "Delete Permanently", icon: "trash", danger: true, action: () => void this.deletePermanently(ctx, entries) } satisfies MenuItem] : []),
+        { label: "Copy", icon: "copy", shortcut: "Ctrl+C", action: () => this.copy(ctx, false, entries) },
+        ...(root ? [{ label: "Delete Permanently", icon: "trash", danger: true, shortcut: "Shift+Delete", action: () => void this.deletePermanently(ctx, entries) } satisfies MenuItem] : []),
       ];
     }
     const target = entries.length === 1 && entries[0].dir ? entries[0].path : ctx.folder;
     return [
-      { label: "Cut", icon: "cut", action: () => this.copy(ctx, true, entries) },
-      { label: "Copy", icon: "copy", action: () => this.copy(ctx, false, entries) },
-      { label: "Paste", icon: "paste", disabled: !this.clip, action: () => void this.paste(ctx, target) },
+      { label: "Cut", icon: "cut", shortcut: "Ctrl+X", action: () => this.copy(ctx, true, entries) },
+      { label: "Copy", icon: "copy", shortcut: "Ctrl+C", action: () => this.copy(ctx, false, entries) },
+      { label: "Paste", icon: "paste", shortcut: "Ctrl+V", disabled: !this.clip, action: () => void this.paste(ctx, target) },
       "separator",
-      { label: "Duplicate", icon: "copy", action: () => void this.duplicate(ctx, entries) },
+      { label: "Duplicate", icon: "copy", shortcut: "Ctrl+D", action: () => void this.duplicate(ctx, entries) },
       ...(entries.length === 1
-        ? [{ label: "Rename…", icon: "pencil", action: () => void this.renameEntry(ctx, entries[0]) } satisfies MenuItem]
+        ? [{ label: "Rename…", icon: "pencil", shortcut: "F2", action: () => void this.renameEntry(ctx, entries[0]) } satisfies MenuItem]
         : []),
-      { label: "Move to Trash", icon: "trash", action: () => void this.trash(ctx, entries) },
+      { label: "Move to Trash", icon: "trash", shortcut: "Delete", action: () => void this.trash(ctx, entries) },
     ];
   }
 
@@ -111,8 +112,8 @@ export class FileOps implements BrowserExtension {
         : [];
     }
     return [
-      { label: "New Folder", icon: "folderPlus", action: () => void this.newFolder(ctx) },
-      { label: "Paste", icon: "paste", disabled: !this.clip, action: () => void this.paste(ctx, ctx.folder) },
+      { label: "New Folder", icon: "folderPlus", shortcut: "Ctrl+Shift+N", action: () => void this.newFolder(ctx) },
+      { label: "Paste", icon: "paste", shortcut: "Ctrl+V", disabled: !this.clip, action: () => void this.paste(ctx, ctx.folder) },
     ];
   }
 
@@ -132,7 +133,7 @@ export class FileOps implements BrowserExtension {
     if (!entries.length) return;
     if (cut && inTrash(ctx.folder)) return;
     const paths = entries.map((e) => e.path);
-    this.clip = { paths, cut };
+    this.setClip({ paths, cut });
     void navigator.clipboard?.writeText(paths.join("\n")).catch(() => {});
     showToast(`${cut ? "Cut" : "Copied"} ${paths.length === 1 ? `“${basename(paths[0])}”` : `${paths.length} items`}`, undefined, 1800);
   }
@@ -147,7 +148,7 @@ export class FileOps implements BrowserExtension {
     const cut = clip.cut;
     const moving = clip.paths.filter((p) => !(cut && samePath(dirname(p), dest)));
     if (!moving.length) {
-      this.clip = null;
+      this.setClip(null);
       return;
     }
     const kind: JobKind = cut ? "move" : "copy";
@@ -155,7 +156,31 @@ export class FileOps implements BrowserExtension {
       paths: clip.paths, dest, select: true,
       undoLabel: doneTitle(kind, clip.paths, dest),
     });
-    if (cut && done && done.state !== "cancelled") this.clip = null;
+    if (cut && done && done.state !== "cancelled") this.setClip(null);
+  }
+
+  /** Every change of the clipboard goes through here so views can dim cut items. */
+  private setClip(clip: Clip | null) {
+    this.clip = clip;
+    cutSet.set(clip?.cut ? clip.paths : []);
+  }
+
+  // ---- drag and drop ----------------------------------------------------------------------------------
+
+  /** Moves (or copies) dragged items into a folder as a regular job: panel, conflicts and undo. */
+  transfer(paths: string[], dest: string, copy: boolean, ctx: BrowserContext): boolean {
+    this.ctx = ctx;
+    if (inTrash(dest)) {
+      showToast("Items can’t be dropped into the Trash. Use Move to Trash instead.");
+      return true;
+    }
+    const moving = copy ? paths : paths.filter((p) => !samePath(dirname(p), dest));
+    if (!moving.length) return true;
+    const kind: JobKind = copy ? "copy" : "move";
+    void this.job(ctx, kind, () => (copy ? opsApi.copy(moving, dest) : opsApi.move(moving, dest)), {
+      paths: moving, dest, select: true, undoLabel: doneTitle(kind, moving, dest),
+    });
+    return true;
   }
 
   // ---- jobs -----------------------------------------------------------------------------------------

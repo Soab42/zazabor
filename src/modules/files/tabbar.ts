@@ -28,6 +28,9 @@ export class TabBar {
       });
       const el = h("div", { class: `fs-tab${i === active ? " active" : ""}`, role: "tab", title: tab.path || title, "aria-selected": String(i === active) },
         icon("folder", 14), h("span", { class: "fs-tab-title" }, title), close);
+      // Drop targets: dropping on a tab moves into its folder; hovering switches to it (see dnd.ts).
+      el.dataset.tabIndex = String(i);
+      if (tab.path) el.dataset.dropPath = tab.path;
       el.addEventListener("click", () => this.hooks.select(i));
       // Middle-click closes, and must not start the browser's autoscroll.
       el.addEventListener("mousedown", (e) => {

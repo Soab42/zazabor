@@ -4,10 +4,14 @@ import { icon } from "../../../ui/icons";
 import type { FsEntry } from "../api";
 import { categoryOf, iconNameFor, iconNode, kindLabel } from "../kinds";
 import { clickSelect, moveSelect, selectAll, targetIndex, typeSelectIndex } from "../selection";
+import { attachDragSource } from "../dnd";
+import { markDrop, paintCut, paintTags } from "./marks";
+import { attachRubberBand, rowHits } from "./rubber";
 import type { FileView, ViewContext } from "./types";
 import { VirtualList } from "./vlist";
 
 const ROW = 28;
+const PAD = 4;
 
 const COLUMNS: { key: FilesSortKey; label: string; cls: string }[] = [
   { key: "name", label: "Name", cls: "name" },
@@ -23,12 +27,13 @@ export class ListView implements FileView {
   private list: VirtualList;
   private entries: FsEntry[] = [];
   private index = new Map<string, number>();
+  private detach: (() => void)[] = [];
 
   constructor(private readonly ctx: ViewContext) {
     this.list = new VirtualList({
       axis: "y",
       size: ROW,
-      pad: 4,
+      pad: PAD,
       overscan: 8,
       create: () => this.createRow(),
       bind: (row, i) => this.bindRow(row, i),
@@ -63,6 +68,32 @@ export class ListView implements FileView {
       ctx.contextMenu(e, entry);
     });
     this.renderHeader();
+    this.detach = [
+      attachDragSource(el, {
+        entryAt: (t) => {
+          const row = t.closest<HTMLElement>(".lv-row");
+          return row ? this.entries[Number(row.dataset.i)] ?? null : null;
+        },
+        isSelected: (p) => ctx.sel.selection.has(p),
+        select: (entry) => {
+          ctx.sel.selection = new Set([entry.path]);
+          ctx.sel.anchor = ctx.sel.focus = entry.path;
+          this.renderSelection();
+          ctx.selectionChanged();
+        },
+        paths: () => Array.from(ctx.sel.selection),
+      }),
+      attachRubberBand({
+        scroller: el,
+        isEmpty: (t) => !t.closest(".lv-row"),
+        hits: (band) => rowHits(band, ROW, PAD, this.entries.length).map((i) => this.entries[i].path),
+        sel: () => ctx.sel,
+        changed: () => {
+          this.renderSelection();
+          ctx.selectionChanged();
+        },
+      }),
+    ];
   }
 
   private indexOf = (path: string) => this.index.get(path) ?? -1;
@@ -99,7 +130,7 @@ export class ListView implements FileView {
 
   private createRow() {
     return h("div", { class: "lv-row" },
-      h("div", { class: "lv-cell name" }, h("span", { class: "lv-icon" }), h("span", { class: "lv-text" })),
+      h("div", { class: "lv-cell name" }, h("span", { class: "lv-icon" }), h("span", { class: "lv-text" }), h("span", { class: "lv-tags" })),
       h("div", { class: "lv-cell date" }),
       h("div", { class: "lv-cell size" }),
       h("div", { class: "lv-cell kind" }));
@@ -115,8 +146,9 @@ export class ListView implements FileView {
     const iconSlot = name.firstElementChild as HTMLElement;
     iconSlot.className = `lv-icon ${category}`;
     iconSlot.replaceChildren(iconNode(iconNameFor(category), 16));
-    const text = name.lastElementChild as HTMLElement;
+    const text = name.children[1] as HTMLElement;
     text.textContent = entry.name;
+    markDrop(row, entry, true);
     row.title = entry.name;
     date.textContent = formatDateTime(entry.mtime);
     size.textContent = entry.dir ? "—" : formatBytes(entry.size);
@@ -128,17 +160,24 @@ export class ListView implements FileView {
     const { sel } = this.ctx;
     row.classList.toggle("selected", sel.selection.has(path));
     row.classList.toggle("focus", sel.focus === path);
+    paintCut(row, this.ctx, path);
+    paintTags(row.querySelector<HTMLElement>(".lv-tags")!, this.ctx.tagsOf(path));
   }
 
   setEntries(entries: FsEntry[]) {
     this.entries = entries;
     this.index = new Map(entries.map((entry, i) => [entry.path, i]));
     this.renderHeader();
+    this.list.el.dataset.dropPath = this.ctx.path;
     this.list.setCount(entries.length);
   }
 
   renderSelection() {
     this.list.forEachRendered((row) => this.paint(row, row.dataset.path ?? ""));
+  }
+
+  refreshMarks() {
+    this.renderSelection();
   }
 
   getScroll() {
@@ -187,6 +226,7 @@ export class ListView implements FileView {
   }
 
   dispose() {
+    for (const off of this.detach) off();
     this.list.dispose();
   }
 }

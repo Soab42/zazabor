@@ -1,0 +1,6 @@
+/* Shortcut hints at the right of a menu item. */
+.menu-shortcut {
+  margin-left: auto; padding-left: var(--space-4); color: var(--faint); font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.menu-item:hover .menu-shortcut, .menu-item:focus-visible .menu-shortcut { color: inherit; opacity: 0.75; }
