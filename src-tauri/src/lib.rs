@@ -295,7 +295,12 @@ pub fn run() {
             fs::fs_folder_size,
             fs::fs_folder_size_cancel,
             fs::fs_tags_get,
-            fs::fs_tags_set
+            fs::fs_tags_set,
+            // phones and network
+            fs::fs_mounts,
+            fs::fs_mount_uri,
+            fs::fs_unmount,
+            fs::fs_eject
         ])
         .run(tauri::generate_context!())
         .expect("error while running CorePro");

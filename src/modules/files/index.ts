@@ -25,6 +25,14 @@ export const createFilesModule: ModuleFactory = (shell) => {
   const info = createInfoExtension(el, shell);
   browser.addExtension(info);
 
+  /** Ctrl+K opens Connect to Server. */
+  const connectKey = (e: KeyboardEvent) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== "k") return false;
+    e.preventDefault();
+    sidebar.connectToServer();
+    return true;
+  };
+
   const module: AppModule = {
     id: "files",
     title: "Files",
@@ -38,7 +46,7 @@ export const createFilesModule: ModuleFactory = (shell) => {
       sidebar.deactivate();
       browser.deactivate();
     },
-    handleKey: (e) => browser.handleKey(e),
+    handleKey: (e) => connectKey(e) || browser.handleKey(e),
     configChanged: () => browser.settingsChanged(),
     open(request) {
       if (request.kind === "folder") browser.navigate(request.path);

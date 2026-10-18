@@ -5,6 +5,7 @@
 mod info;
 mod jobs;
 mod list;
+mod mounts;
 mod names;
 mod ops;
 mod tags;
@@ -300,4 +301,48 @@ mod tests {
         assert_eq!(places[0].kind, "home");
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+// ---- phones and network
+pub use mounts::MountInfo;
+
+#[tauri::command]
+pub async fn fs_mounts(app: tauri::AppHandle) -> Result<Vec<MountInfo>, String> {
+    ensure_unlocked()?;
+    tauri::async_runtime::spawn_blocking(move || mounts::list(&app))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Mounts a share or device. Rejects with a message starting `auth:` when credentials are needed
+/// or were wrong.
+#[tauri::command]
+pub async fn fs_mount_uri(
+    app: tauri::AppHandle,
+    uri: String,
+    username: Option<String>,
+    domain: Option<String>,
+    password: Option<String>,
+    remember: bool,
+) -> Result<MountInfo, String> {
+    ensure_unlocked()?;
+    tauri::async_runtime::spawn_blocking(move || mounts::mount(&app, &uri, username, domain, password, remember))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn fs_unmount(app: tauri::AppHandle, uri_or_path: String) -> Result<(), String> {
+    ensure_unlocked()?;
+    tauri::async_runtime::spawn_blocking(move || mounts::unmount(&app, &uri_or_path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn fs_eject(app: tauri::AppHandle, uri_or_path: String) -> Result<(), String> {
+    ensure_unlocked()?;
+    tauri::async_runtime::spawn_blocking(move || mounts::eject(&app, &uri_or_path))
+        .await
+        .map_err(|e| e.to_string())?
 }

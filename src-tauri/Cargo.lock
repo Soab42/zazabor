@@ -432,6 +432,7 @@ name = "corepro"
 version = "0.1.0"
 dependencies = [
  "argon2",
+ "gio",
  "gstreamer",
  "image",
  "jpeg-decoder",
