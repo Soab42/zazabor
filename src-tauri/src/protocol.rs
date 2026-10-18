@@ -3,6 +3,8 @@
 //! - `cs://localhost/thumb?p=<path>&s=<px>`   cached, oriented thumbnail (long edge <= s)
 //! - `cs://localhost/preview?p=<path>&s=<px>` cached, oriented render (s = 0: full size)
 //! - `cs://localhost/file?p=<path>`           the original bytes of an image or audio file
+//! - `cs://localhost/frame?after=<n>`         the newest decoded video frame (see `video`)
+//! - `cs://localhost/vthumb?p=<path>&s=<px>`  cached JPEG frame from a video (see `video`)
 //!
 //! Responses carry `Access-Control-Allow-Origin: *` so canvas and WebGL can read the pixels.
 
@@ -59,6 +61,12 @@ pub fn cache_dir() -> Option<&'static PathBuf> {
 
 pub fn handle(request: Request<Vec<u8>>, responder: UriSchemeResponder) {
     let route = request.uri().path().trim_start_matches('/').to_string();
+    // Video routes block on libVLC, so they bring their own threads.
+    match route.as_str() {
+        "frame" => return crate::video::serve_frame(request, responder),
+        "vthumb" => return crate::video::serve_thumb(request, responder),
+        _ => {}
+    }
     let pool = match route.as_str() {
         "thumb" => THUMB_POOL.get(),
         "preview" => PREVIEW_POOL.get(),
@@ -148,7 +156,7 @@ fn mime_for(path: &Path) -> &'static str {
     }
 }
 
-fn error(status: StatusCode, message: &str) -> Response<Vec<u8>> {
+pub(crate) fn error(status: StatusCode, message: &str) -> Response<Vec<u8>> {
     Response::builder()
         .status(status)
         .header("Access-Control-Allow-Origin", "*")
