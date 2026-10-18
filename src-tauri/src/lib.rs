@@ -260,7 +260,15 @@ pub fn run() {
             fs::fs_volumes,
             fs::fs_watch,
             fs::fs_unwatch,
-            fs::fs_open_default
+            fs::fs_open_default,
+            // quick look and info
+            fs::fs_read_text,
+            fs::fs_read_binary,
+            fs::fs_info,
+            fs::fs_folder_size,
+            fs::fs_folder_size_cancel,
+            fs::fs_tags_get,
+            fs::fs_tags_set
         ])
         .run(tauri::generate_context!())
         .expect("error while running CorePro");

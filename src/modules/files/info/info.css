@@ -1,0 +1,102 @@
+/* ---- Get Info and tags ----------------------------------------------------------------------
+   The inspector is a strong-glass sheet floating at the right edge of the Files module; tags are
+   small colour dots. The tag hues are the one fixed palette here (a red tag is red in any theme). */
+
+:root {
+  --tag-red: oklch(0.66 0.21 25);
+  --tag-orange: oklch(0.74 0.17 55);
+  --tag-yellow: oklch(0.84 0.16 95);
+  --tag-green: oklch(0.72 0.18 148);
+  --tag-blue: oklch(0.66 0.18 250);
+  --tag-purple: oklch(0.63 0.2 305);
+  --tag-grey: oklch(0.68 0.02 260);
+}
+
+.tag-dot { display: inline-block; flex: none; border-radius: 50%; box-shadow: inset 0 0 0 0.5px rgba(var(--fg), 0.25); }
+
+/* ---- inspector ------------------------------------------------------------------------------- */
+
+.gi {
+  position: absolute; top: var(--space-2); right: var(--space-2); bottom: var(--space-2); z-index: 25;
+  display: flex; flex-direction: column; width: 304px; overflow: hidden; border-radius: var(--radius-xl);
+  box-shadow: inset 0 1px 0 var(--spec), var(--elev-3);
+  animation: gi-in var(--dur-med) var(--ease-out);
+}
+.gi.closing { pointer-events: none; animation: gi-out 140ms var(--ease-out) forwards; }
+@keyframes gi-in { from { opacity: 0; transform: translateX(14px); } }
+@keyframes gi-out { to { opacity: 0; transform: translateX(10px); } }
+.gi-close { position: absolute; top: var(--space-2); right: var(--space-2); z-index: 2; }
+.gi-scroll { flex: 1; min-height: 0; padding: var(--space-5) var(--space-4) var(--space-4); overflow-x: hidden; overflow-y: auto; animation: fade-in 160ms var(--ease-out); }
+
+.gi-preview { display: grid; place-items: center; height: 148px; margin-bottom: var(--space-3); }
+.gi-name {
+  padding: 0 var(--space-4); text-align: center; overflow-wrap: anywhere;
+  font-size: var(--text-lg); font-weight: 650; letter-spacing: -0.01em; line-height: 1.3;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.gi-kind { margin-top: 2px; text-align: center; color: var(--muted); font-size: var(--text-sm); }
+
+.gi-section { margin-top: var(--space-4); }
+.gi-title {
+  margin: 0 0 var(--space-2) var(--space-1); color: var(--faint);
+  font-size: var(--text-xs); font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.gi-card { padding: var(--space-1) var(--space-3); }
+.gi-row { display: flex; align-items: baseline; gap: var(--space-3); padding: 7px 0; font-size: var(--text-sm); }
+.gi-row + .gi-row { box-shadow: inset 0 0.5px 0 var(--line); }
+.gi-label { flex: none; width: 66px; color: var(--muted); }
+.gi-value { flex: 1; min-width: 0; color: var(--text); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.gi-value.pending { color: var(--muted); }
+.gi-row .gi-copy { flex: none; align-self: center; margin: -4px -6px -4px 0; }
+.gi-mono { font-family: var(--mono); font-size: 0.96em; }
+.gi-badge {
+  display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--control);
+  box-shadow: inset 0 0 0 0.5px var(--line-strong); color: var(--text-2); font-size: var(--text-xs); font-weight: 600;
+}
+.gi-badge.ro { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--danger) 40%, transparent); }
+.gi-error { margin: var(--space-2) 0 var(--space-1); color: var(--danger); font-size: var(--text-sm); }
+.gi-error[hidden] { display: none; }
+
+.gi-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: var(--space-2) 0; }
+.gi-chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px 0 8px; border: 0; border-radius: 999px;
+  background: var(--control); box-shadow: inset 0 0 0 0.5px var(--line); color: var(--text-2); font-size: var(--text-sm);
+  cursor: default;
+  transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), color var(--dur-fast);
+}
+.gi-chip:hover { background: var(--control-hover); color: var(--text); }
+.gi-chip:active { background: var(--selection); }
+.gi-chip:focus-visible { outline: none; box-shadow: inset 0 0 0 0.5px var(--line), 0 0 0 3px var(--focus); }
+.gi-chip[aria-pressed="true"] { background: var(--selection); color: var(--text); font-weight: 600; box-shadow: inset 0 0 0 0.5px var(--accent); }
+
+/* ---- tag popover ----------------------------------------------------------------------------- */
+
+.tag-pop {
+  position: fixed; z-index: 1000; padding: var(--space-3) var(--space-3) var(--space-2); border-radius: var(--radius-lg);
+  box-shadow: inset 0 1px 0 var(--spec), var(--elev-3);
+  transform-origin: var(--origin-x, 50%) var(--origin-y, 0); animation: menu-in var(--dur-fast) var(--ease-out);
+}
+.tag-pop.busy .tag-pop-row { opacity: 0.5; pointer-events: none; }
+.tag-pop-row { display: flex; gap: var(--space-2); transition: opacity var(--dur-fast); }
+.tag-pick {
+  display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: none; cursor: default;
+  transition: background var(--dur-fast) var(--ease-out), transform 0.1s var(--ease-out);
+}
+.tag-pick:hover { background: var(--hover); }
+.tag-pick:active { transform: scale(0.92); }
+.tag-pick:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
+.tag-pick-dot {
+  display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; color: transparent;
+  box-shadow: inset 0 0 0 0.5px rgba(var(--fg), 0.25); transition: color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.tag-pick[data-state="all"] .tag-pick-dot { color: var(--accent-ink); box-shadow: inset 0 0 0 0.5px rgba(var(--fg), 0.25), 0 0 0 2px var(--bg-raised), 0 0 0 3.5px var(--text-2); }
+.tag-pick[data-state="some"] .tag-pick-dot { box-shadow: inset 0 0 0 0.5px rgba(var(--fg), 0.25), 0 0 0 2px var(--bg-raised), 0 0 0 3.5px var(--faint); }
+.tag-pop-caption { height: 16px; margin-top: var(--space-1); text-align: center; color: var(--muted); font-size: var(--text-xs); }
+.tag-pop-caption.error { color: var(--danger); }
+
+@media (prefers-reduced-motion: reduce) {
+  .gi { animation: fade-in var(--dur-med) var(--ease-out); }
+  .gi.closing { animation: ql-fade-out 140ms var(--ease-out) forwards; }
+  .tag-pop { animation: fade-in var(--dur-fast) var(--ease-out); }
+  .tag-pick:active { transform: none; }
+}
