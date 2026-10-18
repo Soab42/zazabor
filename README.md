@@ -14,7 +14,20 @@ See `docs/PLAN.md` for the roadmap and `docs/DESIGN.md` for the design rules.
 **Files**
 - Finder-style browsing: Favourites and Devices in the sidebar (including phones and network shares mounted by GVfs, with capacity meters), a clickable path bar, tabs, back/forward, and live updates when folders change.
 - Icon, list, column and gallery views, all virtualized for folders with 100,000 items; image thumbnails, sorting, instant search and hidden files on demand.
-- Images open in the Gallery viewer; other files open with their default app.
+- Images open in the Gallery viewer; videos open in the Video player; other files open with their default app or any app from Open With.
+- File operations run as jobs with progress, conflict prompts and undo: copy, move, rename, duplicate, new folder, Trash (freedesktop, with Put Back), and drag and drop between folders, tabs and the sidebar.
+- Quick Look (Space) for images, video, audio, PDF, text and code; Get Info; colour tags shared with other file managers.
+- Search with scope (this folder or subfolders) and filters for kind, date and size; zip/tar compress and extract.
+- Connect to Server (Ctrl+K) for SMB, SFTP, FTP and WebDAV; phones and shares appear under Devices and Network.
+
+**Video**
+- A libVLC player with the VLC redesign's interface: a frosted control bar with the seek bar along the bottom, hover previews from the film's frames, chapter and bookmark ticks, and a volume cone.
+- Quick access on the bar: subtitle tracks, audio tracks and the output device, the Queue, and a side panel with Subtitles, Audio, Video, Playback and Bookmarks tabs.
+- Subtitles drawn by CorePro: Add Subtitles for a file, folder or queue (auto-matched to episodes), a timeline you drag to fix the timing, styling and per-show presets.
+- Audio delay and an equalizer with presets; video filters with live previews, flip, rotate, zoom, aspect ratio and HDR tone mapping; speed, sleep timer and file details.
+- An automatic library: Home with Continue watching, Videos, Music (songs, albums, artists, genres), Network Streams (a pasted M3U address becomes a playlist of channels), Playlists and Recent.
+- A compact library beside the video with drag into the queue, a mini player, a continue-where-you-left-off prompt, and on-screen messages that name the key you pressed.
+- Separate dialogs for Network Stream, Capture Device, From Clipboard, Recent Media, Convert and Stream to Device; profiles for layout and settings; a drag-and-drop control bar editor; a first-run intro.
 
 **Gallery**
 - Finds your photos automatically, like a phone gallery: it scans your home folder and connected drives, skipping hidden folders, app data, code projects and icon-sized images. Results are cached, so albums appear instantly on the next launch.
@@ -52,6 +65,7 @@ See `docs/PLAN.md` for the roadmap and `docs/DESIGN.md` for the design rules.
 | Gallery | Arrows to move, Enter to open, Ctrl+F to search, F5 for a slideshow, Ctrl+L to lock |
 | Viewer | ← → to browse, ↑ ↓, +/− or wheel to zoom (hold to glide), 0 to fit, 1–8 for 100%–12,800% (without Ctrl), R to rotate, I for info, F for fullscreen, S for a slideshow |
 | Slideshow | Space to pause, ← → to skip, M to mute, S for settings, C for captions, Esc to exit |
+| Video | Space or K to play/pause, ← → to skip (Shift for longer), ↑ ↓ for volume, M to mute, F for fullscreen, N/P for next/previous, [ ] for speed, G/H for subtitle delay, Ctrl+B for a bookmark, Ctrl+H to hide the UI, Ctrl+M for the mini player, ? for all shortcuts |
 
 ## Install on Linux (no root needed)
 

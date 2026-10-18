@@ -366,6 +366,13 @@ running app.
 M0 comes first because the video rendering path affects the shell's window setup (transparency,
 GTK widget tree).
 
+**Progress (Oct 18, 2026, branch `corepro`):** M1–M8 are built, plus the VLC redesign walkthrough
+(`docs/design/vlc/REDESIGN.md`). A hands-on pass in a test window covered the player, side panel,
+subtitles, library, queue drag, mini player, stream and capture dialogs, settings pages, and Files
+drag and drop, undo, search, compress/extract, Open With and Connect to Server. Still open: M9
+packaging (.deb and AppImage), Wayland, testing phones (MTP) and network shares on real hardware,
+OpenSubtitles (needs an API key), a decode-resolution choice and the optional seek-bar waveform.
+
 ## 11. Risks
 
 | Risk | Mitigation |
