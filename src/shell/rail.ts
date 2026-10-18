@@ -1,11 +1,14 @@
 import { clear, h } from "../ui/dom";
 import { icon } from "../ui/icons";
+import { openMenu } from "../ui/menu";
 import type { ModuleId } from "./module";
 import { MODULES } from "./registry";
 
 export interface RailHandlers {
   select(id: ModuleId): void;
   settings(): void;
+  /** Opens the module in a new window (right-click → Open in New Window, or a middle click). */
+  openWindow(id: ModuleId): void;
 }
 
 /** The slim glass rail on the far left: one button per enabled module, Settings at the bottom. */
@@ -34,6 +37,13 @@ export class Rail {
         icon(meta.icon, 20),
         h("span", { class: "rail-pill" }),
       );
+      button.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        openMenu(e.clientX, e.clientY, [{ label: "Open in New Window", icon: "external", action: () => this.handlers.openWindow(id) }]);
+      });
+      button.addEventListener("auxclick", (e) => {
+        if (e.button === 1) this.handlers.openWindow(id);
+      });
       this.buttons.set(id, button);
       this.items.append(button);
     });

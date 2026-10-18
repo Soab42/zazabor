@@ -1,8 +1,12 @@
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import type { ShellContext } from "../../shell/module";
+import { onOthers, tellOthers } from "../../shell/windows";
 import { clamp, dirname } from "../../ui/dom";
 import { MAX_VOLUME, onState, videoApi, type PlaybackState, type VideoSurface } from "./api";
 import { addRecent, nextIndex, previousAction, resumeTime, trimPositions, type RepeatMode } from "./queue";
+
+/** Sent to the other windows when this one starts a video. */
+const VIDEO_CLAIM = "video-claim";
 
 /** How often the resume point is saved while playing. */
 const SAVE_EVERY_MS = 5000;
@@ -35,6 +39,8 @@ export class Player {
 
   constructor(private readonly shell: ShellContext, private readonly surface: VideoSurface) {
     this.state = this.blankState(null);
+    // There is one libVLC player for all windows: the window that starts a video takes it.
+    void onOthers<null>(VIDEO_CLAIM, () => this.release());
     onState((s) => this.handleState(s))
       .then((unlisten) => {
         if (this.disposed) unlisten();
@@ -89,6 +95,7 @@ export class Player {
   /** Plays a file; `siblings` is the queue to continue through, otherwise its folder's videos. */
   async open(path: string, siblings?: string[]) {
     this.savePosition();
+    tellOthers(VIDEO_CLAIM, null);
     const token = ++this.token;
     // A different file must not open over the last frame of the one before (an error would sit on it).
     if (path !== this.current) this.surface.clear();
@@ -128,6 +135,18 @@ export class Player {
     } catch (err) {
       console.warn("Could not list the folder's videos:", err);
     }
+  }
+
+  /** Another window started a video: the player is theirs now, so this one lets go without stopping it. */
+  private release() {
+    if (!this.current) return;
+    this.savePosition();
+    this.token++;
+    this.current = null;
+    this.openError = null;
+    this.resumeOffer = null;
+    this.state = this.blankState(null);
+    this.emit();
   }
 
   /** Stops playback and unloads the file. */

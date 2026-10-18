@@ -24,12 +24,20 @@ export const lockApi = {
  * Asks for the lock's credentials. "unlock" covers the whole app; "confirm" is a dialog that
  * re-checks identity (for private albums) and can be cancelled.
  */
+/** Closes the open unlock prompt as unlocked (the app was unlocked in another window). */
+export function dismissUnlockPrompt() {
+  openUnlock?.(true);
+}
+
+let openUnlock: ((ok: boolean) => void) | null = null;
+
 export function askForAccess(mode: LockMode, purpose: "unlock" | "confirm", reason = ""): Promise<boolean> {
   return new Promise((resolve) => {
     const unlocking = purpose === "unlock";
     const error = h("p", { class: "lock-error" });
     const busy = (on: boolean) => card.classList.toggle("busy", on);
     const finish = (ok: boolean) => {
+      if (openUnlock === finish) openUnlock = null;
       document.removeEventListener("keydown", onKey, true);
       overlay.classList.add("leaving");
       setTimeout(() => overlay.remove(), 220);
@@ -81,6 +89,7 @@ export function askForAccess(mode: LockMode, purpose: "unlock" | "confirm", reas
       if (e.key === "Escape" && !unlocking) finish(false);
     };
     document.addEventListener("keydown", onKey, true);
+    if (unlocking) openUnlock = finish;
     document.body.append(overlay);
     (input ?? card.querySelector<HTMLButtonElement>("button"))?.focus();
   });

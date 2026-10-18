@@ -195,6 +195,28 @@ fn save_config(app: tauri::AppHandle, json: String) -> Result<(), String> {
     std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
 }
 
+/// Opens another CorePro window on a module (and, for Files, a folder): the same app with its own
+/// workspace. The page reads where to start from `window.__COREPRO_WINDOW__`.
+#[tauri::command]
+async fn open_window(app: tauri::AppHandle, module: String, path: Option<String>) -> Result<(), String> {
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(2);
+    let label = format!("window-{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+    let start = serde_json::json!({ "module": module, "path": path });
+    let window = tauri::WebviewWindowBuilder::new(&app, label, tauri::WebviewUrl::App("index.html".into()))
+        .title("CorePro")
+        .inner_size(1280.0, 820.0)
+        .min_inner_size(860.0, 560.0)
+        .background_color(tauri::webview::Color(0x0e, 0x0f, 0x11, 0xff))
+        .initialization_script(format!("window.__COREPRO_WINDOW__ = {start};"))
+        .build()
+        .map_err(|e| e.to_string())?;
+    #[cfg(target_os = "linux")]
+    window.with_webview(enable_cors_for_cs_scheme).map_err(|e| e.to_string())?;
+    #[cfg(not(target_os = "linux"))]
+    let _ = window;
+    Ok(())
+}
+
 /// Lets the frontend print to the terminal, which is where `tauri dev` users look.
 #[tauri::command]
 fn log(level: String, message: String) {
@@ -230,6 +252,11 @@ pub fn run() {
             }
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                video::window_closed(window.label());
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             scan_folder,
             discover_photos,
@@ -246,6 +273,7 @@ pub fn run() {
             music::music_position,
             lock::lock_status,
             lock::lock_now,
+            open_window,
             lock::unlock,
             lock::confirm_identity,
             lock::set_lock,
@@ -291,6 +319,7 @@ pub fn run() {
             fs::fs_undo,
             // quick look and info
             fs::fs_read_text,
+            fs::fs_write_text,
             fs::fs_read_binary,
             fs::fs_info,
             fs::fs_folder_size,

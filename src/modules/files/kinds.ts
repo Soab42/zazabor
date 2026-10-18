@@ -8,7 +8,8 @@ export type Category = "folder" | "image" | "video" | "audio" | "code" | "archiv
 const set = (list: string) => new Set(list.split(" "));
 
 const IMAGE = set("jpg jpeg png gif webp bmp tif tiff");
-const VIDEO = set("mp4 m4v mkv webm mov avi wmv flv mpg mpeg ts");
+// "ts" is TypeScript here; transport-stream video goes by .m2ts / .mts.
+const VIDEO = set("mp4 m4v mkv webm mov avi wmv flv mpg mpeg m2ts mts");
 const AUDIO = set("mp3 flac ogg oga opus wav m4a aac");
 const CODE = set("js ts tsx jsx rs py go java c cpp h hpp cs rb php swift kt json toml yaml yml xml html css scss md sh lua sql");
 const ARCHIVE = set("zip tar gz tgz bz2 xz 7z rar zst");

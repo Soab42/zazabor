@@ -1,0 +1,101 @@
+/* ---- Code editor window: Explorer · tabs · Monaco · status bar, in CorePro's glass ---- */
+.ce { display: flex; flex-direction: column; height: 100%; min-height: 0; color: var(--text); }
+.ce-row { display: flex; flex: 1; min-height: 0; }
+
+.ce-explorer {
+  display: flex; flex-direction: column; flex: none; width: 250px; min-width: 0;
+  background: var(--glass-surface, var(--glass)); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  box-shadow: inset -0.5px 0 0 var(--line-strong);
+}
+.ce-explorer-head { display: flex; align-items: center; gap: 2px; height: 36px; padding: 0 8px 0 14px; }
+.ce-explorer-title {
+  flex: 1; min-width: 0; overflow: hidden; color: var(--muted); font-size: var(--text-xs); font-weight: 650;
+  letter-spacing: 0.06em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap;
+}
+.ce-tree { flex: 1; min-height: 0; overflow: auto; padding: 2px 6px 12px; }
+.ce-node {
+  display: flex; align-items: center; gap: 5px; height: 24px; padding-right: 8px; border-radius: 6px;
+  color: var(--text-2); font-size: var(--text-md); cursor: default; white-space: nowrap;
+}
+.ce-node:hover { background: var(--hover); color: var(--text); }
+.ce-node.active { background: var(--accent-soft); color: var(--text); }
+.ce-node > .icon, .ce-node > svg { flex: none; color: var(--muted); }
+.ce-node.dir > .icon { color: var(--accent); }
+.ce-twisty { display: grid; place-items: center; flex: none; width: 14px; color: var(--faint); }
+.ce-node-name { overflow: hidden; text-overflow: ellipsis; }
+
+.ce-main { display: flex; flex: 1; flex-direction: column; min-width: 0; background: var(--bg); }
+.ce-tabs {
+  display: flex; flex: none; height: 36px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+  background: var(--glass-surface, var(--glass)); box-shadow: inset 0 -0.5px 0 var(--line-strong);
+}
+.ce-tabs::-webkit-scrollbar { display: none; }
+.ce-tab {
+  position: relative; display: flex; align-items: center; gap: 6px; flex: none; max-width: 220px; padding: 0 6px 0 12px;
+  color: var(--muted); font-size: var(--text-md); cursor: default; box-shadow: inset -0.5px 0 0 var(--line);
+}
+.ce-tab:hover { color: var(--text-2); background: var(--hover); }
+.ce-tab.active { color: var(--text); background: var(--bg); }
+.ce-tab.active::after { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--accent); }
+.ce-tab > svg { flex: none; color: var(--muted); }
+.ce-tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ce-tab-close {
+  display: grid; place-items: center; flex: none; width: 20px; height: 20px; border: 0; border-radius: 5px;
+  background: none; color: var(--muted); opacity: 0; cursor: pointer;
+}
+.ce-tab:hover .ce-tab-close, .ce-tab.active .ce-tab-close { opacity: 1; }
+.ce-tab-close:hover { background: var(--control-hover); color: var(--text); }
+/* Unsaved: a dot where the close button is, the button on hover (as in VS Code). */
+.ce-tab.dirty .ce-tab-close { opacity: 1; }
+.ce-tab.dirty .ce-tab-close > svg { display: none; }
+.ce-tab.dirty .ce-tab-close::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--text-2); }
+.ce-tab.dirty .ce-tab-close:hover::before { display: none; }
+.ce-tab.dirty .ce-tab-close:hover > svg { display: block; }
+
+.ce-crumbs { display: flex; align-items: center; gap: 2px; flex: none; height: 24px; padding: 0 14px; overflow: hidden; color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
+.ce-crumbs:empty { display: none; }
+.ce-crumb-sep { display: grid; place-items: center; color: var(--faint); }
+.ce-crumb:last-child { color: var(--text-2); }
+
+.ce-body { position: relative; flex: 1; min-height: 0; }
+.ce-monaco { position: absolute; inset: 0; }
+.ce-empty { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px; color: var(--faint); font-size: var(--text-md); }
+.ce-empty p { margin: 0; }
+
+.ce-status {
+  display: flex; align-items: center; gap: 2px; flex: none; height: 26px; padding: 0 8px;
+  background: var(--glass-strong-surface, var(--glass-strong)); box-shadow: inset 0 0.5px 0 var(--line-strong);
+  color: var(--muted); font-size: var(--text-sm);
+}
+.ce-status .spacer { flex: 1; }
+.ce-status-item {
+  height: 20px; padding: 0 8px; border: 0; border-radius: 5px; background: none; color: inherit; font: inherit;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+button.ce-status-item { cursor: pointer; }
+button.ce-status-item:hover { background: var(--hover); color: var(--text); }
+.ce-status-note { overflow: hidden; padding: 0 8px; color: var(--text-2); text-overflow: ellipsis; white-space: nowrap; }
+
+/* Quick open and the unsaved-changes sheet */
+.ce-scrim { position: fixed; inset: 0; z-index: 200; display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; background: var(--scrim); }
+.ce-palette, .ce-dialog {
+  width: min(560px, calc(100vw - 32px)); overflow: hidden; border-radius: var(--radius-lg);
+  background: var(--glass-strong-surface, var(--glass-strong)); -webkit-backdrop-filter: var(--blur-strong); backdrop-filter: var(--blur-strong);
+  box-shadow: inset 0 1px 0 var(--spec), var(--shadow-pop);
+}
+.ce-palette-input {
+  width: 100%; height: 44px; padding: 0 16px; border: 0; outline: none; background: none; color: var(--text);
+  font: inherit; font-size: var(--text-lg); box-shadow: inset 0 -0.5px 0 var(--line-strong);
+}
+.ce-palette-input:focus-visible { box-shadow: inset 0 -0.5px 0 var(--line-strong); }
+.ce-palette-list { max-height: 50vh; overflow-y: auto; padding: 6px; }
+.ce-palette-item { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border-radius: 7px; font-size: var(--text-md); cursor: default; }
+.ce-palette-item.active, .ce-palette-item:hover { background: var(--accent-soft); }
+.ce-palette-item > svg { flex: none; color: var(--muted); }
+.ce-palette-name { flex: none; color: var(--text); }
+.ce-palette-dir { min-width: 0; overflow: hidden; color: var(--faint); font-size: var(--text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.ce-dialog { align-self: center; margin-top: -12vh; padding: 20px 20px 16px; }
+.ce-dialog h2 { margin: 0 0 6px; font-size: var(--text-lg); font-weight: 650; }
+.ce-dialog p { margin: 0 0 18px; color: var(--text-2); font-size: var(--text-md); line-height: 1.5; }
+.ce-dialog-actions { display: flex; align-items: center; gap: 8px; }
+.ce-dialog-actions .spacer { flex: 1; }

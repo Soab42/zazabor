@@ -65,6 +65,8 @@ export interface AppModule {
   onLock?(): void | Promise<void>;
   /** Called when the feature is turned off in Settings. */
   dispose?(): void;
+  /** Where a new window of this module should start (Files: the folder it shows). */
+  windowPath?(): string | null;
 }
 
 export type ModuleFactory = (shell: ShellContext) => AppModule | Promise<AppModule>;

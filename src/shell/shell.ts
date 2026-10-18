@@ -3,8 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { api } from "../api";
 import { applyAppearance } from "../appearance";
-import { saveConfig, type Config } from "../config";
-import { askForAccess, lockApi, openLockSettings, type LockStatus } from "../lock";
+import { adoptConfig, CONFIG_SAVED, parseConfig, saveConfig, type Config } from "../config";
+import { askForAccess, dismissUnlockPrompt, lockApi, openLockSettings, type LockStatus } from "../lock";
 import { h, isTypingTarget } from "../ui/dom";
 import { MODULE_IDS, type AppModule, type ModuleId, type OpenRequest, type ShellContext, type ShellLock } from "./module";
 import { Onboarding } from "./onboarding";
@@ -12,13 +12,24 @@ import { Rail } from "./rail";
 import { MODULES } from "./registry";
 import { classifyPath } from "./router";
 import { Settings } from "./settings";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
+import { isMainWindow, onOthers, openWindow, tellOthers, windowStart } from "./windows";
+
+/** Activity in one window resets the auto-lock in the others, at most this often. */
+const ACTIVITY_EVERY_MS = 20_000;
+const ACTIVITY = "app-activity";
 
 /**
  * The app around the modules: the rail, the workspace, Settings and the first-run wizard, plus
  * everything that belongs to the whole window (privacy lock, key and drop routing, appearance).
  */
 export class Shell implements ShellContext {
-  private rail = new Rail({ select: (id) => this.showModule(id), settings: () => this.toggleSettings() });
+  private rail = new Rail({
+    select: (id) => this.showModule(id),
+    settings: () => this.toggleSettings(),
+    openWindow: (id) => this.openModuleWindow(id),
+  });
   private workspace = h("main", { class: "workspace" });
   private settings: Settings;
   private modules = new Map<ModuleId, AppModule>();
@@ -28,6 +39,7 @@ export class Shell implements ShellContext {
   private lockStatus: LockStatus = { mode: "off", locked: false, systemAvailable: false };
   private locking = false;
   private idleTimer = 0;
+  private lastActivityTold = 0;
 
   readonly lock: ShellLock = this.makeLock();
 
@@ -52,6 +64,7 @@ export class Shell implements ShellContext {
       if (config.appearance.mode === "system") this.appearanceChanged(false);
     });
     window.addEventListener("keydown", (e) => this.onKey(e));
+    this.followOtherWindows();
   }
 
   /** Unlocks, runs the first-run wizard if needed, then shows the last module and handles a launch path. */
@@ -63,12 +76,12 @@ export class Shell implements ShellContext {
       document.body.classList.remove("app-locked");
     }
     for (const type of ["pointermove", "pointerdown", "keydown", "wheel"]) {
-      window.addEventListener(type, () => this.resetIdleTimer(), { passive: true, capture: true });
+      window.addEventListener(type, () => this.userActive(), { passive: true, capture: true });
     }
     this.resetIdleTimer();
     this.setupDragDrop().catch((err) => console.warn("Drag and drop unavailable:", err));
 
-    if (!this.config.onboarded) {
+    if (!this.config.onboarded && isMainWindow) {
       this.onboarding = new Onboarding({
         config: this.config,
         appearanceChanged: () => this.appearanceChanged(),
@@ -77,9 +90,63 @@ export class Shell implements ShellContext {
       await this.onboarding.run();
       this.onboarding = null;
     }
-    const first = this.config.features[this.config.module] ? this.config.module : this.enabledModules()[0];
+    // An extra window starts where it was asked to; the main window where it was left.
+    const wanted = windowStart && windowStart.module !== "viewer" ? windowStart.module : this.config.module;
+    const first = this.config.features[wanted] ? wanted : this.enabledModules()[0];
     await this.activate(first);
-    await this.openLaunchPath();
+    const path = windowStart?.path;
+    if (path && first === wanted) {
+      if (first === "files") this.open({ kind: "folder", path });
+      else if (first === "gallery") this.open({ kind: "image", path });
+      else if (first === "video") this.open({ kind: "video", path });
+    }
+    if (isMainWindow) await this.openLaunchPath();
+  }
+
+  // ---- other windows
+
+  /** Opens a module in a new window, at the place it's showing (Files: the same folder). */
+  private openModuleWindow(id: ModuleId) {
+    openWindow(id, this.modules.get(id)?.windowPath?.() ?? undefined);
+  }
+
+  /** Settings saved and the lock changed in another window apply here too. */
+  private followOtherWindows() {
+    void onOthers<string>(CONFIG_SAVED, (json) => this.configFromElsewhere(json));
+    void onOthers<null>(ACTIVITY, () => this.resetIdleTimer());
+    void listen<boolean>("lock-changed", (e) => {
+      if (e.payload) void this.lockApp(false);
+      else dismissUnlockPrompt();
+    });
+  }
+
+  private configFromElsewhere(json: string) {
+    let incoming: Config;
+    try {
+      incoming = parseConfig(json);
+    } catch {
+      return;
+    }
+    const before = { appearance: JSON.stringify(this.config.appearance), features: JSON.stringify(this.config.features) };
+    adoptConfig(this.config, incoming);
+    if (JSON.stringify(this.config.appearance) !== before.appearance) this.appearanceChanged(false);
+    if (JSON.stringify(this.config.features) !== before.features) {
+      for (const id of MODULE_IDS) if (!this.config.features[id] && this.modules.has(id)) this.dropModule(id);
+      this.rail.setItems(this.enabledModules());
+      if (!this.active || !this.config.features[this.active]) void this.activate(this.enabledModules()[0]);
+      this.revealActive();
+    }
+    if (this.settings.isOpen) this.settings.refresh();
+  }
+
+  /** Local activity: resets the auto-lock here and, now and then, in the other windows. */
+  private userActive() {
+    this.resetIdleTimer();
+    const now = Date.now();
+    if (now - this.lastActivityTold >= ACTIVITY_EVERY_MS) {
+      this.lastActivityTold = now;
+      tellOthers(ACTIVITY, null);
+    }
   }
 
   private makeLock(): ShellLock {
@@ -162,8 +229,13 @@ export class Shell implements ShellContext {
         previous.el.hidden = true;
       }
       this.active = id;
-      this.config.module = id;
-      this.saveConfig();
+      if (isMainWindow) {
+        // Which module comes back at the next start is the main window's.
+        this.config.module = id;
+        this.saveConfig();
+      } else {
+        void getCurrentWindow().setTitle(`${MODULES[id].title} — CorePro`).catch(() => undefined);
+      }
     }
     this.revealActive();
     mod.activate();
@@ -182,12 +254,7 @@ export class Shell implements ShellContext {
     if (!on && this.enabledModules().filter((m) => m !== id).length === 0) return;
     this.config.features[id] = on;
     if (!on) {
-      const mod = this.modules.get(id);
-      if (mod) {
-        mod.dispose?.();
-        mod.el.remove();
-        this.modules.delete(id);
-      }
+      this.dropModule(id);
       if (this.active === id) {
         this.active = null;
         void this.activate(this.enabledModules()[0]);
@@ -196,6 +263,15 @@ export class Shell implements ShellContext {
     this.rail.setItems(this.enabledModules());
     this.revealActive();
     this.saveConfig();
+  }
+
+  private dropModule(id: ModuleId) {
+    const mod = this.modules.get(id);
+    if (!mod) return;
+    mod.dispose?.();
+    mod.el.remove();
+    this.modules.delete(id);
+    if (this.active === id) this.active = null;
   }
 
   private applyFeatures(features: Record<ModuleId, boolean>) {
@@ -260,6 +336,11 @@ export class Shell implements ShellContext {
       if (this.settings.handleKey(e)) e.preventDefault();
       return;
     }
+    if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "n" && !active?.modal && this.active) {
+      e.preventDefault();
+      this.openModuleWindow(this.active);
+      return;
+    }
     if (mod && /^[1-9]$/.test(e.key) && !active?.modal) {
       const id = this.enabledModules()[Number(e.key) - 1];
       if (id) {
@@ -274,11 +355,15 @@ export class Shell implements ShellContext {
 
   // ---- privacy lock
 
-  /** Hides everything and blocks the backend until the user unlocks again. */
-  private async lockApp() {
-    if (this.lockStatus.mode === "off" || this.locking) return;
+  /**
+   * Hides everything and blocks the backend until the user unlocks again. `initiate` is false when
+   * another window locked the app; unlocking in any window unlocks them all.
+   */
+  private async lockApp(initiate = true) {
+    if (this.locking || (initiate && this.lockStatus.mode === "off")) return;
     this.locking = true;
-    await lockApi.lockNow();
+    if (initiate) await lockApi.lockNow();
+    else this.lockStatus = await lockApi.status().catch(() => this.lockStatus);
     document.body.classList.add("app-locked");
     this.closeSettings();
     for (const mod of this.modules.values()) await mod.onLock?.();

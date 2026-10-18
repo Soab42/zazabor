@@ -64,6 +64,12 @@ export function createInfoExtension(host: HTMLElement, shell: ShellContext): Inf
       return false;
     },
 
+    quickOpen(entry, c) {
+      ctx = c;
+      quickLook.open(entry);
+      return true;
+    },
+
     itemMenu(entries, c) {
       ctx = c;
       const first = entries[0];

@@ -371,6 +371,20 @@ fn open(path: String, max_width: u32, max_height: u32, start_at: i64) -> Result<
 
 /// Stops playback and unloads the file when the app locks. Frames stop flowing at once; the
 /// player itself is torn down on a thread so the caller is never held up by libVLC.
+/// The window that last opened a video: closing it stops playback (no one could see or pause it).
+static OWNER: Mutex<String> = Mutex::new(String::new());
+
+/// A window closed; if it was playing the video, stop the player.
+pub fn window_closed(label: &str) {
+    let owner = std::mem::take(&mut *lock_ignore_poison(&OWNER));
+    if owner == label {
+        frame::set_current(None);
+        std::thread::spawn(stop_player);
+    } else {
+        *lock_ignore_poison(&OWNER) = owner;
+    }
+}
+
 pub fn stop_all() {
     convert::cancel_all();
     renderers::stop_all();
@@ -387,8 +401,9 @@ fn stop_player() {
 }
 
 #[tauri::command]
-pub async fn video_open(app: AppHandle, path: String, max_width: u32, max_height: u32, start_at: i64) -> Result<(), String> {
+pub async fn video_open(app: AppHandle, window: tauri::Window, path: String, max_width: u32, max_height: u32, start_at: i64) -> Result<(), String> {
     ensure_unlocked()?;
+    *lock_ignore_poison(&OWNER) = window.label().to_string();
     start_worker(app);
     blocking(move || open(path, max_width, max_height, start_at)).await
 }

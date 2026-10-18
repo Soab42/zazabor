@@ -109,23 +109,31 @@ pub fn lock_status() -> LockStatus {
     LockStatus { mode: current().1.mode, locked: is_locked(), system_available: system_auth_available() }
 }
 
+/// Every window follows the lock: `lock-changed` with `true` when it locks, `false` when it unlocks.
+fn announce(app: &tauri::AppHandle, locked: bool) {
+    use tauri::Emitter;
+    let _ = app.emit("lock-changed", locked);
+}
+
 #[tauri::command]
-pub fn lock_now() {
+pub fn lock_now(app: tauri::AppHandle) {
     if current().1.mode != LockMode::Off {
         LOCKED.store(true, Ordering::SeqCst);
         crate::video::stop_all();
+        announce(&app, true);
     }
 }
 
 /// Unlocks with a custom password, or with the system dialog when `password` is omitted.
 #[tauri::command]
-pub async fn unlock(password: Option<String>) -> bool {
+pub async fn unlock(app: tauri::AppHandle, password: Option<String>) -> bool {
     let (_, file) = current();
     let ok = tauri::async_runtime::spawn_blocking(move || authenticate(&file, password.as_deref()))
         .await
         .unwrap_or(false);
     if ok {
         LOCKED.store(false, Ordering::SeqCst);
+        announce(&app, false);
     }
     ok
 }

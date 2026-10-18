@@ -239,7 +239,16 @@ pub async fn fs_undo(ops: Vec<ops::UndoOp>) -> Result<ops::UndoReport, String> {
 
 // ---- quick look and info ----------------------------------------------------------------------
 
-/// The start of a file as text, for Quick Look.
+/// Saves a text file from the editor; returns its new modification time.
+#[tauri::command]
+pub async fn fs_write_text(path: String, text: String) -> Result<f64, String> {
+    ensure_unlocked()?;
+    tauri::async_runtime::spawn_blocking(move || text::write_text(Path::new(&path), &text))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// The start of a file as text, for Quick Look (and the whole file, for the editor).
 #[tauri::command]
 pub async fn fs_read_text(path: String, max_bytes: usize) -> Result<text::TextPreview, String> {
     ensure_unlocked()?;

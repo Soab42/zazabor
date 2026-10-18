@@ -51,6 +51,7 @@ export const createFilesModule: ModuleFactory = (shell) => {
     },
     handleKey: (e) => connectKey(e) || browser.handleKey(e),
     configChanged: () => browser.settingsChanged(),
+    windowPath: () => browser.currentPath || null,
     open(request) {
       if (request.kind === "folder") browser.navigate(request.path);
     },

@@ -5,6 +5,7 @@ import type { ShellContext } from "../../shell/module";
 import { formatBytes, h, isTypingTarget, rafThrottle } from "../../ui/dom";
 import { icon } from "../../ui/icons";
 import { openMenu, type MenuItem } from "../../ui/menu";
+import { openFileWindow } from "../../shell/windows";
 import { fsApi, onChanged, type FsEntry, type Volume } from "./api";
 import { setDragHooks } from "./dnd";
 import { tagStore } from "./info/tagstore";
@@ -64,6 +65,8 @@ export interface BrowserExtension {
   emptyMenu?(ctx: BrowserContext): MenuItem[];
   /** A drag-and-drop landed: move (or copy) `paths` into `dest`. Return true when handled. */
   transfer?(paths: string[], dest: string, copy: boolean, ctx: BrowserContext): boolean;
+  /** A file was double-clicked: show it quickly (Quick Look). Return true when handled. */
+  quickOpen?(entry: FsEntry, ctx: BrowserContext): boolean;
 }
 
 const SORT_KEYS: { key: FilesSortKey; label: string }[] = [
@@ -140,7 +143,11 @@ export class Browser {
       get sel() { return browser.tab.sel; },
       get path() { return browser.tab.path; },
       selectionChanged: () => this.updateStatus(),
-      open: (entry, folder) => this.openEntry(entry, folder),
+      // A double-click previews a file (Quick Look); Enter and the menu's Open still open it.
+      open: (entry, folder) => {
+        if (!entry.dir && this.extensions.some((x) => x.quickOpen?.(entry, this.context))) return;
+        this.openEntry(entry, folder);
+      },
       contextMenu: (e, entry) => this.contextMenu(e, entry),
       listFolder: async (path) => sortEntries(await fsApi.list(path, this.settings.showHidden), this.settings.sort, this.settings.foldersFirst),
       watch: (path) => this.addViewWatch(path),
@@ -205,6 +212,11 @@ export class Browser {
 
   private get tab(): Tab {
     return this.tabs[this.activeTab];
+  }
+
+  /** The folder the active tab shows ("" before the first listing). */
+  get currentPath(): string {
+    return this.tab.path;
   }
 
   /** Finds the home folder and picks the first folder to show: the last one, if it still opens. */
@@ -441,8 +453,10 @@ export class Browser {
       this.sorted = sortEntries(raw, this.settings.sort, this.settings.foldersFirst);
       this.error = null;
       this.loaded = true;
-      this.settings.lastPath = path;
-      this.shell.saveConfig();
+      if (this.settings.lastPath !== path) {
+        this.settings.lastPath = path;
+        this.shell.saveConfig();
+      }
       this.apply(mode === "live", scroll);
     } catch (err) {
       if (token !== this.loadToken || this.disposed) return;
@@ -764,6 +778,7 @@ export class Browser {
       items = [
         { label: "Open", icon: iconNameFor(categoryOf(entry)), shortcut: "Enter", action: () => this.openEntry(entry, this.view.focused()?.folder) },
         ...(entry.dir ? [{ label: "Open in New Tab", icon: "plus" as const, action: () => this.newTab(entry.path) }] : []),
+        { label: "Open in New Window", icon: "columns", action: () => openFileWindow(entry) },
         { label: "Open with Default App", icon: "external", action: () => this.shell.openExternally(entry.path) },
         ...(this.resultsMode
           ? [{ label: "Show in Enclosing Folder", icon: "folder" as const, action: () => this.navigate(parentOf(entry.path), { select: entry.path }) }]

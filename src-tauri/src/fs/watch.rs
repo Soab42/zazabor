@@ -26,13 +26,26 @@ fn watches() -> &'static Mutex<HashMap<PathBuf, Watch>> {
     WATCHES.get_or_init(Default::default)
 }
 
+/// Whether an event changes what a listing shows. Opening or reading a file doesn't, and listing
+/// the folder opens it: counting those would make every listing set off another, forever.
+fn is_change(kind: &notify::EventKind) -> bool {
+    use notify::event::{AccessKind, AccessMode};
+    match kind {
+        // A file closed after writing has new contents.
+        notify::EventKind::Access(AccessKind::Close(AccessMode::Write)) => true,
+        notify::EventKind::Access(_) => false,
+        _ => true,
+    }
+}
+
 /// Emits `fs-changed` once per burst of events: the first event arms a timer, later ones
 /// within the window are absorbed.
 fn make_watcher(app: tauri::AppHandle, folder: &Path) -> Result<RecommendedWatcher, String> {
     let pending = Arc::new(AtomicBool::new(false));
     let shown = folder.to_string_lossy().into_owned();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-        if event.is_err() || pending.swap(true, Ordering::SeqCst) {
+        let Ok(event) = event else { return };
+        if !is_change(&event.kind) || pending.swap(true, Ordering::SeqCst) {
             return;
         }
         let (app, pending, path) = (app.clone(), pending.clone(), shown.clone());
@@ -68,5 +81,21 @@ pub fn unwatch(folder: &Path) {
                 map.remove(folder);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use notify::event::{AccessKind, AccessMode, CreateKind, ModifyKind};
+    use notify::EventKind;
+
+    #[test]
+    fn reading_is_not_a_change() {
+        assert!(!is_change(&EventKind::Access(AccessKind::Open(AccessMode::Any))));
+        assert!(!is_change(&EventKind::Access(AccessKind::Close(AccessMode::Read))));
+        assert!(is_change(&EventKind::Create(CreateKind::File)));
+        assert!(is_change(&EventKind::Modify(ModifyKind::Any)));
+        assert!(is_change(&EventKind::Access(AccessKind::Close(AccessMode::Write))));
     }
 }

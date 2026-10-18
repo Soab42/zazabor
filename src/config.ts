@@ -3,6 +3,7 @@ import { normalizeAppearance, type Appearance } from "./appearance";
 import { normalizeSettings, type SlideshowSettings } from "./modules/gallery/slideshow/settings";
 import type { SortMode } from "./modules/gallery/library/model";
 import { MODULE_IDS, type ModuleId } from "./shell/module";
+import { tellOthers } from "./shell/windows";
 
 export type FilesView = "icon" | "list" | "column" | "gallery";
 export type FilesSortKey = "name" | "date" | "size" | "kind";
@@ -179,35 +180,65 @@ export async function loadConfig(): Promise<Config> {
   try {
     const raw = await api.loadConfig();
     if (!raw) return structuredClone(DEFAULTS);
-    const parsed = JSON.parse(raw) as Partial<Config>;
-    return {
-      ...structuredClone(DEFAULTS),
-      ...parsed,
-      roots: Array.isArray(parsed.roots) ? parsed.roots.filter((r) => typeof r === "string") : [],
-      hiddenAlbums: Array.isArray(parsed.hiddenAlbums) ? parsed.hiddenAlbums.filter((r) => typeof r === "string") : [],
-      favoriteAlbums: Array.isArray(parsed.favoriteAlbums) ? parsed.favoriteAlbums.filter((r) => typeof r === "string") : [],
-      libraryView: parsed.libraryView === "photos" || parsed.libraryView === "favorites" ? parsed.libraryView : "albums",
-      sort: parsed.sort === "name" ? "name" : "date",
-      slideshow: normalizeSettings(parsed.slideshow),
-      appearance: normalizeAppearance(parsed.appearance),
-      features: normalizeFeatures(parsed.features),
-      module: MODULE_IDS.includes(parsed.module as ModuleId) ? (parsed.module as ModuleId) : "files",
-      onboarded: parsed.onboarded === true,
-      files: normalizeFiles(parsed.files),
-      video: normalizeVideo(parsed.video),
-    };
+    return parseConfig(raw);
   } catch (err) {
     console.warn("Could not read config, using defaults:", err);
     return structuredClone(DEFAULTS);
   }
 }
 
+/** A saved config with every field checked and defaults filled in; throws on malformed JSON. */
+export function parseConfig(raw: string): Config {
+  const parsed = JSON.parse(raw) as Partial<Config>;
+  return {
+    ...structuredClone(DEFAULTS),
+    ...parsed,
+    roots: Array.isArray(parsed.roots) ? parsed.roots.filter((r) => typeof r === "string") : [],
+    hiddenAlbums: Array.isArray(parsed.hiddenAlbums) ? parsed.hiddenAlbums.filter((r) => typeof r === "string") : [],
+    favoriteAlbums: Array.isArray(parsed.favoriteAlbums) ? parsed.favoriteAlbums.filter((r) => typeof r === "string") : [],
+    libraryView: parsed.libraryView === "photos" || parsed.libraryView === "favorites" ? parsed.libraryView : "albums",
+    sort: parsed.sort === "name" ? "name" : "date",
+    slideshow: normalizeSettings(parsed.slideshow),
+    appearance: normalizeAppearance(parsed.appearance),
+    features: normalizeFeatures(parsed.features),
+    module: MODULE_IDS.includes(parsed.module as ModuleId) ? (parsed.module as ModuleId) : "files",
+    onboarded: parsed.onboarded === true,
+    files: normalizeFiles(parsed.files),
+    video: normalizeVideo(parsed.video),
+  };
+}
+
 let saveTimer: number | undefined;
 
-/** Persists the config shortly after the last change. */
+/** Persists the config shortly after the last change, and hands it to the other windows. */
 export function saveConfig(config: Config) {
   clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => {
-    api.saveConfig(JSON.stringify(config, null, 2)).catch((err) => console.error("Saving config failed:", err));
+    const json = JSON.stringify(config, null, 2);
+    api.saveConfig(json)
+      .then(() => tellOthers(CONFIG_SAVED, json))
+      .catch((err) => console.error("Saving config failed:", err));
   }, 400);
+}
+
+/** The event that carries a saved config to the other windows. */
+export const CONFIG_SAVED = "config-saved";
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/**
+ * Takes another window's saved config into this one in place: objects are merged key by key (code
+ * holds references into the config, e.g. `config.video`), everything else is replaced. Which module
+ * this window shows stays its own.
+ */
+export function adoptConfig(config: Config, incoming: Config) {
+  const merge = (target: Record<string, unknown>, source: Record<string, unknown>) => {
+    for (const [key, value] of Object.entries(source)) {
+      const current = target[key];
+      if (isObject(value) && isObject(current)) merge(current, value);
+      else target[key] = value;
+    }
+  };
+  const { module: _own, ...rest } = incoming;
+  merge(config as unknown as Record<string, unknown>, rest as unknown as Record<string, unknown>);
 }

@@ -1,5 +1,6 @@
 import { categoryOf, iconNameFor, iconNode, kindLabel, sizeText } from "../../modules/files/kinds";
 import type { ShellContext } from "../../shell/module";
+import { openFileWindow } from "../../shell/windows";
 import { h } from "../../ui/dom";
 import { icon } from "../../ui/icons";
 import { buildBody, type Body } from "./bodies";
@@ -34,6 +35,8 @@ export class QuickLook {
   private title!: HTMLElement;
   private sub!: HTMLElement;
   private externalLabel!: HTMLElement;
+  private windowBtn!: HTMLElement;
+  private windowLabel!: HTMLElement;
   private glyph!: HTMLElement;
   private stage!: HTMLElement;
   private panel!: HTMLElement;
@@ -123,11 +126,21 @@ export class QuickLook {
       class: "btn small ghost ql-external", title: "Open with Default App",
       onclick: () => this.item && this.opts.shell.openExternally(this.item.url ?? this.item.path),
     }, icon("external", 14), this.externalLabel);
+    this.windowLabel = h("span", null, "New Window");
+    this.windowBtn = h("button", {
+      class: "btn small ghost ql-window", title: "Open in a new window you can place anywhere",
+      onclick: () => {
+        const item = this.item;
+        if (!item) return;
+        this.close();
+        openFileWindow(item);
+      },
+    }, icon("columns", 14), this.windowLabel);
     const close = this.iconButton("close", "Close (Esc)", () => this.close());
     const header = h("header", { class: "ql-head" },
       this.glyph,
       h("div", { class: "ql-heading" }, this.title, this.sub),
-      h("div", { class: "ql-actions" }, this.prev, this.next, h("span", { class: "ql-sep" }), external, this.openBtn, close));
+      h("div", { class: "ql-actions" }, this.prev, this.next, h("span", { class: "ql-sep" }), this.windowBtn, external, this.openBtn, close));
     this.stage = h("div", { class: "ql-body" });
     this.panel = h("div", { class: "ql-panel glass-strong", role: "dialog", "aria-modal": "true", "aria-label": "Quick Look" }, header, this.stage);
     this.overlay = h("div", { class: "ql-overlay" }, this.panel);
@@ -163,6 +176,9 @@ export class QuickLook {
     this.openBtn.hidden = external;
     // A Google Doc opens on the web.
     this.externalLabel.textContent = item.url ? "Open in Browser" : "Open with Default App";
+    // Text and code open in the editor in their window.
+    this.windowBtn.hidden = !!item.url;
+    this.windowLabel.textContent = editable(item) ? "Edit" : "New Window";
     this.body = buildBody(item, {
       shell: this.opts.shell,
       siblings: this.opts.items,
@@ -219,4 +235,9 @@ export class QuickLook {
       shell.open({ kind: category, path: item.path, siblings });
     } else shell.openExternally(item.url ?? item.path);
   }
+}
+
+/** A file the editor can take: not a folder, picture, video, sound, archive, PDF or web document. */
+function editable(item: QuickLookItem): boolean {
+  return !item.dir && !item.url && item.ext !== "pdf" && !["image", "video", "audio", "archive"].includes(categoryOf(item));
 }

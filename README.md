@@ -11,12 +11,19 @@ See `docs/PLAN.md` for the roadmap and `docs/DESIGN.md` for the design rules.
 - A first-run wizard picks the theme, accent colour and which features to turn on.
 - Frosted-glass macOS-style interface in dark, light or system theme, with accent colours and background tones.
 
+**Windows**
+- Any section can open in its own window (right-click its rail button, a middle click, or Ctrl+N), and any file can too: right-click → Open in New Window, or New Window in Quick Look. Folders open in Files, pictures in the Gallery viewer, videos in the player, PDFs and other files in a viewer.
+- Windows share settings and the privacy lock: change the theme in one and the others follow; locking one locks them all.
+
+**Code editor**
+- Text and code open in a VS Code–style editor (Monaco, the editor VS Code is built on) in their own window: the project's Explorer, tabs with unsaved dots, breadcrumbs, a minimap, Ctrl+S to save (safely, keeping permissions), Ctrl+P to find a file, Ctrl+G to go to a line, and a status bar for position, indentation, line endings and language. Syntax colouring for dozens of languages, with IntelliSense for TypeScript, JavaScript, JSON, CSS and HTML.
+
 **Files**
 - Finder-style browsing: Favourites and Devices in the sidebar (including phones and network shares mounted by GVfs, with capacity meters), a clickable path bar, tabs, back/forward, and live updates when folders change.
 - Icon, list, column and gallery views, all virtualized for folders with 100,000 items; image thumbnails, sorting, instant search and hidden files on demand.
 - Images open in the Gallery viewer; videos open in the Video player; other files open with their default app or any app from Open With.
 - File operations run as jobs with progress, conflict prompts and undo: copy, move, rename, duplicate, new folder, Trash (freedesktop, with Put Back), and drag and drop between folders, tabs and the sidebar.
-- Quick Look (Space) for images, video, audio, PDF, text and code; Get Info; colour tags shared with other file managers.
+- Quick Look (Space, or a double-click) for images, video, audio, PDF, text and code; Get Info; colour tags shared with other file managers.
 - Search with scope (this folder or subfolders) and filters for kind, date and size; zip/tar compress and extract.
 - Connect to Server (Ctrl+K) for SMB, SFTP, FTP and WebDAV; phones and shares appear under Devices and Network.
 
@@ -60,7 +67,8 @@ See `docs/PLAN.md` for the roadmap and `docs/DESIGN.md` for the design rules.
 
 | Where | Keys |
 | --- | --- |
-| App | Ctrl+1/2/3 to switch features, Ctrl+L to lock |
+| App | Ctrl+1/2/3 to switch features, Ctrl+N for a new window of the current one, Ctrl+L to lock |
+| Editor | Ctrl+S to save, Ctrl+P to open a file, Ctrl+G to go to a line, Ctrl+Tab to switch tabs, Ctrl+W to close a tab |
 | Files | Enter to open, Alt+← → to go back/forward, Alt+↑ or Backspace for the parent folder, Ctrl+T/W for tabs, Ctrl+L to type a path, Ctrl+F to search, Ctrl+H for hidden files |
 | Gallery | Arrows to move, Enter to open, Ctrl+F to search, F5 for a slideshow, Ctrl+L to lock |
 | Viewer | ← → to browse, ↑ ↓, +/− or wheel to zoom (hold to glide), 0 to fit, 1–8 for 100%–12,800% (without Ctrl), R to rotate, I for info, F for fullscreen, S for a slideshow |

@@ -1,4 +1,4 @@
-//! Reading the start of a text file for Quick Look.
+//! Reading the start of a text file for Quick Look, and saving text files from the editor.
 
 use serde::Serialize;
 use std::io::Read;
@@ -44,6 +44,33 @@ pub fn read_bytes(path: &Path, max_bytes: u64) -> Result<Vec<u8>, String> {
     std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// Saves `text` over a file the way editors do: written to a hidden temporary file in the same
+/// folder, flushed, given the original's permissions, then renamed over it, so a crash or a full
+/// disk never leaves a half-written file. Returns the new modification time.
+pub fn write_text(path: &Path, text: &str) -> Result<f64, String> {
+    use std::io::Write;
+    let shown = path.display();
+    let dir = path.parent().ok_or_else(|| format!("Can’t save {shown}"))?;
+    let name = path.file_name().ok_or_else(|| format!("Can’t save {shown}"))?.to_string_lossy();
+    let existing = std::fs::metadata(path).ok();
+    let tmp = dir.join(format!(".{name}.{}.corepro-save", std::process::id()));
+    let result = (|| -> std::io::Result<()> {
+        let mut file = std::fs::File::create(&tmp)?;
+        file.write_all(text.as_bytes())?;
+        file.sync_all()?;
+        if let Some(meta) = &existing {
+            std::fs::set_permissions(&tmp, meta.permissions())?;
+        }
+        std::fs::rename(&tmp, path)
+    })();
+    if let Err(e) = result {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("Couldn’t save {shown}: {e}"));
+    }
+    let meta = std::fs::metadata(path).map_err(|e| format!("{shown}: {e}"))?;
+    Ok(crate::scan::unix_seconds(meta.modified()))
+}
+
 /// NUL bytes, or more than a few percent of invalid UTF-8, mean binary. A multi-byte character
 /// cut off at the end of a truncated read is not counted as invalid.
 fn looks_binary(bytes: &[u8], truncated: bool) -> bool {
@@ -73,6 +100,23 @@ fn looks_binary(bytes: &[u8], truncated: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saving_replaces_the_file_and_keeps_its_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = temp("saved.rs", b"fn old() {}\n");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+        write_text(&path, "fn new() {}\r\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "fn new() {}\r\n");
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o640);
+        let leftovers: Vec<_> = std::fs::read_dir(path.parent().unwrap()).unwrap().flatten()
+            .filter(|e| e.file_name().to_string_lossy().contains("corepro-save")).collect();
+        assert!(leftovers.is_empty());
+        // A new file can be saved too.
+        let fresh = path.with_file_name("fresh.txt");
+        write_text(&fresh, "hello").unwrap();
+        assert_eq!(std::fs::read_to_string(&fresh).unwrap(), "hello");
+    }
 
     fn temp(name: &str, content: &[u8]) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("corepro-text-{}", std::process::id()));
