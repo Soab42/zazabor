@@ -18,8 +18,8 @@ use super::{instance, list::is_video, vlc};
 use crate::protocol;
 use crate::scan::unix_seconds;
 
-/// Bump to invalidate every cached video thumbnail.
-const CACHE_VERSION: u32 = 1;
+/// Bump to invalidate every cached video thumbnail (2: dark frames after a seek are skipped).
+const CACHE_VERSION: u32 = 2;
 const TIMEOUT: Duration = Duration::from_secs(6);
 const DEFAULT_SIZE: u32 = 320;
 const JPEG_QUALITY: u8 = 82;
@@ -257,27 +257,56 @@ fn render(path: &Path, size: u32) -> Result<Vec<u8>, String> {
     let target = pick_time(length);
     let baseline = thumb.counter();
     unsafe { vlc::libvlc_media_player_set_time(thumb.player, target) };
-    // The first frame delivered after the seek; frames still in flight from before it are
-    // told apart by the playback clock having moved near the target.
+    // Frames still in flight from before the seek are told apart by the playback clock having
+    // moved near the target. Right after a seek decoders often hand out black frames until the
+    // next keyframe, so dark frames are skipped for a while, keeping the brightest one seen.
+    let mut seen = baseline;
+    let mut best: Option<(f32, u32, u32, Vec<u8>)> = None;
+    let mut dark_until: Option<Instant> = None;
     loop {
         let state = lock_ignore_poison(&thumb.picture.state);
         let (state, _) = thumb
             .picture
             .ready
-            .wait_timeout_while(state, Duration::from_millis(40), |s| s.counter <= baseline)
+            .wait_timeout_while(state, Duration::from_millis(40), |s| s.counter <= seen)
             .unwrap_or_else(|e| e.into_inner());
         let near = unsafe { vlc::libvlc_media_player_get_time(thumb.player) } >= target - 1000;
-        if state.counter > baseline && near {
-            let (w, h) = (state.width, state.height);
-            let rgb = bgra_to_rgb(&state.front);
-            drop(state);
-            return encode_jpeg(&rgb, w, h);
+        if state.counter > seen && near {
+            seen = state.counter;
+            let light = brightness(&state.front);
+            if best.as_ref().is_none_or(|b| light > b.0) {
+                best = Some((light, state.width, state.height, state.front.clone()));
+            }
+            let until = *dark_until.get_or_insert_with(|| Instant::now() + DARK_SKIP);
+            if light >= DARK_ENOUGH || Instant::now() >= until {
+                drop(state);
+                let (_, w, h, bgra) = best.take().expect("a frame was kept");
+                return encode_jpeg(&bgra_to_rgb(&bgra), w, h);
+            }
         }
         drop(state);
         if Instant::now() >= deadline {
-            return Err("timed out waiting for a frame".into());
+            return match best {
+                Some((_, w, h, bgra)) => encode_jpeg(&bgra_to_rgb(&bgra), w, h),
+                None => Err("timed out waiting for a frame".into()),
+            };
         }
     }
+}
+
+/// Frames darker than this (mean of R, G, B on a 0–255 scale) are probably not the picture yet.
+const DARK_ENOUGH: f32 = 14.0;
+/// How long to keep looking past dark frames before settling for the brightest one.
+const DARK_SKIP: Duration = Duration::from_millis(1500);
+
+/// Mean brightness of a BGRA picture, sampled on a sparse grid.
+fn brightness(bgra: &[u8]) -> f32 {
+    let (mut sum, mut n) = (0u64, 0u64);
+    for px in bgra.chunks_exact(4).step_by(97) {
+        sum += px[0] as u64 + px[1] as u64 + px[2] as u64;
+        n += 3;
+    }
+    if n == 0 { 0.0 } else { sum as f32 / n as f32 }
 }
 
 #[cfg(test)]

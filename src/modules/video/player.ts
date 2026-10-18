@@ -97,9 +97,9 @@ export class Player {
     this.emit();
 
     if (!(siblings && siblings.includes(path))) void this.loadFolderQueue(path, token);
-    const { width, height } = this.surface.pixelSize;
+    const { width, height } = decodeSize(this.surface.pixelSize);
     try {
-      await videoApi.open(path, Math.max(width, 2), Math.max(height, 2), startAt);
+      await videoApi.open(path, width, height, startAt);
       if (token !== this.token) return;
       await Promise.all([videoApi.setVolume(this.settings.volume), videoApi.setMuted(this.settings.muted)]);
     } catch (err) {
@@ -298,4 +298,17 @@ export class Player {
     if (this.current) void videoApi.stop().catch(() => undefined);
     this.current = null;
   }
+}
+
+/**
+ * The largest size to decode frames at: the screen in device pixels (so the picture stays sharp
+ * in fullscreen) or the stage if that is larger, capped at 4K. The stage may not be laid out yet
+ * when a module opens straight into a video, so it can't be the only measure.
+ */
+function decodeSize(stage: { width: number; height: number }) {
+  const dpr = window.devicePixelRatio || 1;
+  const width = Math.max(stage.width, Math.round(screen.width * dpr));
+  const height = Math.max(stage.height, Math.round(screen.height * dpr));
+  const fit = Math.min(1, 3840 / width, 2160 / height);
+  return { width: Math.round(width * fit), height: Math.round(height * fit) };
 }

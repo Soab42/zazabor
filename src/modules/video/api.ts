@@ -56,11 +56,12 @@ export const videoApi = {
    * pixels of the stage, keeping the aspect ratio); `startAt` resumes from a position in ms.
    */
   open: (path: string, maxWidth: number, maxHeight: number, startAt = 0) =>
-    invoke<void>("video_open", { path, maxWidth, maxHeight, startAt }),
+    invoke<void>("video_open", { path, maxWidth: Math.round(maxWidth), maxHeight: Math.round(maxHeight), startAt: Math.round(startAt) }),
   setPaused: (paused: boolean) => invoke<void>("video_set_paused", { paused }),
   /** Stops and unloads the current file. */
   stop: () => invoke<void>("video_stop"),
-  seek: (time: number) => invoke<void>("video_seek", { time }),
+  // The backend takes whole milliseconds; seek bars produce fractions.
+  seek: (time: number) => invoke<void>("video_seek", { time: Math.round(time) }),
   setVolume: (volume: number) => invoke<void>("video_set_volume", { volume }),
   setMuted: (muted: boolean) => invoke<void>("video_set_muted", { muted }),
   setRate: (rate: number) => invoke<void>("video_set_rate", { rate }),

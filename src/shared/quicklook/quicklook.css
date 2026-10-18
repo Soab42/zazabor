@@ -53,10 +53,11 @@
   box-shadow: var(--elev-2); background: var(--tile); opacity: 0; transition: opacity 250ms var(--ease-out);
 }
 .ql-image.loaded { opacity: 1; }
-.ql-poster { position: relative; display: grid; max-width: 100%; max-height: 100%; place-items: center; }
-.ql-poster .ql-image { grid-area: 1 / 1; }
+/* The poster sizes itself (a grid here would let the 72px button decide the row height). */
+.ql-poster { position: relative; display: block; max-width: 100%; line-height: 0; }
+.ql-poster .ql-image { max-width: 100%; max-height: calc(100vh - 220px); }
 .ql-play {
-  grid-area: 1 / 1; display: grid; place-items: center; width: 72px; height: 72px; padding: 0 0 0 4px; border: 0; border-radius: 50%;
+  position: absolute; left: 50%; top: 50%; translate: -50% -50%; display: grid; place-items: center; width: 72px; height: 72px; padding: 0 0 0 4px; border: 0; border-radius: 50%;
   color: var(--text); background: var(--chip); -webkit-backdrop-filter: var(--blur-chip); backdrop-filter: var(--blur-chip);
   box-shadow: inset 0 0 0 0.5px var(--line-strong), var(--elev-2); cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);

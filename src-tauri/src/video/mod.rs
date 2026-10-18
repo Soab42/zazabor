@@ -291,7 +291,9 @@ fn open(path: String, max_width: u32, max_height: u32, start_at: i64) -> Result<
     RATE.store(1.0f32.to_bits(), Ordering::Relaxed);
     AUDIO_APPLIED.store(false, Ordering::SeqCst);
 
-    let frames = Arc::new(Frames::new(max_width.max(64), max_height.max(64)));
+    // A missing or tiny size would decode a postage stamp; fall back to 1080p.
+    let (max_width, max_height) = if max_width < 64 || max_height < 64 { (1920, 1080) } else { (max_width, max_height) };
+    let frames = Arc::new(Frames::new(max_width, max_height));
     // SAFETY: plain libVLC calls. The opaque pointer is the Arc inside `Player`, which outlives
     // libVLC's use of it (see Player::drop).
     unsafe {
