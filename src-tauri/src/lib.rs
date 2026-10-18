@@ -1,11 +1,12 @@
 mod dims;
+mod fs;
 mod imaging;
 mod lock;
+mod migrate;
 mod music;
 mod protocol;
 mod scan;
 
-use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::Manager;
 
@@ -49,9 +50,9 @@ async fn discover_photos(app: tauri::AppHandle) -> Result<Vec<scan::Folder>, Str
         dims::save();
         if let Ok(json) = serde_json::to_string(&folders) {
             if let Some(dir) = cache.parent() {
-                let _ = fs::create_dir_all(dir);
+                let _ = std::fs::create_dir_all(dir);
             }
-            let _ = fs::write(&cache, json);
+            let _ = std::fs::write(&cache, json);
         }
         folders
     })
@@ -80,7 +81,7 @@ async fn discover_music(app: tauri::AppHandle) -> Result<Vec<scan::MusicFile>, S
 /// YouTube's Audio Library: free music the user may download and use.
 const AUDIO_LIBRARY_URL: &str = "https://www.youtube.com/audiolibrary";
 
-fn open_with_system(target: &std::ffi::OsStr) -> Result<(), String> {
+pub(crate) fn open_with_system(target: &std::ffi::OsStr) -> Result<(), String> {
     let opener = if cfg!(target_os = "macos") { "open" } else if cfg!(windows) { "explorer" } else { "xdg-open" };
     std::process::Command::new(opener)
         .arg(target)
@@ -97,7 +98,7 @@ fn open_music_folder(app: tauri::AppHandle) -> Result<(), String> {
         .audio_dir()
         .or_else(|_| app.path().home_dir().map(|h| h.join("Music")))
         .map_err(|e| e.to_string())?;
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     open_with_system(dir.as_os_str())
 }
 
@@ -111,7 +112,7 @@ fn open_audio_library() -> Result<(), String> {
 #[tauri::command]
 fn cached_photos(app: tauri::AppHandle) -> Option<String> {
     ensure_unlocked().ok()?;
-    fs::read_to_string(library_cache_path(&app).ok()?).ok()
+    std::fs::read_to_string(library_cache_path(&app).ok()?).ok()
 }
 
 /// The soundtracks bundled with the app, with absolute paths.
@@ -123,7 +124,7 @@ fn builtin_tracks(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
         .map_err(|e| e.to_string())?
         .join("resources")
         .join("music");
-    let manifest = fs::read_to_string(dir.join("tracks.json")).map_err(|e| e.to_string())?;
+    let manifest = std::fs::read_to_string(dir.join("tracks.json")).map_err(|e| e.to_string())?;
     let mut tracks: serde_json::Value = serde_json::from_str(&manifest).map_err(|e| e.to_string())?;
     for track in tracks.as_array_mut().into_iter().flatten() {
         if let Some(file) = track.get("file").and_then(|f| f.as_str()).map(str::to_owned) {
@@ -166,7 +167,7 @@ fn launch_path() -> Option<String> {
         .filter(|a| !a.starts_with('-'))
         .map(PathBuf::from)
         .find(|p| p.exists())
-        .and_then(|p| fs::canonicalize(&p).ok().or(Some(p)))
+        .and_then(|p| std::fs::canonicalize(&p).ok().or(Some(p)))
         .map(|p| p.to_string_lossy().into_owned())
 }
 
@@ -179,18 +180,18 @@ fn config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 #[tauri::command]
 fn load_config(app: tauri::AppHandle) -> Option<String> {
-    fs::read_to_string(config_path(&app).ok()?).ok()
+    std::fs::read_to_string(config_path(&app).ok()?).ok()
 }
 
 #[tauri::command]
 fn save_config(app: tauri::AppHandle, json: String) -> Result<(), String> {
     let path = config_path(&app)?;
     if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, json).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, &path).map_err(|e| e.to_string())
+    std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
 }
 
 /// Lets the frontend print to the terminal, which is where `tauri dev` users look.
@@ -218,6 +219,7 @@ pub fn run() {
         })
         .setup(|app| {
             let cache = app.path().app_cache_dir()?;
+            migrate::run(&app.path().app_config_dir()?, &cache);
             protocol::init(cache.join("renders"));
             dims::init(cache.join("dimensions.json"));
             lock::init(app.path().app_config_dir()?);
@@ -251,8 +253,15 @@ pub fn run() {
             launch_path,
             load_config,
             save_config,
-            log
+            log,
+            fs::fs_list,
+            fs::fs_stat,
+            fs::fs_places,
+            fs::fs_volumes,
+            fs::fs_watch,
+            fs::fs_unwatch,
+            fs::fs_open_default
         ])
         .run(tauri::generate_context!())
-        .expect("error while running SliderPro");
+        .expect("error while running CorePro");
 }

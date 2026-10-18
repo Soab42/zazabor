@@ -1,11 +1,11 @@
 [package]
-name = "sliderpro"
+name = "corepro"
 version = "0.1.0"
-description = "A Picasa-style photo viewer with deep zoom and cinematic slideshows"
+description = "Files, photos and video in one app"
 edition = "2021"
 
 [lib]
-name = "sliderpro_lib"
+name = "corepro_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -26,6 +26,7 @@ url = "2"
 argon2 = { version = "0.5", features = ["std"] }
 gstreamer = "0.21"
 libc = "0.2"
+notify = "8"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = { version = "2.0", features = ["v2_40"] }
