@@ -35,7 +35,8 @@ export interface VideoSettings {
   ext: Record<string, unknown>;
 }
 
-export const DEFAULT_VIDEO_CONTROLS = ["previous", "play", "next", "seek", "volume", "audio", "subtitles", "settings", "playlist"];
+/** The redesign's bar: transport left, then volume and the seek bar, quick access and panel/fullscreen right. */
+export const DEFAULT_VIDEO_CONTROLS = ["previous", "play", "next", "volume", "seek", "audio", "subtitles", "playlist", "settings", "fullscreen"];
 
 export interface FilesSettings {
   showHidden: boolean;

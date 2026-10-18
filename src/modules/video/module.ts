@@ -6,12 +6,14 @@ import { basename, dirname, h, isTypingTarget, stripExtension } from "../../ui/d
 import { icon, type IconName } from "../../ui/icons";
 import { closeMenu, openMenu, type MenuItem } from "../../ui/menu";
 import type { VideoSurface } from "./api";
-import { ControlBar } from "./controls";
+import { ControlBar, openPlayerMenu } from "./controls";
 import { openCustomize, type CustomizeHandle } from "./customize";
 import type { MenuPlace, PanelTab, VideoContext, VideoFeature } from "./extensions";
 import { FEATURES } from "./features";
-import { formatRate, formatTime } from "./format";
+import { formatRate } from "./format";
+import { effectiveControls } from "./items";
 import { Player } from "./player";
+import { quickHooks } from "./quick-api";
 import { Sections } from "./sections";
 import { VideoSidebar } from "./sidebar";
 import { createVideoSurface } from "./surface";
@@ -53,7 +55,6 @@ export class VideoModule implements AppModule {
   private readonly panel = h("aside", { class: "vp-panel", "aria-label": "Player panel" });
   private readonly panelTabsEl = h("div", { class: "vp-panel-tabs", role: "tablist" });
   private readonly panelBody = h("div", { class: "vp-panel-body" });
-  private readonly panelToggle = h("button", { class: "icon-btn", type: "button", title: "Player panel", "aria-label": "Player panel" }, icon("settings", 18));
   private panelOpen = false;
   private panelTab: string | null = null;
   private readonly panelPages = new Map<string, HTMLElement>();
@@ -65,6 +66,8 @@ export class VideoModule implements AppModule {
   private view: "browse" | "player" = "browse";
   private active = false;
   private fullscreen = false;
+  /** "Hide UI": nothing but the video on screen until H or Esc. */
+  private uiHidden = false;
   /** The playlist panel in fullscreen is separate from the normal sidebar setting. */
   private fullscreenSidebar = false;
   private shownPath: string | null = null;
@@ -80,6 +83,8 @@ export class VideoModule implements AppModule {
       player: this.player,
       sidebarOpen: () => this.sidebarOpen(),
       toggleSidebar: () => this.toggleSidebar(),
+      panelOpen: () => this.panelOpen,
+      togglePanel: () => this.setPanel(!this.panelOpen),
       toggleFullscreen: () => void this.toggleFullscreen(),
       addSubtitleFile: () => void this.addSubtitleFile(),
     });
@@ -110,7 +115,7 @@ export class VideoModule implements AppModule {
     });
 
     this.sections.show(shell.config.video.section);
-    this.bar.render(shell.config.video.controls);
+    this.bar.render(effectiveControls(shell.config.video.controls));
     this.renderRail();
     this.applyView();
     this.unsubscribe = this.player.subscribe(() => this.sync());
@@ -150,7 +155,6 @@ export class VideoModule implements AppModule {
   // ---- side panel --------------------------------------------------------------------------
 
   private renderPanelTabs() {
-    this.panelToggle.hidden = this.tabs.length === 0;
     this.panelTabsEl.replaceChildren(...this.tabs.map((tab) => {
       const b = h("button", { class: `vp-panel-tab${tab.id === this.panelTab ? " active" : ""}`, type: "button", role: "tab", title: tab.title },
         icon(tab.icon, 16), h("span", null, tab.title));
@@ -184,38 +188,49 @@ export class VideoModule implements AppModule {
   // ---- building ----------------------------------------------------------------------------
 
   private buildTop() {
-    const more = h("button", { class: "icon-btn", type: "button", title: "More", "aria-label": "More" }, icon("more", 18));
+    const more = h("button", { class: "icon-btn", type: "button", title: "Menu", "aria-label": "Menu" }, icon("more", 18));
     more.addEventListener("click", () => {
       const r = more.getBoundingClientRect();
-      openMenu(r.left, r.bottom + 6, [
-        { label: "Open File…", icon: "video", action: () => void this.openFile() },
-        { label: "Open Folder…", icon: "folder", action: () => void this.openFolder() },
-        { label: "Add Subtitle File…", icon: "subtitles", disabled: !this.player.current, action: () => void this.addSubtitleFile() },
-        "separator",
-        { label: "Customise Player…", icon: "settings", action: () => this.customise() },
-        ...this.featureItems("top"),
-      ]);
+      openPlayerMenu(r.left, r.bottom + 6, this.playerMenu("top"));
     });
     this.sidebarToggle.addEventListener("click", () => this.toggleSidebar());
-    const fullscreen = h("button", { class: "icon-btn", type: "button", title: "Fullscreen (F)", "aria-label": "Fullscreen" }, icon("fullscreen", 18));
-    fullscreen.addEventListener("click", () => void this.toggleFullscreen());
-    this.panelToggle.addEventListener("click", () => this.setPanel(!this.panelOpen));
     this.top.append(
       h("div", { class: "vp-top-side" }, more, this.sidebarToggle, h("span", { class: "vp-top-sep" }),
         icon("folder", 16), this.crumb),
       this.titleEl,
-      h("div", { class: "vp-top-side end" }, this.panelToggle, fullscreen),
+      h("div", { class: "vp-top-side end" }),
     );
+  }
+
+  /**
+   * The one menu: the "…" button and a right-click on the video both show it. Built-in items,
+   * then each feature's group for the place, then Customise Player.
+   */
+  private playerMenu(place: "top" | "stage"): MenuItem[] {
+    const has = this.player.current !== null;
+    const watching = has && this.view === "player";
+    return [
+      { label: "Open File… (Ctrl+O)", icon: "video", action: () => void this.openFile() },
+      { label: "Open Folder…", icon: "folder", action: () => void this.openFolder() },
+      "separator",
+      { label: "Add Subtitles…", icon: "subtitles", disabled: !has, action: () => (quickHooks.addSubtitles ?? (() => void this.addSubtitleFile()))() },
+      ...this.featureItems(place),
+      "separator",
+      { label: this.fullscreen ? "Exit Fullscreen (F)" : "Fullscreen (F)", icon: "fullscreen", disabled: !watching, action: () => void this.toggleFullscreen() },
+      { label: "Hide UI (H)", icon: "eyeOff", disabled: !watching, action: () => this.setUiHidden(true) },
+      { label: this.panelOpen ? "Close Side Panel" : "Side Panel", icon: "sidebar", disabled: !watching || this.tabs.length === 0, action: () => this.setPanel(!this.panelOpen) },
+      "separator",
+      { label: "Customise Player…", icon: "settings", action: () => this.customise() },
+    ];
   }
 
   private buildStage() {
     this.stage.append(this.surface.el, this.stageLayer, this.osd, this.overlay);
     this.stage.addEventListener("contextmenu", (e) => {
       if (this.view !== "player") return;
-      const items = this.featureItems("stage").slice(1);
-      if (!items.length) return;
       e.preventDefault();
-      openMenu(e.clientX, e.clientY, items);
+      clearTimeout(this.clickTimer);
+      openPlayerMenu(e.clientX, e.clientY, this.playerMenu("stage"));
     });
     this.stage.addEventListener("click", () => {
       if (this.view !== "player") return;
@@ -289,8 +304,7 @@ export class VideoModule implements AppModule {
     el.toggle("fullscreen", this.fullscreen);
     el.toggle("sidebar-open", playing && this.sidebarOpen());
     el.toggle("panel-open", playing && this.panelOpen);
-    this.panelToggle.classList.toggle("active", playing && this.panelOpen);
-    this.panelToggle.disabled = !playing;
+    el.toggle("ui-hidden", playing && this.uiHidden);
     this.sidebarToggle.classList.toggle("active", playing && this.sidebarOpen());
     this.sidebarToggle.disabled = !playing;
     if (this.active && playing) this.surface.start();
@@ -311,6 +325,7 @@ export class VideoModule implements AppModule {
         if (dirname(current) !== this.sidebar.browsing) void this.sidebar.browse(dirname(current));
       } else {
         this.view = "browse";
+        this.uiHidden = false;
         if (this.fullscreen) void this.setFullscreen(false);
         this.sections.render();
       }
@@ -386,7 +401,7 @@ export class VideoModule implements AppModule {
     this.customizer = openCustomize({
       host: this.el,
       bar: this.bar,
-      controls: this.shell.config.video.controls,
+      controls: effectiveControls(this.shell.config.video.controls),
       onSave: (ids) => {
         this.shell.config.video.controls = ids;
         this.shell.saveConfig();
@@ -394,7 +409,7 @@ export class VideoModule implements AppModule {
       onClose: () => {
         this.customizer = null;
         this.el.classList.remove("customizing");
-        this.bar.render(this.shell.config.video.controls);
+        this.bar.render(effectiveControls(this.shell.config.video.controls));
         this.wake();
       },
     });
@@ -425,12 +440,21 @@ export class VideoModule implements AppModule {
   private wake() {
     this.el.classList.remove("idle");
     clearTimeout(this.idleTimer);
-    if (!this.fullscreen) return;
+    if (!this.fullscreen && !this.uiHidden) return;
     this.idleTimer = window.setTimeout(() => {
-      const busy = this.customizer || document.querySelector(".menu") || this.el.querySelector(".vp-top:hover, .vp-bar:hover, .vp-sidebar:hover");
+      const busy = this.customizer || document.querySelector(".menu") || this.el.querySelector(".vp-top:hover, .vp-bar:hover, .vp-sidebar:hover, .vp-panel:hover");
       if (busy) this.wake();
       else this.el.classList.add("idle");
     }, IDLE_MS);
+  }
+
+  /** Hides everything but the video (H, or the menu); H or Esc brings the interface back. */
+  private setUiHidden(on: boolean) {
+    if (on === this.uiHidden) return;
+    this.uiHidden = on;
+    closeMenu();
+    this.applyView();
+    this.wake();
   }
 
   // ---- keys and feedback -------------------------------------------------------------------
@@ -443,14 +467,13 @@ export class VideoModule implements AppModule {
     this.osdTimer = window.setTimeout(() => this.osd.classList.remove("show"), 900);
   }
 
-  private stepRate(direction: 1 | -1) {
+  private stepRate(direction: 1 | -1, key: string) {
     const { rate } = this.player.state;
     const to = direction === 1
       ? RATES.find((r) => r > rate + 0.001)
       : [...RATES].reverse().find((r) => r < rate - 0.001);
-    if (to === undefined) return;
-    this.player.setRate(to);
-    this.flash(formatRate(to));
+    if (to !== undefined) this.player.setRate(to);
+    this.flash(`Speed ${formatRate(to ?? rate)}`, key);
   }
 
   handleKey(e: KeyboardEvent): boolean {
@@ -469,51 +492,67 @@ export class VideoModule implements AppModule {
     }
     if (e.ctrlKey || e.metaKey || e.altKey || this.view !== "player" || !this.player.current) return false;
     const { player } = this;
+    // Every action tells the user which key did it: `flash(result, key)`.
     switch (e.key) {
       case " ":
       case "k":
-      case "K":
+      case "K": {
+        const ended = player.state.ended;
         player.togglePlay();
+        this.flash(ended ? "Replay" : player.state.playing ? "Play" : "Paused", e.key === " " ? "Space" : e.key.toUpperCase());
         return true;
+      }
       case "ArrowLeft":
       case "ArrowRight": {
-        player.seekBy((e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 30_000 : 5_000));
-        this.flash(formatTime(player.state.time));
+        const seconds = e.shiftKey ? 30 : 5;
+        const back = e.key === "ArrowLeft";
+        player.seekBy((back ? -1 : 1) * seconds * 1000);
+        this.flash(`${back ? "Back" : "Forward"} ${seconds} s`, `${e.shiftKey ? "⇧" : ""}${back ? "←" : "→"}`);
         return true;
       }
       case "ArrowUp":
       case "ArrowDown": {
         const volume = Math.round((player.state.volume + (e.key === "ArrowUp" ? 0.05 : -0.05)) * 100) / 100;
         player.setVolume(volume);
-        this.flash(`${Math.round(Math.min(1.25, Math.max(0, volume)) * 100)}%`);
+        this.flash(`Volume ${Math.round(Math.min(1.25, Math.max(0, volume)) * 100)}%`, e.key === "ArrowUp" ? "↑" : "↓");
         return true;
       }
       case "m":
       case "M":
         player.toggleMute();
-        this.flash(this.shell.config.video.muted ? "Muted" : "Unmuted");
+        this.flash(this.shell.config.video.muted ? "Muted" : "Unmuted", "M");
         return true;
       case "f":
       case "F":
-        void this.toggleFullscreen();
+        void this.toggleFullscreen().then(() => this.flash(this.fullscreen ? "Fullscreen" : "Windowed", "F"));
+        return true;
+      case "h":
+      case "H":
+        this.setUiHidden(!this.uiHidden);
+        this.flash(this.uiHidden ? "UI hidden" : "UI shown", this.uiHidden ? "H or Esc to show" : "H");
         return true;
       case "Escape":
+        if (this.uiHidden) {
+          this.setUiHidden(false);
+          this.flash("UI shown", "Esc");
+          return true;
+        }
         if (!this.fullscreen) return false;
-        void this.setFullscreen(false);
+        void this.setFullscreen(false).then(() => this.flash("Windowed", "Esc"));
         return true;
       case "n":
       case "N":
         player.next();
+        this.flash("Next video", "N");
         return true;
       case "p":
       case "P":
         player.previous();
+        this.flash("Previous video", "P");
         return true;
       case "[":
-        this.stepRate(-1);
-        return true;
       case "]":
-        this.stepRate(1);
+        this.stepRate(e.key === "[" ? -1 : 1, e.key);
         return true;
       default:
         return false;
@@ -535,6 +574,7 @@ export class VideoModule implements AppModule {
   /** Hidden: stop drawing frames, but let the sound play on. */
   deactivate() {
     this.active = false;
+    this.uiHidden = false;
     closeMenu();
     this.customizer?.close();
     if (this.fullscreen) void this.setFullscreen(false);
@@ -542,7 +582,7 @@ export class VideoModule implements AppModule {
   }
 
   configChanged() {
-    if (!this.customizer) this.bar.render(this.shell.config.video.controls);
+    if (!this.customizer) this.bar.render(effectiveControls(this.shell.config.video.controls));
     this.sections.render();
     this.applyView();
   }

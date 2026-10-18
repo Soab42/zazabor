@@ -320,7 +320,14 @@ pub fn run() {
             video::fx::video_online_download,
             video::tracks::video_video_tracks,
             video::tracks::video_set_video_track,
-            video::meta::video_meta
+            video::meta::video_meta,
+            // video: chrome and quick access
+            video::audio_out::video_audio_devices,
+            video::audio_out::video_set_audio_device,
+            video::chapters::video_chapters,
+            video::chapters::video_set_chapter,
+            video::sprite::video_sprite_start,
+            video::sprite::video_sprite_stop
         ])
         .run(tauri::generate_context!())
         .expect("error while running CorePro");

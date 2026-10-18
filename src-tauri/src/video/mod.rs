@@ -6,10 +6,13 @@
 //! wakes a worker thread. The worker builds the state snapshot and emits it (also every 250 ms
 //! while playing), which keeps libVLC player calls out of libVLC's own callbacks.
 
+pub mod audio_out;
+pub mod chapters;
 mod frame;
 pub mod fx;
 mod list;
 pub mod meta;
+pub mod sprite;
 mod thumb;
 pub mod tracks;
 mod vlc;

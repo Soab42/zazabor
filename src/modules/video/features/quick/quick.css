@@ -1,0 +1,157 @@
+/* ---- Player chrome (redesign): control bar, seek previews, volume cone, Hide UI, resume prompt,
+   Bookmarks tab, two-tone icons. Follows docs/DESIGN.md and docs/design/vlc/PLAYER.md; tokens only.
+   Loaded before video.css, so every rule here is prefixed with `.vp` to win on specificity. ---- */
+
+/* ---- two-tone icons: grey base, accent details. For headings and menu icons, never for buttons ---- */
+.icon.two-tone, .vp-menu .menu-item .icon { color: var(--muted); }
+.icon.two-tone > :nth-child(n+2), .vp-menu .menu-item .icon > :nth-child(n+2) { color: var(--accent); stroke: var(--accent); }
+.vp-menu .vp-menu-heading { opacity: 1; color: var(--faint); font-size: var(--text-xs); font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; cursor: default; }
+.vp-menu .vp-menu-heading:hover { background: transparent; }
+
+/* ---- control bar: buttons on top, the seek bar along the bottom edge ---- */
+.vp { --vp-bar-h: 84px; }
+.vp.customizing { --vp-bar-h: 54px; }
+.vp .vp-bar {
+  flex-direction: column; align-items: stretch; justify-content: center; gap: 0; padding: 8px 20px 6px; height: var(--vp-bar-h);
+}
+.vp .vp-bar.no-seek { height: 56px; padding-bottom: 8px; }
+.vp .vp-bar.editing { flex-direction: row; align-items: center; justify-content: flex-start; gap: 14px; padding: 0 20px; height: 54px; }
+.vp .vp-bar.editing .vp-bar-row { flex: 1; height: auto; }
+.vp .vp-bar-row { display: flex; align-items: center; gap: 10px; height: 42px; min-width: 0; }
+.vp .vp-bar-seek { display: flex; align-items: center; height: 22px; }
+.vp .vp-bar-seek:empty { display: none; }
+.vp .vc-right { margin-left: auto; }
+.vp .vc-previous, .vp .vc-next { width: 36px; height: 36px; }
+.vp .vc-btn { transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform 0.1s var(--ease-out); }
+.vp .vc-btn:active:not(:disabled) { transform: scale(0.94); }
+.vp .vc-btn:disabled { opacity: 0.4; }
+
+/* play: bottom-left, a little bigger than its neighbours */
+.vp .vc-play { width: 60px; height: 38px; border-radius: var(--radius-md); }
+.vp .vc-play:active { transform: scale(0.96); }
+
+/* ---- seek bar ---- */
+.vp .vc-seek { position: relative; flex: 1; gap: 10px; min-width: 140px; }
+.vp .vc-time { min-width: 44px; font-size: var(--text-sm); font-weight: 550; letter-spacing: 0.01em; }
+.vp .vc-track {
+  --g: 8px; flex: 1; height: 22px; border-radius: 0; background: transparent; box-shadow: none;
+}
+.vp .vc-track::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 50%; height: var(--g); transform: translateY(-50%);
+  border-radius: 999px; background: rgba(var(--fg), 0.14); box-shadow: inset 0 0 0 0.5px var(--line);
+  transition: height var(--dur-fast) var(--ease-out);
+}
+.vp .vc-track:hover::before, .vp .vc-track.dragging::before { height: 12px; }
+.vp .vc-played {
+  left: 0; top: 50%; bottom: auto; height: 8px; width: calc(var(--p) * 100%); transform: translateY(-50%); border-radius: 999px;
+  background: var(--accent); transition: width 250ms linear, height var(--dur-fast) var(--ease-out);
+}
+.vp .vc-track:hover .vc-played, .vp .vc-track.dragging .vc-played { height: 12px; }
+.vp .vc-track.dragging .vc-played { transition: height var(--dur-fast) var(--ease-out); }
+.vp .vc-thumb {
+  top: 50%; bottom: auto; left: calc(var(--p) * 100%); width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 0 3px var(--glass-strong), 0 1px 4px rgba(0, 0, 0, 0.4);
+  transform: scale(0); transition: left 250ms linear, transform var(--dur-fast) var(--ease-spring);
+}
+.vp .vc-track:hover .vc-thumb, .vp .vc-track.dragging .vc-thumb { transform: scale(1); }
+.vp .vc-track.dragging .vc-thumb { transition: transform var(--dur-fast) var(--ease-spring); }
+.vp .vc-track.empty .vc-thumb { transform: scale(0); }
+.vp .vc-track.empty::before { opacity: 0.5; }
+
+/* chapter and bookmark ticks */
+.vp .vc-marks { position: absolute; inset: 0; pointer-events: none; }
+.vp .vc-mark { position: absolute; transform: translateX(-50%); }
+.vp .vc-mark.chapter { top: 50%; width: 2px; height: 12px; margin-top: -6px; border-radius: 1px; background: rgba(var(--fg), 0.5); }
+.vp .vc-mark.bookmark { top: 1px; width: 8px; height: 8px; border-radius: 2px; background: var(--accent); transform: translateX(-50%) rotate(45deg) scale(0.9); box-shadow: 0 0 0 1.5px var(--glass-strong); }
+
+/* hover / drag preview card */
+.vp .vc-tip {
+  --lift: 4px; left: 0; bottom: calc(100% + 12px); transform: translate(-50%, var(--lift)); display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 6px 10px; border-radius: var(--radius-md); opacity: 0; box-shadow: inset 0 1px 0 var(--spec), var(--elev-3); z-index: 2;
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.vp .vc-tip.show { --lift: 0px; opacity: 1; }
+.vp .vc-tip.with-image { padding: 6px 6px 7px; }
+.vp .vc-tip-img { display: none; max-width: 160px; max-height: 160px; border-radius: var(--radius-sm); background: var(--tile); box-shadow: 0 0 0 0.5px var(--line); }
+.vp .vc-tip.with-image .vc-tip-img { display: block; }
+.vp .vc-tip-text { display: flex; flex-direction: column; align-items: center; gap: 1px; max-width: 200px; }
+.vp .vc-tip-time { font-size: var(--text-sm); font-weight: 650; font-variant-numeric: tabular-nums; color: var(--text); }
+.vp .vc-tip-chapter { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); color: var(--muted); }
+
+/* ---- volume: a full cone with its level ---- */
+.vp .vc-volume { gap: 6px; }
+.vp .vc-vol { position: relative; width: 84px; height: 30px; }
+.vp .vc-vol-cone {
+  position: relative; width: 100%; height: 20px; background: rgba(var(--fg), 0.14);
+  clip-path: polygon(0 100%, 100% 0, 100% 100%); transition: background-color var(--dur-fast) var(--ease-out);
+}
+.vp .vc-vol:hover .vc-vol-cone, .vp .vc-volume.dragging .vc-vol-cone { background: rgba(var(--fg), 0.2); }
+.vp .vc-vol-fill {
+  background: linear-gradient(90deg, var(--accent-soft), var(--accent)); clip-path: inset(0 calc(100% - var(--v, 0%)) 0 0);
+  transition: clip-path 90ms linear;
+}
+.vp .vc-volume.muted .vc-vol-fill { opacity: 0.35; }
+/* where 100% sits on the 0–125% scale */
+.vp .vc-vol-100 { position: absolute; bottom: 3px; left: var(--full, 80%); width: 1.5px; height: 4px; margin-left: -0.75px; border-radius: 1px; background: var(--faint); }
+.vp .vc-vol-level { min-width: 38px; color: var(--muted); font-size: var(--text-sm); font-weight: 550; font-variant-numeric: tabular-nums; text-align: left; }
+.vp .vc-volume.boost .vc-vol-level { color: var(--accent); }
+.vp .vc-volume.muted .vc-vol-level { color: var(--faint); }
+
+/* ---- shortcut feedback ---- */
+.vp .vp-osd { display: flex; align-items: center; gap: 10px; top: 28px; padding: 8px 16px; font-size: var(--text-lg); box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.18), var(--elev-2); }
+.vp .vp-osd-key { margin-left: 0; padding: 2px 8px; border-radius: 6px; font-size: var(--text-xs); }
+
+/* ---- Hide UI: nothing but the video ---- */
+.vp.ui-hidden .vp-top, .vp.ui-hidden .vp-bar, .vp.ui-hidden .vp-rail, .vp.ui-hidden .vp-sidebar, .vp.ui-hidden .vp-panel { display: none !important; }
+.vp.ui-hidden.idle .vp-stage { cursor: none; }
+
+/* ---- "Continue from 12:34?" ---- */
+.vq-prompt {
+  position: absolute; left: 0; right: 0; bottom: 28px; width: max-content; max-width: calc(100% - 32px); margin: 0 auto; overflow: hidden;
+  display: flex; align-items: center; gap: 18px; padding: 10px 12px 12px 16px; border-radius: var(--radius-lg);
+  background: var(--glass-strong-surface); -webkit-backdrop-filter: var(--blur-strong); backdrop-filter: var(--blur-strong);
+  box-shadow: inset 0 1px 0 var(--spec), var(--elev-3); color: var(--text);
+  animation: pop-in var(--dur-med) var(--ease-out); transition: opacity var(--dur-fast) var(--ease-out);
+}
+.vp.fullscreen .vq-prompt { bottom: calc(var(--vp-bar-h) + 20px); }
+.vq-prompt.leaving { opacity: 0; pointer-events: none; }
+.vq-prompt-text { display: flex; align-items: center; gap: 8px; font-size: var(--text-md); white-space: nowrap; }
+.vq-prompt-text .icon { color: var(--accent); }
+.vq-prompt-text b { font-weight: 650; font-variant-numeric: tabular-nums; }
+.vq-prompt-actions { display: flex; gap: 8px; }
+.vq-prompt-timer { position: absolute; left: 0; bottom: 0; height: 2px; width: 100%; background: var(--accent); transform-origin: left; animation: vq-countdown linear forwards; }
+@keyframes vq-countdown { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+
+/* ---- Bookmarks tab ---- */
+.vq-panel { display: flex; flex-direction: column; }
+.vq-heading { display: flex; align-items: center; gap: 8px; margin: 16px 0 6px; color: var(--faint); font-size: var(--text-xs); font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; }
+.vq-heading:first-child { margin-top: 6px; }
+.vq-heading .btn { margin-left: auto; text-transform: none; letter-spacing: 0; gap: 4px; }
+.vq-list { display: flex; flex-direction: column; gap: 2px; }
+.vq-row {
+  display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 32px; padding: 4px 6px 4px 8px;
+  border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text-2); font: inherit; text-align: left; cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.vq-row:hover { background: var(--hover); color: var(--text); }
+.vq-row:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
+.vq-chapter { grid-template-columns: 52px minmax(0, 1fr); }
+.vq-chapter.current { background: var(--selection); color: var(--text); }
+.vq-chapter.current .vq-time { color: var(--accent); }
+.vq-time { color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.vq-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-md); }
+.vq-actions { display: flex; gap: 2px; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.vq-row:hover .vq-actions, .vq-row:focus-within .vq-actions { opacity: 1; }
+.vq-input {
+  width: 100%; height: 24px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: var(--control); color: var(--text); font: inherit; font-size: var(--text-md);
+  box-shadow: inset 0 0 0 0.5px var(--line-strong); outline: none; transition: box-shadow var(--dur-fast) var(--ease-out);
+}
+.vq-input:focus { box-shadow: 0 0 0 3px var(--focus), inset 0 0 0 0.5px var(--accent); }
+.vq-empty { margin: 2px 0 0; padding: 10px 8px; color: var(--muted); font-size: var(--text-sm); line-height: 1.5; }
+
+@media (prefers-reduced-motion: reduce) {
+  .vp .vc-thumb, .vp .vc-tip, .vq-prompt { transition-property: opacity; animation-name: fade-in; }
+  .vp .vc-thumb { transform: none; opacity: 0; }
+  .vp .vc-track:hover .vc-thumb, .vp .vc-track.dragging .vc-thumb { opacity: 1; }
+  .vp .vc-tip { transform: translate(-50%, 0); }
+}

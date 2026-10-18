@@ -19,6 +19,7 @@ const shared = (name: IconName) => (size: number) => icon(name, size);
 
 const SKIP_BACK_ARC = `<path d="M5 12a7 7 0 1 0 2.1-5"/><path d="M4.5 4v3.5H8"/>`;
 const SKIP_FORWARD_ARC = `<path d="M19 12a7 7 0 1 1-2.1-5"/><path d="M19.5 4v3.5H16"/>`;
+const BOOKMARK = `<path d="M7 4.5h10a1 1 0 0 1 1 1v14l-6-4-6 4v-14a1 1 0 0 1 1-1z"/>`;
 const DIGITS_15 = `<path d="M9.5 10v5M14.4 10h-2.4v2.3h1.2a1.35 1.35 0 0 1 0 2.7H11.9"/>`;
 
 export const CONTROL_DEFS: Record<string, ControlDef> = {
@@ -29,8 +30,9 @@ export const CONTROL_DEFS: Record<string, ControlDef> = {
   volume: { label: "Volume", icon: shared("volume") },
   audio: { label: "Audio Tracks", icon: shared("audioTrack") },
   subtitles: { label: "Subtitles", icon: shared("subtitles") },
-  settings: { label: "Playback Settings", icon: shared("settings") },
-  playlist: { label: "Playlist", icon: shared("playlist") },
+  settings: { label: "Side Panel", icon: shared("settings") },
+  playlist: { label: "Queue", icon: shared("playlist") },
+  bookmark: { label: "Add Bookmark", icon: (size) => svg(BOOKMARK, size) },
   spacer: { label: "Spacer", icon: (size) => svg(`<rect x="5" y="5" width="14" height="14" rx="2" stroke-dasharray="2.5 3"/>`, size), repeatable: true },
   divider: { label: "Divider", icon: (size) => svg(`<path d="M12 4.5v15"/>`, size), repeatable: true },
   skipBack10: { label: "Back 10s", icon: shared("skipBack10") },
@@ -49,7 +51,7 @@ export const CONTROL_DEFS: Record<string, ControlDef> = {
 /** The order items appear in the Customise Player grid. */
 export const PALETTE_ORDER = [
   "spacer", "divider", "speed", "skipForward10", "skipBack10", "skipForward15", "skipBack15", "stop", "repeat", "shuffle",
-  "previous", "play", "next", "seek", "volume", "audio", "subtitles", "settings", "playlist", "filename", "folder", "fullscreen",
+  "previous", "play", "next", "seek", "volume", "audio", "subtitles", "bookmark", "settings", "playlist", "filename", "folder", "fullscreen",
 ];
 
 /** Drops unknown ids and repeats of items that may only appear once. */
@@ -63,3 +65,19 @@ export function sanitizeControls(ids: string[]): string[] {
     return true;
   });
 }
+
+/** The bar as laid out by the redesign: transport and volume on the left, tracks, queue, side panel and fullscreen on the right. */
+export const REDESIGN_CONTROLS = ["previous", "play", "next", "volume", "seek", "audio", "subtitles", "playlist", "settings", "fullscreen"];
+
+/** The default bar before the redesign (what `config.ts` still ships); saved bars that equal it get the new one. */
+const OLD_DEFAULT_CONTROLS = ["previous", "play", "next", "seek", "volume", "audio", "subtitles", "settings", "playlist"];
+
+/** The bar to show for a saved list: the old stock layout is upgraded, custom layouts are kept. */
+/** Upgrades a bar saved with the pre-redesign default to the redesign layout; custom bars are kept. */
+export function effectiveControls(saved: string[]): string[] {
+  const same = saved.length === OLD_DEFAULT_CONTROLS.length && saved.every((id, i) => id === OLD_DEFAULT_CONTROLS[i]);
+  return same ? REDESIGN_CONTROLS : saved;
+}
+
+/** Items that sit at the right end of the bar; the first one present pushes the group right. */
+export const RIGHT_GROUP = new Set(["speed", "audio", "subtitles", "bookmark", "playlist", "settings", "fullscreen"]);
