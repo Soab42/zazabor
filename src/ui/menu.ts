@@ -34,10 +34,14 @@ export function openMenu(x: number, y: number, items: MenuItem[]) {
   document.body.append(menu);
   openMenuEl = menu;
 
-  // Keep the menu on screen.
-  const rect = menu.getBoundingClientRect();
-  menu.style.left = `${Math.max(4, Math.min(x, innerWidth - rect.width - 4))}px`;
-  menu.style.top = `${Math.max(4, Math.min(y, innerHeight - rect.height - 4))}px`;
+  // Keep the menu on screen, and let it grow out of the pointer. Layout sizes, not the bounding
+  // rect: the entrance animation is already scaling the latter.
+  const left = Math.max(4, Math.min(x, innerWidth - menu.offsetWidth - 4));
+  const top = Math.max(4, Math.min(y, innerHeight - menu.offsetHeight - 4));
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+  menu.style.setProperty("--origin-x", `${x - left}px`);
+  menu.style.setProperty("--origin-y", `${y - top}px`);
 
   const enabled = () => buttons.filter((b) => !b.disabled);
   const onKey = (e: KeyboardEvent) => {
