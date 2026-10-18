@@ -1,6 +1,7 @@
 import type { AppModule, ModuleFactory } from "../../shell/module";
 import { h } from "../../ui/dom";
 import { Browser } from "./browser";
+import { createFileOps } from "./ops";
 import { Sidebar } from "./sidebar";
 import "./files.css";
 
@@ -19,6 +20,7 @@ export const createFilesModule: ModuleFactory = (shell) => {
     volumes: (volumes) => browser.setVolumes(volumes),
   });
   el.append(sidebar.el, browser.el);
+  browser.addExtension(createFileOps(el));
 
   const module: AppModule = {
     id: "files",

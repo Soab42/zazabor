@@ -2,7 +2,11 @@
 //! watching and "open with the default app". The command shapes mirror
 //! `src/modules/files/api.ts`.
 
+mod jobs;
 mod list;
+mod names;
+mod ops;
+mod trash;
 mod volumes;
 mod watch;
 
@@ -63,7 +67,8 @@ pub fn fs_places(app: tauri::AppHandle) -> Result<Vec<Place>, String> {
     ensure_unlocked()?;
     let p = app.path();
     let home = p.home_dir().ok();
-    let trash = home.as_ref().map(|h| h.join(".local/share/Trash/files"));
+    // The same home trash that Move to Trash uses ($XDG_DATA_HOME/Trash).
+    let trash = trash::home_trash().map(|t| t.join("files"));
     Ok(existing_places(vec![
         ("home", "Home", home),
         ("desktop", "Desktop", p.desktop_dir().ok()),
@@ -101,6 +106,118 @@ pub fn fs_unwatch(path: String) -> Result<(), String> {
 #[tauri::command]
 pub fn fs_open_default(path: String) -> Result<(), String> {
     crate::open_with_system(std::ffi::OsStr::new(&path))
+}
+
+// ---- file operations ----------------------------------------------------------------------------
+// Commands mirror `src/modules/files/ops-api.ts`. Long work runs as a job and reports through
+// `fs-job` events; quick operations return their result directly.
+
+fn paths_of(paths: Vec<String>) -> Vec<PathBuf> {
+    paths.into_iter().map(PathBuf::from).collect()
+}
+
+fn trash_home() -> Result<PathBuf, String> {
+    trash::home_trash().ok_or_else(|| "Can’t find your Trash folder.".to_string())
+}
+
+/// Copies items into a folder as a background job; returns the job id.
+#[tauri::command]
+pub fn fs_copy(app: tauri::AppHandle, sources: Vec<String>, dest_dir: String) -> Result<u64, String> {
+    ensure_unlocked()?;
+    let (sources, dest) = (paths_of(sources), PathBuf::from(dest_dir));
+    Ok(jobs::spawn(app, jobs::Kind::Copy, trash_home()?, move |ctx| ops::transfer(ctx, &sources, &dest, false)))
+}
+
+/// Moves items into a folder as a background job; returns the job id.
+#[tauri::command]
+pub fn fs_move(app: tauri::AppHandle, sources: Vec<String>, dest_dir: String) -> Result<u64, String> {
+    ensure_unlocked()?;
+    let (sources, dest) = (paths_of(sources), PathBuf::from(dest_dir));
+    Ok(jobs::spawn(app, jobs::Kind::Move, trash_home()?, move |ctx| ops::transfer(ctx, &sources, &dest, true)))
+}
+
+/// Moves items to the Trash; returns the job id (the final event lists the trashed paths).
+#[tauri::command]
+pub fn fs_trash(app: tauri::AppHandle, paths: Vec<String>) -> Result<u64, String> {
+    ensure_unlocked()?;
+    let paths = paths_of(paths);
+    Ok(jobs::spawn(app, jobs::Kind::Trash, trash_home()?, move |ctx| ops::trash_items(ctx, &paths)))
+}
+
+/// Puts items from the Trash's `files` folder back where they came from; returns the job id.
+#[tauri::command]
+pub fn fs_trash_restore(app: tauri::AppHandle, paths: Vec<String>) -> Result<u64, String> {
+    ensure_unlocked()?;
+    let paths = paths_of(paths);
+    Ok(jobs::spawn(app, jobs::Kind::Move, trash_home()?, move |ctx| ops::restore_items(ctx, &paths)))
+}
+
+/// Permanently deletes items; returns the job id.
+#[tauri::command]
+pub fn fs_delete(app: tauri::AppHandle, paths: Vec<String>) -> Result<u64, String> {
+    ensure_unlocked()?;
+    let paths = paths_of(paths);
+    Ok(jobs::spawn(app, jobs::Kind::Delete, trash_home()?, move |ctx| ops::delete_items(ctx, &paths)))
+}
+
+/// Permanently deletes everything in the Trash; returns the job id.
+#[tauri::command]
+pub fn fs_empty_trash(app: tauri::AppHandle) -> Result<u64, String> {
+    ensure_unlocked()?;
+    Ok(jobs::spawn(app, jobs::Kind::Delete, trash_home()?, ops::empty_trash))
+}
+
+/// Answers a job that is waiting on a conflict.
+#[tauri::command]
+pub fn fs_job_resolve(id: u64, decision: jobs::Decision, apply_to_all: bool) -> Result<(), String> {
+    ensure_unlocked()?;
+    jobs::resolve(id, decision, apply_to_all)
+}
+
+/// Stops a job at the next safe point; nothing half-written is left behind.
+#[tauri::command]
+pub fn fs_job_cancel(id: u64) -> Result<(), String> {
+    ensure_unlocked()?;
+    jobs::cancel(id);
+    Ok(())
+}
+
+/// Renames an item inside its folder; returns the new path.
+#[tauri::command]
+pub async fn fs_rename(path: String, new_name: String) -> Result<String, String> {
+    ensure_unlocked()?;
+    tauri::async_runtime::spawn_blocking(move || ops::rename(Path::new(&path), &new_name))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Creates a folder ("untitled folder", "untitled folder 2", …); returns its path.
+#[tauri::command]
+pub async fn fs_new_folder(parent: String, name: String) -> Result<String, String> {
+    ensure_unlocked()?;
+    tauri::async_runtime::spawn_blocking(move || ops::new_folder(Path::new(&parent), &name))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Duplicates items next to themselves ("name copy.ext"); returns the new paths.
+#[tauri::command]
+pub async fn fs_duplicate(paths: Vec<String>) -> Result<Vec<String>, String> {
+    ensure_unlocked()?;
+    let (paths, trash) = (paths_of(paths), trash_home()?);
+    tauri::async_runtime::spawn_blocking(move || ops::duplicate(&paths, trash))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Applies the inverse of undo records (newest first); returns the records for redo.
+#[tauri::command]
+pub async fn fs_undo(ops: Vec<ops::UndoOp>) -> Result<ops::UndoReport, String> {
+    ensure_unlocked()?;
+    let trash = trash_home()?;
+    tauri::async_runtime::spawn_blocking(move || ops::apply_undo(&ops, &trash))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
