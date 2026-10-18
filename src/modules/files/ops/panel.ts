@@ -1,9 +1,9 @@
 import { clear, h } from "../../../ui/dom";
 import { icon, type IconName } from "../../../ui/icons";
 import type { JobEvent, JobKind } from "../ops-api";
-import { progressDetail, progressOf } from "./format";
+import { kindTitle, progressDetail, progressOf } from "./format";
 
-const KIND_ICON: Record<JobKind, IconName> = { copy: "copy", move: "folder", trash: "trash", delete: "trash" };
+const KIND_ICON: Record<JobKind, IconName> = { copy: "copy", move: "folder", trash: "trash", delete: "trash", compress: "fileArchive", extract: "fileArchive" };
 /** A job only appears in the panel once it has run this long (or needs attention). */
 const REVEAL_MS = 250;
 /** How long a finished job lingers before it fades out. */
@@ -53,7 +53,7 @@ export class JobsPanel {
     let row = this.rows.get(event.id);
     if (!row) {
       row = {
-        id: event.id, title: this.titles.get(event.id) ?? "Working…", event, started: Date.now(),
+        id: event.id, title: this.titles.get(event.id) ?? kindTitle(event.kind), event, started: Date.now(),
         el: h("div", { class: "ops-job" }), revealed: false,
       };
       row.el.hidden = true;

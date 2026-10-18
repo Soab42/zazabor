@@ -20,7 +20,7 @@ export type UndoOp =
   /** An item went to the Trash: where it was, and where it is now. */
   | { op: "trashed"; original: string; trashed: string };
 
-export type JobKind = "copy" | "move" | "trash" | "delete";
+export type JobKind = "copy" | "move" | "trash" | "delete" | "compress" | "extract";
 export type JobState = "running" | "waiting" | "done" | "cancelled" | "failed";
 export type Decision = "replace" | "keepBoth" | "skip";
 

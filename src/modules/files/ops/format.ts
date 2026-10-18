@@ -6,8 +6,15 @@ export function describeItems(paths: string[]): string {
   return paths.length === 1 ? `“${basename(paths[0])}”` : `${paths.length} items`;
 }
 
-const progressive: Record<JobKind, string> = { copy: "Copying", move: "Moving", trash: "Moving to Trash", delete: "Deleting" };
-const past: Record<JobKind, string> = { copy: "Copied", move: "Moved", trash: "Moved to Trash", delete: "Deleted" };
+const progressive: Record<JobKind, string> = {
+  copy: "Copying", move: "Moving", trash: "Moving to Trash", delete: "Deleting", compress: "Compressing", extract: "Extracting",
+};
+const past: Record<JobKind, string> = {
+  copy: "Copied", move: "Moved", trash: "Moved to Trash", delete: "Deleted", compress: "Compressed", extract: "Extracted",
+};
+
+/** "Compressing…" for a job this panel didn't start itself (and so has no fuller title). */
+export const kindTitle = (kind: JobKind) => `${progressive[kind]}…`;
 
 const destination = (kind: JobKind, dest?: string) =>
   kind === "copy" || kind === "move" ? ` to ${dest ? basename(dest) : "folder"}` : "";

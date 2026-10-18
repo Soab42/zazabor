@@ -20,6 +20,8 @@ pub enum Kind {
     Move,
     Trash,
     Delete,
+    Compress,
+    Extract,
 }
 
 #[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]

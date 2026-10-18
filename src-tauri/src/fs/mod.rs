@@ -308,7 +308,7 @@ pub fn fs_search_cancel(id: u64) {
 pub fn fs_compress(app: tauri::AppHandle, sources: Vec<String>, dest_dir: String) -> Result<u64, String> {
     ensure_unlocked()?;
     let (sources, dest) = (paths_of(sources), PathBuf::from(dest_dir));
-    Ok(jobs::spawn(app, jobs::Kind::Copy, trash_home()?, move |ctx| archive::compress(ctx, &sources, &dest)))
+    Ok(jobs::spawn(app, jobs::Kind::Compress, trash_home()?, move |ctx| archive::compress(ctx, &sources, &dest)))
 }
 
 /// Extracts a zip or tar archive into a folder named after it inside `dest_dir`; returns the job id.
@@ -316,7 +316,7 @@ pub fn fs_compress(app: tauri::AppHandle, sources: Vec<String>, dest_dir: String
 pub fn fs_extract(app: tauri::AppHandle, archive: String, dest_dir: String) -> Result<u64, String> {
     ensure_unlocked()?;
     let (archive, dest) = (PathBuf::from(archive), PathBuf::from(dest_dir));
-    Ok(jobs::spawn(app, jobs::Kind::Copy, trash_home()?, move |ctx| archive::extract(ctx, &archive, &dest)))
+    Ok(jobs::spawn(app, jobs::Kind::Extract, trash_home()?, move |ctx| archive::extract(ctx, &archive, &dest)))
 }
 
 /// The apps that can open a file, default first.
