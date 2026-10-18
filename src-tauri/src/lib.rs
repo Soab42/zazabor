@@ -309,7 +309,18 @@ pub fn run() {
             fs::fs_apps_for,
             fs::fs_open_with,
             fs::fs_set_default_app,
-            fs::fs_open_terminal
+            fs::fs_open_terminal,
+            // video: side panel
+            video::fx::video_eq_info,
+            video::fx::video_set_equalizer,
+            video::fx::video_set_audio_delay,
+            video::fx::video_set_subtitle_delay,
+            video::fx::video_file_hash,
+            video::fx::video_online_request,
+            video::fx::video_online_download,
+            video::tracks::video_video_tracks,
+            video::tracks::video_set_video_track,
+            video::meta::video_meta
         ])
         .run(tauri::generate_context!())
         .expect("error while running CorePro");

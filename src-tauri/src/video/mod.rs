@@ -7,8 +7,11 @@
 //! while playing), which keeps libVLC player calls out of libVLC's own callbacks.
 
 mod frame;
+pub mod fx;
 mod list;
+pub mod meta;
 mod thumb;
+pub mod tracks;
 mod vlc;
 
 use serde::Serialize;
