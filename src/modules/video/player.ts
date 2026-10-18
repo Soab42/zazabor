@@ -20,8 +20,11 @@ export class Player {
   shuffle = false;
   /** Set when opening failed before the backend could report it. */
   openError: string | null = null;
-  /** Set when a file opened part-way through at its resume point; the UI offers "Start over". */
-  resumeOffer: { path: string; time: number } | null = null;
+  /**
+   * Shown as the "continue watching" prompt. `resumed`: the file opened at its resume point and
+   * the prompt offers Start over; otherwise it opened at 0 and the prompt offers to jump there.
+   */
+  resumeOffer: { path: string; time: number; resumed: boolean } | null = null;
 
   private readonly listeners = new Set<() => void>();
   private unlisten: UnlistenFn | undefined;
@@ -93,7 +96,7 @@ export class Player {
     this.openError = null;
     this.endedHandled = false;
     this.state = { ...this.blankState(path), time: startAt, length: saved?.length ?? 0 };
-    this.resumeOffer = startAt > 0 ? { path, time: startAt } : null;
+    this.resumeOffer = startAt > 0 ? { path, time: startAt, resumed: true } : null;
     this.queue = siblings && siblings.includes(path) ? siblings : [path];
     this.settings.recent = addRecent(this.settings.recent, path);
     this.shell.saveConfig();
@@ -195,11 +198,27 @@ export class Player {
 
   // ---- resume offer (the prompt itself is features/quick/resume.ts) ----------------------------
 
-  /** Keeps playing from the resume point and forgets the offer. */
+  /** Keeps playing where it is now and forgets the offer. */
   dismissResumeOffer() {
     if (!this.resumeOffer) return;
     this.resumeOffer = null;
     this.emit();
+  }
+
+  /** Offers to jump to `time` in a file that opened at its start (the "ask" resume setting). */
+  offerResume(path: string, time: number) {
+    if (this.current !== path || time <= 0) return;
+    this.resumeOffer = { path, time, resumed: false };
+    this.emit();
+  }
+
+  /** Accepts the offer: jumps to the resume point if playback isn't already there. */
+  acceptResume() {
+    const offer = this.resumeOffer;
+    if (!offer) return;
+    this.resumeOffer = null;
+    if (!offer.resumed && this.current === offer.path) this.seekTo(offer.time);
+    else this.emit();
   }
 
   /** Plays the current file from the start instead of the resume point. */

@@ -1,7 +1,5 @@
 import { resumeTime } from "../../queue";
 import type { VideoContext } from "../../extensions";
-import { formatTime } from "../../format";
-import { h } from "../../../../ui/dom";
 import { mediaSettings } from "../profiles/settings";
 
 /** Set while a re-open (e.g. moving playback to a cast device) must not ask about resuming. */
@@ -42,36 +40,7 @@ export async function reopenAt(ctx: VideoContext, path: string, queue: string[],
 export function installPlaybackSettings(ctx: VideoContext): () => void {
   const { player, shell } = ctx;
   const original = player.open.bind(player);
-  let prompt: HTMLElement | null = null;
-  let promptTimer = 0;
-
-  const hidePrompt = () => {
-    clearTimeout(promptTimer);
-    prompt?.classList.remove("show");
-    const gone = prompt;
-    prompt = null;
-    if (gone) setTimeout(() => gone.remove(), 220);
-  };
-
-  const askToResume = (path: string, time: number) => {
-    hidePrompt();
-    const resume = h("button", { class: "btn small primary", type: "button" }, `Resume at ${formatTime(time)}`);
-    const restart = h("button", { class: "btn small ghost", type: "button" }, "Start over");
-    const el = h("div", { class: "mt-prompt", role: "group", "aria-label": "Continue watching" },
-      h("span", { class: "mt-prompt-text" }, "Pick up where you left off?"), resume, restart);
-    resume.addEventListener("click", () => {
-      if (player.current === path) player.seekTo(time);
-      hidePrompt();
-    });
-    restart.addEventListener("click", hidePrompt);
-    ctx.stageLayer.append(el);
-    prompt = el;
-    requestAnimationFrame(() => el.classList.add("show"));
-    promptTimer = window.setTimeout(hidePrompt, 9000);
-  };
-
   player.open = async (path, siblings) => {
-    hidePrompt();
     const settings = mediaSettings(shell);
     const positions = shell.config.video.positions;
     const saved = positions[path];
@@ -88,11 +57,11 @@ export function installPlaybackSettings(ctx: VideoContext): () => void {
       shell.saveConfig();
     }
     const resumeAt = resumeTime(saved);
-    if (hide && settings.resume === "ask" && resumeAt > 0) askToResume(path, resumeAt);
+    // The continue-watching prompt (features/quick/resume.ts) offers the jump.
+    if (hide && settings.resume === "ask" && resumeAt > 0) player.offerResume(path, resumeAt);
   };
 
   return () => {
-    hidePrompt();
     player.open = original;
   };
 }

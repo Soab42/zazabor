@@ -133,15 +133,6 @@
 .mt-chip-stop:hover { background: var(--chip); }
 .mt-chip-stop:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
 
-.mt-prompt {
-  position: absolute; left: 50%; bottom: 28px; display: flex; align-items: center; gap: var(--space-2); padding: 8px 10px 8px 16px; border-radius: 999px;
-  background: var(--chip-strong); -webkit-backdrop-filter: var(--blur-chip); backdrop-filter: var(--blur-chip); color: var(--knob);
-  font-size: var(--text-md); font-weight: 550; opacity: 0; transform: translate(-50%, 8px);
-  transition: opacity var(--dur-med) var(--ease-out), transform var(--dur-med) var(--ease-out);
-}
-.mt-prompt.show { opacity: 1; transform: translate(-50%, 0); }
-.mt-prompt-text { margin-right: var(--space-1); white-space: nowrap; }
-
 /* ---- shortcuts ---- */
 .mt-shortcuts + .mt-shortcuts { margin-top: var(--space-2); }
 .mt-card { padding: 0 var(--space-3); border-radius: var(--radius-lg); background: var(--tile); box-shadow: inset 0 0 0 0.5px var(--line), inset 0 1px 0 var(--shine); }
@@ -202,8 +193,7 @@
 .st-card .sf-row.wide .vs-label { margin-bottom: 2px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .mt-prompt, .mt-chip, .mt-empty { animation-name: fade-in; }
-  .mt-prompt { transform: translate(-50%, 0); }
+  .mt-chip, .mt-empty { animation-name: fade-in; }
   .mt-item:active, .mt-choice:active { transform: none; }
   .vs-tip { transform: none; }
 }
