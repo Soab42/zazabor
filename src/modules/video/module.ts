@@ -33,6 +33,15 @@ const RAIL: { section: LibSection; icon: IconName; label: string }[] = [
   { section: "recent", icon: "clock", label: "Recent" },
 ];
 
+/**
+ * The click landed on something over the video (the resume prompt, the stage subtitle timeline, the
+ * casting chip, any button): that's not a click on the picture, so it mustn't play/pause or go fullscreen.
+ */
+function onStageControl(e: Event): boolean {
+  const target = e.target instanceof Element ? e.target : null;
+  return !!target?.closest("button, a, input, select, textarea, [role='slider'], .vq-prompt, .pp-stage-timeline, .mt-chip");
+}
+
 /** The Video module: a glass-styled player around the libVLC backend (see docs/design/vlc/PLAYER.md). */
 export class VideoModule implements AppModule {
   readonly id = "video" as const;
@@ -245,13 +254,14 @@ export class VideoModule implements AppModule {
       clearTimeout(this.clickTimer);
       openPlayerMenu(e.clientX, e.clientY, this.playerMenu("stage"));
     });
-    this.stage.addEventListener("click", () => {
-      if (this.view !== "player") return;
+    this.stage.addEventListener("click", (e) => {
+      if (this.view !== "player" || onStageControl(e)) return;
       // Wait out a possible double click before treating it as play/pause.
       clearTimeout(this.clickTimer);
       this.clickTimer = window.setTimeout(() => this.player.togglePlay(), 220);
     });
-    this.stage.addEventListener("dblclick", () => {
+    this.stage.addEventListener("dblclick", (e) => {
+      if (onStageControl(e)) return;
       clearTimeout(this.clickTimer);
       if (this.view === "player") void this.toggleFullscreen();
     });

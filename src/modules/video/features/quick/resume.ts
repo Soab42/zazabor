@@ -25,7 +25,8 @@ export class ResumePrompt {
   private sync() {
     const { player } = this.ctx;
     const offer = player.resumeOffer;
-    const key = offer && player.current === offer.path ? `${offer.path}|${offer.time}` : "";
+    // Nothing to resume in a file that failed to play.
+    const key = offer && player.current === offer.path && !player.error ? `${offer.path}|${offer.time}` : "";
     if (key === this.key) return;
     this.key = key;
     this.hide();

@@ -94,5 +94,7 @@ export interface VideoSurface {
   stop(): void;
   /** The canvas size in device pixels, to pass to `videoApi.open`. */
   readonly pixelSize: { width: number; height: number };
+  /** Forgets the last frame and shows black (a different file is opening). */
+  clear(): void;
   dispose(): void;
 }

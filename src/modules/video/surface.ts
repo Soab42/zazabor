@@ -413,6 +413,10 @@ export function createVideoSurface(): FxSurface {
     get pixelSize() {
       return pixelSize;
     },
+    clear() {
+      last = null;
+      renderer?.clear();
+    },
     dispose() {
       if (disposed) return;
       disposed = true;

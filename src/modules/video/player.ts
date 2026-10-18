@@ -90,6 +90,8 @@ export class Player {
   async open(path: string, siblings?: string[]) {
     this.savePosition();
     const token = ++this.token;
+    // A different file must not open over the last frame of the one before (an error would sit on it).
+    if (path !== this.current) this.surface.clear();
     const saved = this.settings.positions[path];
     const startAt = resumeTime(saved);
     this.current = path;
@@ -112,6 +114,7 @@ export class Player {
       if (token !== this.token) return;
       console.warn("Could not open video:", err);
       this.openError = typeof err === "string" ? err : "This file could not be opened.";
+      this.resumeOffer = null;
       this.emit();
     }
   }
