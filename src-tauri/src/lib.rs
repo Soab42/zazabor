@@ -260,7 +260,20 @@ pub fn run() {
             fs::fs_volumes,
             fs::fs_watch,
             fs::fs_unwatch,
-            fs::fs_open_default
+            fs::fs_open_default,
+            // file operations
+            fs::fs_copy,
+            fs::fs_move,
+            fs::fs_trash,
+            fs::fs_trash_restore,
+            fs::fs_delete,
+            fs::fs_empty_trash,
+            fs::fs_job_resolve,
+            fs::fs_job_cancel,
+            fs::fs_rename,
+            fs::fs_new_folder,
+            fs::fs_duplicate,
+            fs::fs_undo
         ])
         .run(tauri::generate_context!())
         .expect("error while running CorePro");
