@@ -48,6 +48,16 @@ export interface FilesSettings {
   lastPath: string | null;
   /** Ask before moving items to the Trash. */
   confirmTrash: boolean;
+  /** The terminal "Open Terminal Here" launches (a command name); null picks one automatically. */
+  terminal: string | null;
+  /** Servers saved from Connect to Server, shown under Network in the sidebar. */
+  servers: SavedServer[];
+}
+
+export interface SavedServer {
+  name: string;
+  /** e.g. smb://nas/photos, sftp://user@host/home/user */
+  url: string;
 }
 
 export interface Config {
@@ -112,6 +122,8 @@ const DEFAULT_FILES: FilesSettings = {
   pinned: [],
   lastPath: null,
   confirmTrash: false,
+  terminal: null,
+  servers: [],
 };
 
 function normalizeFiles(raw: Partial<FilesSettings> | undefined): FilesSettings {
@@ -126,6 +138,10 @@ function normalizeFiles(raw: Partial<FilesSettings> | undefined): FilesSettings 
     pinned: Array.isArray(f.pinned) ? f.pinned.filter((p) => typeof p === "string") : [],
     lastPath: typeof f.lastPath === "string" ? f.lastPath : null,
     confirmTrash: f.confirmTrash === true,
+    terminal: typeof f.terminal === "string" && f.terminal.trim() ? f.terminal.trim() : null,
+    servers: Array.isArray(f.servers)
+      ? f.servers.filter((s): s is SavedServer => !!s && typeof s.name === "string" && typeof s.url === "string")
+      : [],
   };
 }
 
