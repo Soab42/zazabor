@@ -25,7 +25,7 @@ const PROJECT_MARKERS: &[&str] = &[
 ];
 /// Smaller images found by discovery are almost always icons or UI assets.
 const MIN_DISCOVERED_BYTES: u64 = 12 * 1024;
-const MAX_DISCOVERY_DEPTH: usize = 12;
+pub const MAX_DISCOVERY_DEPTH: usize = 12;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -145,6 +145,33 @@ pub fn discover_music(roots: &[(PathBuf, usize)]) -> Vec<MusicFile> {
     }
     songs.sort_by_key(|s| s.name.to_lowercase());
     songs
+}
+
+/// Files under each root (with its own search depth) that `keep` accepts, found the way photo
+/// discovery walks: hidden folders, application data and software projects are skipped.
+pub fn walk_files(
+    roots: &[(PathBuf, usize)],
+    keep: impl Fn(&Path, &std::fs::Metadata) -> bool,
+) -> Vec<(PathBuf, std::fs::Metadata)> {
+    let mut seen = std::collections::HashSet::new();
+    let mut found = Vec::new();
+    for (root, depth) in roots {
+        let walker = WalkDir::new(root)
+            .follow_links(false)
+            .max_depth(*depth)
+            .into_iter()
+            .filter_entry(|e| e.depth() == 0 || !(is_hidden(e) || is_skipped_dir(e)));
+        for entry in walker.filter_map(Result::ok) {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let Ok(meta) = entry.metadata() else { continue };
+            if keep(entry.path(), &meta) && seen.insert(entry.path().to_path_buf()) {
+                found.push((entry.path().to_path_buf(), meta));
+            }
+        }
+    }
+    found
 }
 
 /// Where automatic discovery looks: the home folder and mounted drives.

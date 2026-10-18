@@ -327,7 +327,16 @@ pub fn run() {
             video::chapters::video_chapters,
             video::chapters::video_set_chapter,
             video::sprite::video_sprite_start,
-            video::sprite::video_sprite_stop
+            video::sprite::video_sprite_stop,
+            // video: library
+            video::library::video_library,
+            video::library::video_library_refresh,
+            video::library::video_library_meta,
+            video::music::music_library,
+            video::music::music_library_refresh,
+            video::streams::streams_import,
+            video::streams::streams_channels,
+            video::streams::streams_forget
         ])
         .run(tauri::generate_context!())
         .expect("error while running CorePro");

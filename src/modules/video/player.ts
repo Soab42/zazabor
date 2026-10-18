@@ -208,6 +208,78 @@ export class Player {
     this.seekTo(0);
   }
 
+  // ---- queue editing (media library) -----------------------------------------------------------
+  // The queue array is replaced, never changed in place: callers of `open` share their lists.
+
+  private readonly queueListeners = new Set<() => void>();
+
+  /** Calls `fn` whenever the queue is edited here; returns the unsubscribe function. */
+  onQueueChange(fn: () => void): () => void {
+    this.queueListeners.add(fn);
+    return () => this.queueListeners.delete(fn);
+  }
+
+  private setQueue(queue: string[]) {
+    this.queue = queue;
+    this.emit();
+    for (const fn of this.queueListeners) fn();
+  }
+
+  /** Adds files to the end of the queue; with nothing playing, starts the first. */
+  enqueue(paths: string[]) {
+    if (paths.length === 0) return;
+    if (!this.current) {
+      void this.open(paths[0], paths);
+      return;
+    }
+    const add = paths.filter((p) => p !== this.current);
+    this.setQueue([...this.queue.filter((p) => !add.includes(p)), ...add]);
+  }
+
+  /** Puts files right after the current one; with nothing playing, starts the first. */
+  playNext(paths: string[]) {
+    if (paths.length === 0) return;
+    if (!this.current) {
+      void this.open(paths[0], paths);
+      return;
+    }
+    const add = paths.filter((p) => p !== this.current);
+    const rest = this.queue.filter((p) => !add.includes(p));
+    const at = rest.indexOf(this.current) + 1;
+    this.setQueue([...rest.slice(0, at), ...add, ...rest.slice(at)]);
+  }
+
+  /** Inserts files at a position of the queue (a drop), moving them if they are already in it. */
+  insertInQueue(paths: string[], at: number) {
+    if (paths.length === 0) return;
+    const add = paths.filter((p) => p !== this.current);
+    const before = this.queue.slice(0, at).filter((p) => !add.includes(p)).length;
+    const rest = this.queue.filter((p) => !add.includes(p));
+    this.setQueue([...rest.slice(0, before), ...add, ...rest.slice(before)]);
+    if (!this.current) void this.open(paths[0], this.queue);
+  }
+
+  /** Moves the item at `from` so it lands before the item that is at `to` (`to` may be the length). */
+  moveInQueue(from: number, to: number) {
+    if (from < 0 || from >= this.queue.length) return;
+    const target = Math.min(Math.max(to, 0), this.queue.length);
+    const item = this.queue[from];
+    const rest = this.queue.filter((_, i) => i !== from);
+    rest.splice(target > from ? target - 1 : target, 0, item);
+    this.setQueue(rest);
+  }
+
+  /** Takes the item at `index` out of the queue; the playing item stays. */
+  removeFromQueue(index: number) {
+    if (index < 0 || index >= this.queue.length || this.queue[index] === this.current) return;
+    this.setQueue(this.queue.filter((_, i) => i !== index));
+  }
+
+  /** Empties the queue except for the playing item. */
+  clearQueue() {
+    this.setQueue(this.current ? [this.current] : []);
+  }
+
   // ---- sound and speed ----------------------------------------------------------------------
 
   setVolume(volume: number) {
