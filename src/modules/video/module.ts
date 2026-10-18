@@ -1,6 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { VideoSection } from "../../config";
 import type { AppModule, OpenRequest, ShellContext } from "../../shell/module";
 import { basename, dirname, h, isTypingTarget, stripExtension } from "../../ui/dom";
 import { icon, type IconName } from "../../ui/icons";
@@ -11,6 +10,7 @@ import { openCustomize, type CustomizeHandle } from "./customize";
 import type { MenuPlace, PanelTab, VideoContext, VideoFeature } from "./extensions";
 import { FEATURES } from "./features";
 import { formatRate, formatTime } from "./format";
+import type { LibSection } from "./library-api";
 import { Player } from "./player";
 import { Sections } from "./sections";
 import { VideoSidebar } from "./sidebar";
@@ -22,9 +22,12 @@ const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 /** How long the chrome stays in fullscreen without mouse movement. */
 const IDLE_MS = 2500;
 
-const RAIL: { section: VideoSection; icon: IconName; label: string }[] = [
+const RAIL: { section: LibSection; icon: IconName; label: string }[] = [
   { section: "home", icon: "home", label: "Home" },
   { section: "videos", icon: "video", label: "Videos" },
+  { section: "music", icon: "music", label: "Music" },
+  { section: "streams", icon: "network", label: "Network Streams" },
+  { section: "playlists", icon: "playlist", label: "Playlists" },
   { section: "recent", icon: "clock", label: "Recent" },
 ];
 
@@ -86,12 +89,16 @@ export class VideoModule implements AppModule {
     this.sidebar = new VideoSidebar(shell, {
       play: (path, queue) => void this.play(path, queue),
       openFolder: () => void this.openFolder(),
-    });
+    }, this.player);
     this.sections = new Sections(shell, {
       play: (path, queue) => void this.play(path, queue),
       openFile: () => void this.openFile(),
       openFolder: () => void this.openFolder(),
       forget: (path) => this.forget(path),
+    }, this.player);
+    this.sections.onRailChange(() => {
+      this.renderRail();
+      this.applyView();
     });
 
     this.buildTop();
@@ -109,7 +116,6 @@ export class VideoModule implements AppModule {
       if (e.key === " " && this.view === "player") e.preventDefault();
     });
 
-    this.sections.show(shell.config.video.section);
     this.bar.render(shell.config.video.controls);
     this.renderRail();
     this.applyView();
@@ -237,9 +243,16 @@ export class VideoModule implements AppModule {
     };
     const items: HTMLElement[] = [];
     if (this.player.current) items.push(button("film", "Now playing", this.view === "player", () => this.setView("player"), " now"));
-    const section = this.shell.config.video.section;
+    const section = this.sections.section;
     for (const entry of RAIL) {
-      items.push(button(entry.icon, entry.label, this.view === "browse" && section === entry.section, () => this.setSection(entry.section)));
+      items.push(button(entry.icon, entry.label, this.view === "browse" && section === entry.section && this.sections.sectionActive, () => this.setSection(entry.section)));
+    }
+    const pins = this.sections.pinnedRail();
+    if (pins.length) items.push(h("span", { class: "vp-rail-sep", "aria-hidden": "true" }));
+    for (const pin of pins) {
+      items.push(button(pin.icon, pin.label, this.view === "browse" && pin.active, () => {
+        if (pin.open()) this.setView("browse");
+      }));
     }
     const add = button("plus", "Open…", false, () => {
       const r = add.getBoundingClientRect();
@@ -255,9 +268,7 @@ export class VideoModule implements AppModule {
 
   // ---- views -------------------------------------------------------------------------------
 
-  private setSection(section: VideoSection) {
-    this.shell.config.video.section = section;
-    this.shell.saveConfig();
+  private setSection(section: LibSection) {
     this.sections.show(section);
     this.setView("browse");
   }

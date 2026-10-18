@@ -7,7 +7,10 @@
 //! while playing), which keeps libVLC player calls out of libVLC's own callbacks.
 
 mod frame;
+pub mod library;
 mod list;
+pub mod music;
+pub mod streams;
 mod thumb;
 mod vlc;
 
