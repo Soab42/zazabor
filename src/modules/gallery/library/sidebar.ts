@@ -12,7 +12,6 @@ export interface SidebarHandlers {
   addFolder(): void;
   toggleHidden(): void;
   lockSettings(): void;
-  appearance(): void;
 }
 
 export interface SidebarState {
@@ -31,7 +30,6 @@ export class Sidebar {
   private active = -1;
 
   constructor(private readonly handlers: SidebarHandlers) {
-    const brand = h("div", { class: "sb-brand" }, h("img", { src: "/logo.svg", alt: "", width: 26, height: 26 }), h("span", null, "SliderPro"));
     const navList = h("div", { class: "sb-nav" });
     const entries: [NavTarget, string, IconName][] = [["albums", "Albums", "grid"], ["favorites", "Favorites", "star"], ["photos", "All photos", "image"]];
     for (const [target, label, glyph] of entries) {
@@ -44,10 +42,9 @@ export class Sidebar {
     const foot = h(
       "div",
       { class: "sb-foot" },
-      h("button", { class: "sb-foot-btn", title: "Include a folder SliderPro didn't find on its own", onclick: () => handlers.addFolder() }, icon("folderPlus", 15), "Add a folder"),
+      h("button", { class: "sb-foot-btn", title: "Include a folder CorePro didn't find on its own", onclick: () => handlers.addFolder() }, icon("folderPlus", 15), "Add a folder"),
       this.hiddenButton,
-      h("button", { class: "sb-foot-btn", title: "Layout, colours, zoom animation and custom CSS", onclick: () => handlers.appearance() }, icon("palette", 15), "Appearance"),
-      h("button", { class: "sb-foot-btn", title: "Lock SliderPro with a password", onclick: () => handlers.lockSettings() }, icon("lock", 15), "Privacy lock"),
+      h("button", { class: "sb-foot-btn", title: "Lock CorePro with a password", onclick: () => handlers.lockSettings() }, icon("lock", 15), "Privacy lock"),
     );
     this.list.addEventListener("click", (e) => {
       const target = e.target instanceof Element ? e.target : null;
@@ -70,7 +67,7 @@ export class Sidebar {
       e.preventDefault();
       this.handlers.menu(Number(item.dataset.index), e.clientX, e.clientY);
     });
-    this.el.append(brand, navList, this.list, foot);
+    this.el.append(navList, this.list, foot);
   }
 
   setNav(target: NavTarget | null) {

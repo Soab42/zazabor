@@ -1,11 +1,10 @@
 import { WHEEL_CURVE, type Curve } from "./modules/gallery/viewer/easing";
 import { clamp, h } from "./ui/dom";
-import { icon } from "./ui/icons";
 
 export type GridLayout = "justified" | "square";
 export type ThemeMode = "dark" | "light" | "system";
 
-/** How the whole app looks; edited live in the Appearance dialog. */
+/** How the whole app looks; edited live in Settings. */
 export interface Appearance {
   mode: ThemeMode;
   layout: GridLayout;
@@ -18,7 +17,7 @@ export interface Appearance {
   tone: ToneId;
   /** Cubic-bezier control points for zoom steps (wheel, keys, slider). */
   zoomCurve: Curve;
-  /** Extra CSS applied on top of SliderPro's own. */
+  /** Extra CSS applied on top of CorePro's own. */
   customCss: string;
 }
 
@@ -139,211 +138,229 @@ export function applyAppearance(a: Appearance) {
 const curveText = (c: Curve) => `cubic-bezier(${c.map((v) => +v.toFixed(2)).join(", ")})`;
 const sameCurve = (a: Curve, b: Curve) => a.every((v, i) => Math.abs(v - b[i]) < 1e-3);
 
-/** Live-edits `appearance`; `onChange` runs after every edit so the app can follow along. */
-export function openAppearanceDialog(appearance: Appearance, onChange: () => void): Promise<void> {
-  return new Promise((resolve) => {
-    const syncers: (() => void)[] = [];
-    const changed = () => {
-      for (const sync of syncers) sync();
+/** One labelled control on the Settings page; `label` is what search matches. */
+export interface SettingsRow {
+  label: string;
+  el: HTMLElement;
+}
+
+/** A titled card of rows on the Settings page. */
+export interface SettingsGroup {
+  title: string;
+  rows: SettingsRow[];
+}
+
+/** The appearance controls for the Settings page; all of them edit one `Appearance` live. */
+export interface AppearanceControls {
+  /** Theme, accent and background tone. */
+  general(): SettingsGroup[];
+  /** Photo grid, zoom animation, custom CSS. */
+  appearance(): SettingsGroup[];
+  /** Re-reads the appearance into every control (after an edit elsewhere). */
+  sync(): void;
+  /** Applies pending debounced edits (custom CSS) at once. */
+  flush(): void;
+}
+
+/** Builds the controls once; `onChange` runs after every edit so the app can follow along. */
+export function createAppearanceControls(appearance: Appearance, onChange: () => void): AppearanceControls {
+  const syncers: (() => void)[] = [];
+  const sync = () => {
+    for (const fn of syncers) fn();
+  };
+  const changed = () => {
+    sync();
+    onChange();
+  };
+  /** `layout`: "wide" puts the control under its label; "plain" omits the value column. */
+  const row = (label: string, control: HTMLElement, value?: HTMLElement, layout: "wide" | "plain" | "" = value ? "" : "plain"): SettingsRow => ({
+    label,
+    el: h("div", { class: `sf-row${layout ? ` ${layout}` : ""}` }, h("span", { class: "sf-label" }, label), control, value ?? null),
+  });
+
+  const segmented = <T extends string>(options: [T, string][], get: () => T, put: (v: T) => void) => {
+    const group = h("div", { class: "segmented" });
+    const buttons = options.map(([value, text]) => {
+      const button = h("button", { type: "button", onclick: () => (put(value), changed()) }, text);
+      group.append(button);
+      return [value, button] as const;
+    });
+    syncers.push(() => buttons.forEach(([value, button]) => button.classList.toggle("active", get() === value)));
+    return group;
+  };
+
+  const slider = (label: string, key: "gap" | "radius", max: number) => {
+    const input = h("input", { type: "range", min: 0, max, step: 1 });
+    const value = h("span", { class: "sf-value" });
+    input.addEventListener("input", () => {
+      appearance[key] = Number(input.value);
+      changed();
+    });
+    syncers.push(() => {
+      input.value = String(appearance[key]);
+      value.textContent = appearance[key] ? `${appearance[key]} px` : "None";
+    });
+    return row(label, input, value);
+  };
+
+  // ---- colours
+  const swatches = h("div", { class: "ap-swatches" });
+  const accentButtons = ACCENTS.map((color) => {
+    const button = h("button", { type: "button", class: "ap-swatch", title: color, style: { background: color } });
+    button.addEventListener("click", () => {
+      appearance.accent = color;
+      changed();
+    });
+    swatches.append(button);
+    return [color, button] as const;
+  });
+  const picker = h("input", { type: "color", class: "ap-color", title: "Any colour" });
+  picker.addEventListener("input", () => {
+    appearance.accent = picker.value;
+    changed();
+  });
+  swatches.append(picker);
+  syncers.push(() => {
+    accentButtons.forEach(([color, button]) => button.classList.toggle("active", color === appearance.accent));
+    picker.value = appearance.accent;
+    picker.classList.toggle("active", !ACCENTS.includes(appearance.accent));
+  });
+
+  // Each tone is shown in the version the current theme will use.
+  const tones = h("div", { class: "ap-tones" });
+  const toneButtons = (Object.keys(TONES) as ToneId[]).map((id) => {
+    const chip = h("span", { class: "ap-tone-chip" });
+    const label = h("span");
+    const button = h("button", { type: "button", class: "ap-tone" }, chip, label);
+    button.addEventListener("click", () => {
+      appearance.tone = id;
+      changed();
+    });
+    tones.append(button);
+    return { id, button, chip, label };
+  });
+  syncers.push(() => {
+    const light = isLight(appearance);
+    for (const { id, button, chip, label } of toneButtons) {
+      const tone = TONES[id][light ? "light" : "dark"];
+      button.style.background = tone.bg;
+      button.style.setProperty("--tone-text", light ? "#1d1d1f" : "#f5f5f7");
+      chip.style.background = `rgb(${tone.glass})`;
+      label.textContent = tone.label;
+      button.classList.toggle("active", id === appearance.tone);
+    }
+  });
+
+  // ---- zoom curve
+  const presets = h("div", { class: "segmented ap-presets" });
+  const presetButtons = ZOOM_CURVES.map(({ label, curve }) => {
+    const button = h("button", { type: "button" }, label);
+    button.addEventListener("click", () => {
+      appearance.zoomCurve = [...curve];
+      changed();
+    });
+    presets.append(button);
+    return [curve, button] as const;
+  });
+  const numbers = (["x1", "y1", "x2", "y2"] as const).map((name, i) => {
+    const x = i % 2 === 0;
+    const input = h("input", { type: "number", class: "ap-num", min: x ? 0 : -1, max: x ? 1 : 2, step: 0.05, title: name });
+    input.addEventListener("input", () => {
+      const value = Number(input.value);
+      if (!Number.isFinite(value) || input.value === "") return;
+      appearance.zoomCurve[i] = clamp(value, x ? 0 : -1, x ? 1 : 2);
+      for (const fn of syncers) if (fn !== syncNumbers) fn();
       onChange();
-    };
-    const row = (label: string, control: HTMLElement, value?: HTMLElement) =>
-      h("label", { class: "sf-row" }, h("span", { class: "sf-label" }, label), control, value ?? null);
+    });
+    return h("label", { class: "ap-num-field" }, h("span", null, name), input);
+  });
+  const syncNumbers = () => numbers.forEach((field, i) => (field.querySelector("input")!.value = String(+appearance.zoomCurve[i].toFixed(2))));
+  syncers.push(syncNumbers);
 
-    const segmented = <T extends string>(options: [T, string][], get: () => T, put: (v: T) => void) => {
-      const group = h("div", { class: "segmented" });
-      const buttons = options.map(([value, text]) => {
-        const button = h("button", { type: "button", onclick: () => (put(value), changed()) }, text);
-        group.append(button);
-        return [value, button] as const;
-      });
-      syncers.push(() => buttons.forEach(([value, button]) => button.classList.toggle("active", get() === value)));
-      return group;
-    };
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "-0.15 -0.75 1.3 2.5");
+  svg.setAttribute("class", "ap-curve");
+  svg.innerHTML = `<rect x="0" y="0" width="1" height="1" class="ap-curve-box"/><path class="ap-curve-handles"/><path class="ap-curve-line"/>`;
+  syncers.push(() => {
+    const [x1, y1, x2, y2] = appearance.zoomCurve;
+    // SVG y grows downward; progress 0 sits at the bottom of the box.
+    svg.querySelector(".ap-curve-line")!.setAttribute("d", `M0 1C${x1} ${1 - y1} ${x2} ${1 - y2} 1 0`);
+    svg.querySelector(".ap-curve-handles")!.setAttribute("d", `M0 1L${x1} ${1 - y1}M1 0L${x2} ${1 - y2}`);
+    presetButtons.forEach(([curve, button]) => button.classList.toggle("active", sameCurve(curve, appearance.zoomCurve)));
+  });
 
-    const slider = (label: string, key: "gap" | "radius", max: number) => {
-      const input = h("input", { type: "range", min: 0, max, step: 1 });
-      const value = h("span", { class: "sf-value" });
-      input.addEventListener("input", () => {
-        appearance[key] = Number(input.value);
-        changed();
-      });
-      syncers.push(() => {
-        input.value = String(appearance[key]);
-        value.textContent = appearance[key] ? `${appearance[key]} px` : "None";
-      });
-      return row(label, input, value);
-    };
+  const demoBox = h("div", { class: "ap-demo-box" });
+  const demo = h("button", { type: "button", class: "ap-demo", title: "Play the zoom curve" }, demoBox);
+  demo.addEventListener("click", () => {
+    demoBox.style.transition = `transform 300ms ${curveText(appearance.zoomCurve)}`;
+    demoBox.classList.toggle("zoomed");
+  });
+  const curveEditor = h("div", { class: "ap-curve-row" }, svg, h("div", { class: "ap-curve-side" },
+    h("div", { class: "ap-nums" }, ...numbers),
+    h("p", { class: "sf-hint" }, "Each wheel notch, ↑ ↓ key and slider move follows this curve. Click the square to try it."),
+    demo));
 
-    // ---- colours
-    const swatches = h("div", { class: "ap-swatches" });
-    const accentButtons = ACCENTS.map((color) => {
-      const button = h("button", { type: "button", class: "ap-swatch", title: color, style: { background: color } });
-      button.addEventListener("click", () => {
-        appearance.accent = color;
-        changed();
-      });
-      swatches.append(button);
-      return [color, button] as const;
-    });
-    const picker = h("input", { type: "color", class: "ap-color", title: "Any colour" });
-    picker.addEventListener("input", () => {
-      appearance.accent = picker.value;
-      changed();
-    });
-    swatches.append(picker);
-    syncers.push(() => {
-      accentButtons.forEach(([color, button]) => button.classList.toggle("active", color === appearance.accent));
-      picker.value = appearance.accent;
-      picker.classList.toggle("active", !ACCENTS.includes(appearance.accent));
-    });
+  // ---- custom CSS
+  const css = h("textarea", {
+    class: "ap-css", spellcheck: false, rows: 7,
+    placeholder: "/* For example */\n.cell .thumb { filter: saturate(1.2); }\n.sidebar { background: rgba(var(--glass-rgb), 0.4); }",
+  });
+  let cssTimer = 0;
+  const flush = () => {
+    clearTimeout(cssTimer);
+    if (css.value === appearance.customCss) return;
+    appearance.customCss = css.value;
+    onChange();
+  };
+  css.addEventListener("input", () => {
+    clearTimeout(cssTimer);
+    cssTimer = window.setTimeout(flush, 250);
+  });
+  syncers.push(() => {
+    if (css.value !== appearance.customCss) css.value = appearance.customCss;
+  });
 
-    // Each tone is shown in the version the current theme will use.
-    const tones = h("div", { class: "ap-tones" });
-    const toneButtons = (Object.keys(TONES) as ToneId[]).map((id) => {
-      const chip = h("span", { class: "ap-tone-chip" });
-      const label = h("span");
-      const button = h("button", { type: "button", class: "ap-tone" }, chip, label);
-      button.addEventListener("click", () => {
-        appearance.tone = id;
-        changed();
-      });
-      tones.append(button);
-      return { id, button, chip, label };
-    });
-    syncers.push(() => {
-      const light = isLight(appearance);
-      for (const { id, button, chip, label } of toneButtons) {
-        const tone = TONES[id][light ? "light" : "dark"];
-        button.style.background = tone.bg;
-        button.style.setProperty("--tone-text", light ? "#1d1d1f" : "#f5f5f7");
-        chip.style.background = `rgb(${tone.glass})`;
-        label.textContent = tone.label;
-        button.classList.toggle("active", id === appearance.tone);
-      }
-    });
+  const reset = h("button", { type: "button", class: "btn", onclick: () => (Object.assign(appearance, structuredClone(DEFAULT_APPEARANCE)), changed()) }, "Reset");
 
-    // ---- zoom curve
-    const presets = h("div", { class: "segmented ap-presets" });
-    const presetButtons = ZOOM_CURVES.map(({ label, curve }) => {
-      const button = h("button", { type: "button" }, label);
-      button.addEventListener("click", () => {
-        appearance.zoomCurve = [...curve];
-        changed();
-      });
-      presets.append(button);
-      return [curve, button] as const;
-    });
-    const numbers = (["x1", "y1", "x2", "y2"] as const).map((name, i) => {
-      const x = i % 2 === 0;
-      const input = h("input", { type: "number", class: "ap-num", min: x ? 0 : -1, max: x ? 1 : 2, step: 0.05, title: name });
-      input.addEventListener("input", () => {
-        const value = Number(input.value);
-        if (!Number.isFinite(value) || input.value === "") return;
-        appearance.zoomCurve[i] = clamp(value, x ? 0 : -1, x ? 1 : 2);
-        for (const sync of syncers) if (sync !== syncNumbers) sync();
-        onChange();
-      });
-      return h("label", { class: "ap-num-field" }, h("span", null, name), input);
-    });
-    const syncNumbers = () => numbers.forEach((field, i) => (field.querySelector("input")!.value = String(+appearance.zoomCurve[i].toFixed(2))));
-    syncers.push(syncNumbers);
-
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "-0.15 -0.75 1.3 2.5");
-    svg.setAttribute("class", "ap-curve");
-    svg.innerHTML = `<rect x="0" y="0" width="1" height="1" class="ap-curve-box"/><path class="ap-curve-handles"/><path class="ap-curve-line"/>`;
-    syncers.push(() => {
-      const [x1, y1, x2, y2] = appearance.zoomCurve;
-      // SVG y grows downward; progress 0 sits at the bottom of the box.
-      svg.querySelector(".ap-curve-line")!.setAttribute("d", `M0 1C${x1} ${1 - y1} ${x2} ${1 - y2} 1 0`);
-      svg.querySelector(".ap-curve-handles")!.setAttribute("d", `M0 1L${x1} ${1 - y1}M1 0L${x2} ${1 - y2}`);
-      presetButtons.forEach(([curve, button]) => button.classList.toggle("active", sameCurve(curve, appearance.zoomCurve)));
-    });
-
-    const demoBox = h("div", { class: "ap-demo-box" });
-    const demo = h("button", { type: "button", class: "ap-demo", title: "Play the zoom curve" }, demoBox);
-    demo.addEventListener("click", () => {
-      demoBox.style.transition = `transform 300ms ${curveText(appearance.zoomCurve)}`;
-      demoBox.classList.toggle("zoomed");
-    });
-
-    // ---- custom CSS
-    const css = h("textarea", {
-      class: "ap-css", spellcheck: false, rows: 7,
-      placeholder: "/* For example */\n.cell .thumb { filter: saturate(1.2); }\n.sidebar { background: #101820; }",
-    });
-    let cssTimer = 0;
-    css.addEventListener("input", () => {
-      clearTimeout(cssTimer);
-      cssTimer = window.setTimeout(() => {
-        appearance.customCss = css.value;
-        onChange();
-      }, 250);
-    });
-    syncers.push(() => {
-      if (css.value !== appearance.customCss) css.value = appearance.customCss;
-    });
-
-    const finish = () => {
-      clearTimeout(cssTimer);
-      if (css.value !== appearance.customCss) {
-        appearance.customCss = css.value;
-        onChange();
-      }
-      document.removeEventListener("keydown", onKey, true);
-      overlay.remove();
-      resolve();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      // Keep the app's shortcuts from acting behind the dialog (typing still reaches the fields).
-      e.stopPropagation();
-      if (e.key === "Escape") finish();
-    };
-    document.addEventListener("keydown", onKey, true);
-
-    const reset = () => {
-      Object.assign(appearance, structuredClone(DEFAULT_APPEARANCE));
-      changed();
-    };
-
-    const dialog = h(
-      "div",
-      { class: "modal appearance", role: "dialog", "aria-label": "Appearance" },
-      h("header", { class: "modal-head" },
-        h("div", null, h("h2", null, "Appearance"), h("p", { class: "setup-summary" }, "Changes apply as you make them.")),
-        h("button", { class: "icon-btn", title: "Close (Esc)", onclick: finish }, icon("close"))),
-      h(
-        "div",
-        { class: "modal-body" },
-        h("fieldset", { class: "sf-group" }, h("legend", null, "Photo grid"),
-          row("Layout", segmented<GridLayout>([["justified", "Justified rows"], ["square", "Square tiles"]], () => appearance.layout, (v) => (appearance.layout = v))),
-          slider("Gap", "gap", 16),
-          slider("Corners", "radius", 24)),
-        h("fieldset", { class: "sf-group" }, h("legend", null, "Colours"),
+  const groups = {
+    general: [
+      {
+        title: "Colours",
+        rows: [
           row("Theme", segmented<ThemeMode>([["dark", "Dark"], ["light", "Light"], ["system", "System"]], () => appearance.mode, (v) => (appearance.mode = v))),
           row("Accent", swatches),
-          row("Background", tones)),
-        h("fieldset", { class: "sf-group" }, h("legend", null, "Zoom animation"),
-          row("Curve", presets),
-          h("div", { class: "ap-curve-row" }, svg, h("div", { class: "ap-curve-side" },
-            h("div", { class: "ap-nums" }, ...numbers),
-            h("p", { class: "sf-hint" }, "Each wheel notch, ↑ ↓ key and slider move follows this curve. Click the square to try it."),
-            demo))),
-        h("fieldset", { class: "sf-group" }, h("legend", null, "Custom CSS"),
-          css,
-          h("p", { class: "sf-hint" }, "Applied on top of SliderPro's own styles. Clear it to undo.")),
-      ),
-      h("footer", { class: "modal-foot" },
-        h("button", { class: "btn", onclick: reset }, "Reset to defaults"),
-        h("div", { class: "spacer" }),
-        h("button", { class: "btn primary", onclick: finish }, "Done")),
-    );
-    const overlay = h("div", { class: "modal-overlay" }, dialog);
-    overlay.addEventListener("pointerdown", (e) => {
-      if (e.target === overlay) finish();
-    });
-    for (const sync of syncers) sync();
-    document.body.append(overlay);
-  });
+          row("Background tone", tones, undefined, "wide"),
+        ],
+      },
+    ],
+    appearance: [
+      {
+        title: "Photo grid",
+        rows: [
+          row("Layout", segmented<GridLayout>([["justified", "Justified rows"], ["square", "Square tiles"]], () => appearance.layout, (v) => (appearance.layout = v))),
+          slider("Gap", "gap", 16),
+          slider("Corners", "radius", 24),
+        ],
+      },
+      {
+        title: "Zoom animation",
+        rows: [row("Zoom curve", presets), row("Curve editor", curveEditor, undefined, "wide")],
+      },
+      {
+        title: "Custom CSS",
+        rows: [
+          row("Custom CSS", css, undefined, "wide"),
+          row("Reset appearance", reset),
+        ],
+      },
+    ],
+  };
+  sync();
+
+  return {
+    general: () => groups.general,
+    appearance: () => groups.appearance,
+    sync,
+    flush,
+  };
 }
