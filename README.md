@@ -52,7 +52,8 @@ See `docs/PLAN.md` for the roadmap and `docs/DESIGN.md` for the design rules.
 **Slideshows**
 - 11 themes: Cinematic, Modern, Action, Neon, Adventure, Travel, Dreamy, Elegant, Memories, Playful and Noir, plus a Custom style that keeps your own timing, look and music with your own mix of transitions.
 - 50 WebGL transitions in 8 families (classic, light, motion, zoom & spin, 3D, liquid & organic, geometric, digital), with a live preview of each.
-- Ken Burns motion with smart framing (landscapes fill the frame; portraits float over a blurred backdrop), colour grades, film grain, vignette, 2.39:1 letterbox, title cards and captions.
+- Ken Burns motion up to 200% with smart framing (landscapes fill the frame; portraits float over a blurred backdrop). Filled photos get subject-aware camera moves: the camera finds the sharpest, most colourful part of each photo and pushes in, pulls back, trucks, tilts, glides or drifts with a gentle roll, a different move for each photo.
+- Colour grades, film grain, vignette, 2.39:1 letterbox, title cards and captions.
 - Five original built-in soundtracks (synthesised by `tools/make_music.py`, free to ship); cuts can land on the beat. Your own music works too.
 
 **Settings**

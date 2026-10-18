@@ -1,4 +1,4 @@
-import { lerpRect, type Rect } from "./motion";
+import { shotAt } from "./motion";
 import type { FrameState, Renderer, SlideFrame, SlideTexture } from "./renderer";
 
 const VERTEX = `#version 300 es
@@ -29,6 +29,8 @@ const COMPOSE = `${COMMON}
 uniform sampler2D uImage;
 uniform int uMode;        // 0 = fill, 1 = fit
 uniform vec4 uRect;       // fill: crop in image uv. fit: photo placement in frame uv.
+uniform float uRoll;      // fill: radians the crop turns about its center
+uniform float uAspect;    // image width over height
 uniform vec4 uBack;       // fit: backdrop crop in image uv
 uniform vec2 uBand;       // frame top and height, in screen uv (letterbox)
 uniform vec2 uFramePx;    // frame size in pixels
@@ -37,7 +39,12 @@ uniform sampler2D uBlur;  // the slide, Gaussian-blurred once at upload
 void main() {
   vec2 f = vec2(vUv.x, (vUv.y - uBand.x) / uBand.y);
   if (uMode == 0) {
-    outColor = vec4(texture(uImage, uRect.xy + f * uRect.zw).rgb, 1.0);
+    // Turn the crop about its center in square pixels, so a camera roll doesn't shear.
+    vec2 square = vec2(uAspect, 1.0);
+    vec2 d = (f - 0.5) * uRect.zw * square;
+    float c = cos(uRoll), s = sin(uRoll);
+    d = vec2(c * d.x - s * d.y, s * d.x + c * d.y) / square;
+    outColor = vec4(texture(uImage, uRect.xy + 0.5 * uRect.zw + d).rgb, 1.0);
     return;
   }
   // Frosted glass: the blurred photo, a touch more saturated and gently dimmed.
@@ -893,7 +900,7 @@ export class GLRenderer implements Renderer {
     const ext = gl.getExtension("EXT_texture_filter_anisotropic");
     if (ext) this.anisotropy = { ext, max: Math.min(8, gl.getParameter(ext.MAX_TEXTURE_MAX_ANISOTROPY_EXT) as number) };
     this.vao = gl.createVertexArray()!;
-    this.compose = this.program(COMPOSE, ["uImage", "uBlur", "uMode", "uRect", "uBack", "uBand", "uFramePx"]);
+    this.compose = this.program(COMPOSE, ["uImage", "uBlur", "uMode", "uRect", "uRoll", "uAspect", "uBack", "uBand", "uFramePx"]);
     this.downsample = this.program(DOWNSAMPLE, ["uSrc", "uSize"]);
     this.gaussian = this.program(GAUSSIAN, ["uSrc", "uSize", "uDir", "uSigma"]);
     this.scratchFbo = gl.createFramebuffer()!;
@@ -1069,12 +1076,12 @@ export class GLRenderer implements Renderer {
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, texture.blur);
     gl.uniform1i(u.uBlur, 1);
-    const motion = frame.motion;
-    const rect: Rect = lerpRect(motion.from, motion.to, frame.t);
-    const back: Rect = lerpRect(motion.backFrom, motion.backTo, frame.t);
+    const { rect, roll, back } = shotAt(frame.motion, frame.t);
     const bandHeight = 1 - bars * 2;
-    gl.uniform1i(u.uMode, motion.mode === "fill" ? 0 : 1);
+    gl.uniform1i(u.uMode, frame.motion.mode === "fill" ? 0 : 1);
     gl.uniform4f(u.uRect, rect.x, rect.y, rect.w, rect.h);
+    gl.uniform1f(u.uRoll, roll);
+    gl.uniform1f(u.uAspect, texture.width / texture.height);
     gl.uniform4f(u.uBack, back.x, back.y, back.w, back.h);
     gl.uniform2f(u.uBand, bars, bandHeight);
     gl.uniform2f(u.uFramePx, this.width, this.height * bandHeight);

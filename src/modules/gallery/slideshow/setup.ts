@@ -7,7 +7,7 @@ import { icon } from "../../../ui/icons";
 import { builtinTracks, isPreviewing, previewMusic, stopPreview, yourMusic } from "./music";
 import { TransitionPreview } from "./preview";
 import {
-  applyTheme, BUILTIN_MUSIC, LOOKS, THEMES, TRANSITION_GROUPS, useCustomMix,
+  applyTheme, BUILTIN_MUSIC, KEN_BURNS_MAX, LOOKS, THEMES, TRANSITION_GROUPS, useCustomMix,
   type Framing, type SlideshowSettings, type TransitionChoice, type TransitionKind,
 } from "./settings";
 
@@ -52,7 +52,7 @@ export class SettingsForm {
       Timing: [
         this.slider("Each photo", "duration", 2, 20, 0.5, (v) => `${v.toFixed(1)} s`),
         this.slider("Transition", "transitionTime", 0.3, 3, 0.1, (v) => `${v.toFixed(1)} s`),
-        this.slider("Ken Burns", "kenBurns", 0, 1, 0.05, (v) => (v === 0 ? "Off" : `${Math.round(v * 100)}%`)),
+        this.slider("Ken Burns", "kenBurns", 0, KEN_BURNS_MAX, 0.05, (v) => (v === 0 ? "Off" : `${Math.round(v * 100)}%`)),
         this.segmented("Framing", "framing", [["smart", "Smart"], ["fill", "Fill"], ["fit", "Fit"]]),
         this.framingHint(),
         this.toggle("Shuffle", "shuffle"),
@@ -167,8 +167,8 @@ export class SettingsForm {
   private framingHint() {
     const hint = h("p", { class: "sf-hint" });
     const text: Record<Framing, string> = {
-      smart: "Landscapes fill the screen. Portraits start whole over a frosted backdrop, then slowly zoom toward faces.",
-      fill: "Every photo fills the screen; edges are cropped and the camera pans across them.",
+      smart: "Landscapes fill the screen, the camera finding each photo's subject. Portraits start whole over a frosted backdrop, then slowly zoom toward faces.",
+      fill: "Every photo fills the screen. The camera finds the subject and gives each photo its own move: pushing in, pulling back, gliding or drifting past it. Panoramas and tall shots are panned across.",
       fit: "Every photo stays whole over a frosted backdrop, with a gentle push-in.",
     };
     this.syncers.push(() => (hint.textContent = text[this.settings.framing]));

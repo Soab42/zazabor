@@ -88,6 +88,9 @@ export const GRADES: Record<LookId, Grade> = {
 
 export type Framing = "smart" | "fill" | "fit";
 
+/** The Ken Burns slider's top: 2 is 200%, twice the usual motion. */
+export const KEN_BURNS_MAX = 2;
+
 /** Music setting values for the soundtracks bundled with the app look like "builtin:action". */
 export const BUILTIN_MUSIC = "builtin:";
 
@@ -100,7 +103,7 @@ export interface SlideshowSettings {
   transition: TransitionChoice;
   /** The user's own transition mix, used by the Custom style and "My mix". */
   customTransitions: TransitionKind[];
-  /** 0 disables Ken Burns motion; 1 is the strongest. */
+  /** 0 disables Ken Burns motion; 1 is full strength, up to KEN_BURNS_MAX for bolder moves. */
   kenBurns: number;
   framing: Framing;
   look: LookId;
@@ -287,5 +290,6 @@ export function normalizeSettings(raw: Partial<SlideshowSettings> | undefined): 
   s.customTransitions = Array.isArray(s.customTransitions) ? s.customTransitions.filter((k) => k in TRANSITION_IDS) : [];
   if (!LOOKS.some((l) => l.id === s.look)) s.look = "film";
   if (!["smart", "fill", "fit"].includes(s.framing)) s.framing = "smart";
+  s.kenBurns = Number.isFinite(s.kenBurns) ? Math.min(KEN_BURNS_MAX, Math.max(0, s.kenBurns)) : 0.55;
   return s;
 }

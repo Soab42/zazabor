@@ -1,4 +1,4 @@
-import { lerpRect } from "./motion";
+import { shotAt } from "./motion";
 import type { FrameState, Renderer, SlideFrame, SlideTexture } from "./renderer";
 import { TRANSITION_IDS } from "./settings";
 
@@ -85,12 +85,23 @@ export class Canvas2DRenderer implements Renderer {
     const l = this.layerCtx;
     l.imageSmoothingEnabled = true;
     l.imageSmoothingQuality = "high";
-    const { motion, t } = frame;
-    const rect = lerpRect(motion.from, motion.to, t);
-    if (motion.mode === "fill") {
-      l.drawImage(texture.image, rect.x * texture.width, rect.y * texture.height, rect.w * texture.width, rect.h * texture.height, 0, top, W, bandH);
+    const { rect, roll, back } = shotAt(frame.motion, frame.t);
+    const tw = texture.width, th = texture.height;
+    if (frame.motion.mode === "fill" && roll === 0) {
+      l.drawImage(texture.image, rect.x * tw, rect.y * th, rect.w * tw, rect.h * th, 0, top, W, bandH);
+    } else if (frame.motion.mode === "fill") {
+      // A rolled crop: map the crop's center to the frame's, turned back by the roll.
+      l.save();
+      l.beginPath();
+      l.rect(0, top, W, bandH);
+      l.clip();
+      l.translate(W / 2, top + bandH / 2);
+      l.scale(W / (rect.w * tw), bandH / (rect.h * th));
+      l.rotate(-roll);
+      l.translate(-(rect.x + rect.w / 2) * tw, -(rect.y + rect.h / 2) * th);
+      l.drawImage(texture.image, 0, 0, tw, th);
+      l.restore();
     } else {
-      const back = lerpRect(motion.backFrom, motion.backTo, t);
       const b = texture.blurred;
       l.drawImage(b, back.x * b.width, back.y * b.height, back.w * b.width, back.h * b.height, 0, top, W, bandH);
       l.fillStyle = "rgba(0, 0, 0, 0.28)";

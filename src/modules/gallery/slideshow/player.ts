@@ -4,6 +4,7 @@ import type { Photo } from "../library/model";
 import { clamp, formatDate, h, stripExtension } from "../../../ui/dom";
 import { icon } from "../../../ui/icons";
 import { Canvas2DRenderer } from "./canvas2d";
+import { findFocus, type Focus } from "./focus";
 import { GLRenderer } from "./gl";
 import { hashString, letterboxBars, motionEase, mulberry32, planMotion, type Motion } from "./motion";
 import type { Renderer, SlideFrame, SlideTexture } from "./renderer";
@@ -26,6 +27,9 @@ interface Slide {
   texture: SlideTexture;
   aspect: number;
   seed: number;
+  /** Its place in the show, so neighbors get different camera moves. */
+  index: number;
+  focus: Focus | null;
   motion?: Motion;
   motionKey?: string;
 }
@@ -83,7 +87,6 @@ export class Player {
   private lastKind: TransitionKind | null = null;
   private random = mulberry32((Math.random() * 2 ** 32) >>> 0);
   private salt = (Math.random() * 2 ** 32) >>> 0;
-  private renderSize = 2560;
   private wasFullscreen = true;
   private wakeLock: WakeLockSentinel | null = null;
   private music = new MusicChannel("show");
@@ -155,7 +158,6 @@ export class Player {
       this.canvas.addEventListener("click", this.onCanvasClick);
       this.renderer = new Canvas2DRenderer(this.canvas);
     }
-    this.renderSize = Math.min(displayRenderSize(), this.renderer.maxTextureSize);
     this.resize();
     this.prefetch(this.startPos);
     this.lastFrame = performance.now();
@@ -415,7 +417,7 @@ export class Player {
   private load(pos: number) {
     if (this.slides.has(pos)) return;
     const photo = this.photos[this.order[pos]];
-    const promise: Promise<Slide | null> = loadImage(previewUrl(photo.path, photo.mtime, this.renderSize))
+    const promise: Promise<Slide | null> = loadImage(previewUrl(photo.path, photo.mtime, this.renderSize()))
       .then((img) => {
         if (this.destroyed) return null;
         return {
@@ -423,6 +425,8 @@ export class Player {
           texture: this.renderer.upload(img),
           aspect: img.naturalWidth / img.naturalHeight,
           seed: (hashString(photo.path) ^ this.salt ^ pos) >>> 0,
+          index: pos,
+          focus: findFocus(img),
         };
       })
       .catch((err) => {
@@ -434,6 +438,12 @@ export class Player {
       if (this.slides.get(pos) === promise) this.ready.set(pos, slide);
       else slide?.texture.dispose();
     });
+  }
+
+  /** Render size for slides: past 100% Ken Burns zooms in further, so ask for more pixels. */
+  private renderSize() {
+    const extra = Math.max(0, this.settings.kenBurns - 1);
+    return Math.min(displayRenderSize(1.25 * (1 + 0.35 * extra)), this.renderer.maxTextureSize);
   }
 
   // ---- drawing ----------------------------------------------------------------------------
@@ -450,7 +460,7 @@ export class Player {
     const s = this.settings;
     const key = `${frameAspect.toFixed(4)}|${s.framing}|${s.kenBurns}`;
     if (slide.motionKey !== key) {
-      slide.motion = planMotion(slide.aspect, frameAspect, s.framing, s.kenBurns, slide.seed);
+      slide.motion = planMotion(slide.aspect, frameAspect, s.framing, s.kenBurns, slide.seed, { focus: slide.focus, index: slide.index });
       slide.motionKey = key;
     }
     return slide.motion!;

@@ -89,12 +89,12 @@ export const tileUrl = (path: string, mtime: number, x: number, y: number, size:
 export const fileUrl = (path: string, mtime?: number) => `${BASE}file?${query(path, mtime)}`;
 
 /**
- * Long-edge size for screen renders (viewer previews and slideshow frames): a bit larger
- * than the screen so Ken Burns zooms stay sharp, rounded so the disk cache is shared.
+ * Long-edge size for screen renders (viewer previews and slideshow frames): `headroom` times
+ * the screen so Ken Burns zooms stay sharp, rounded so the disk cache is shared.
  */
-export function displayRenderSize() {
+export function displayRenderSize(headroom = 1.25) {
   const dpr = window.devicePixelRatio || 1;
-  const long = Math.max(screen.width, screen.height) * dpr * 1.25;
+  const long = Math.max(screen.width, screen.height) * dpr * headroom;
   return Math.min(4096, Math.max(1536, Math.ceil(long / 512) * 512));
 }
 
