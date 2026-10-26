@@ -53,6 +53,7 @@ const PAGES: Page[] = [
         title: "Look",
         fields: [
           { kind: "choice", key: "playerAccent", label: "Player accent", info: "Choose whether the player uses CorePro's accent colour or a warm orange of its own.", options: [["app", "Follow CorePro"], ["orange", "Orange"]] },
+          { kind: "toggle", key: "glassControls", label: "Liquid Glass controls", info: "The controls float over the video as glass that bends the picture beneath, like macOS, and hide while the video plays. Off docks them in a bar below the picture." },
           { kind: "button", label: "Welcome tour", info: "Replays the short introduction the first time you open Video.", text: "Show Again", run: () => {
             mediaSettings({ config: hostRef.config }).introSeen = false;
             hostRef.configChanged();

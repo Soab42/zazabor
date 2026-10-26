@@ -18,6 +18,10 @@ pub const CLIPBOARD_FLAG: &str = "--clipboard";
 const CLIPBOARD_REQUEST: &str = "clipboard";
 /// A plain launch: show the main window (and open the file given, if any).
 const SHOW_REQUEST: &str = "show";
+/// `corepro --quit`: the running CorePro quits (it's the only way out of the background mode
+/// besides Settings).
+pub const QUIT_FLAG: &str = "--quit";
+const QUIT_REQUEST: &str = "quit";
 
 /// GNOME's custom keyboard shortcuts.
 const KEYS_SCHEMA: &str = "org.gnome.settings-daemon.plugins.media-keys";
@@ -42,6 +46,17 @@ pub fn requested() -> bool {
 /// This launch asks for the clipboard popup.
 pub fn clipboard_requested() -> bool {
     std::env::args().skip(1).any(|a| a == CLIPBOARD_FLAG)
+}
+
+/// This launch asks the running CorePro to quit.
+pub fn quit_requested() -> bool {
+    std::env::args().skip(1).any(|a| a == QUIT_FLAG)
+}
+
+/// Asks a running CorePro to quit; false when none is running.
+pub fn forward_quit() -> bool {
+    let Ok(mut stream) = UnixStream::connect(socket_path()) else { return false };
+    stream.write_all(format!("{QUIT_REQUEST}\n").as_bytes()).is_ok()
 }
 
 fn socket_path() -> PathBuf {
@@ -107,10 +122,12 @@ pub fn serve(app: tauri::AppHandle) {
             let (request, arg) = line.split_once('\t').map_or((line, None), |(r, a)| (r, Some(a.to_string())));
             match request {
                 SHOW_REQUEST => {
+                    crate::background::cancel_quit();
                     crate::show_main(&app, arg);
                     let _ = stream.write_all(b"ok\n");
                 }
                 REQUEST => new_note(&app),
+                QUIT_REQUEST => crate::background::quit(&app),
                 CLIPBOARD_REQUEST => {
                     if let Err(err) = crate::clipboard::popup::toggle(&app) {
                         eprintln!("Could not open the clipboard: {err}");

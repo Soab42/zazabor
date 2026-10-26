@@ -2,7 +2,7 @@ import type { ShellContext } from "../../shell/module";
 import type { Account, Category, Filter, Tx, WalletState } from "./api";
 import { money, type MoneyOptions } from "./format";
 
-export type ViewId = "overview" | "transactions" | "accounts" | "budgets" | "reports";
+export type ViewId = "overview" | "transactions" | "accounts" | "budgets" | "bills" | "reports" | "import";
 
 /** What the views and sheets share: the ledger's state, formatting, and navigation. */
 export interface Ctx {

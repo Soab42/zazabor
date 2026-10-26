@@ -127,6 +127,8 @@ export function clipboardCategory(): Category {
         rows: [
           enabled.row,
           background.row,
+          wide("Quit CorePro", "Closes every window and stops CorePro, the background mode too, until you open it again. Office asks about unsaved files first. The menu entry's right-click has Quit as well.",
+            h("div", { class: "st-inline" }, button("Quit CorePro", () => void invoke("app_quit").catch((err) => console.warn("Couldn't quit:", err)), "btn small ghost"))),
           clearOnExit.row,
           wide("Don't keep copies from", "Copies made in these apps never enter the history (a password manager, a banking app). Right-click an item in the Clipboard section to add its app.", chips),
           wide("Clear history", "Removes everything but the pinned items.", h("div", { class: "st-inline" }, button("Clear All", () => void clipboardApi.clear(), "btn small ghost"))),

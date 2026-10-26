@@ -10,6 +10,9 @@ mod frames;
 mod h264;
 mod media;
 mod project;
+mod record;
+mod recover;
+mod relink;
 
 use std::path::Path;
 use tauri::ipc::{InvokeBody, Request, Response};
@@ -144,6 +147,103 @@ pub async fn videoedit_project_open(path: String) -> Result<String, String> {
         serde_json::to_string(&value).map_err(|e| e.to_string())
     })
     .await
+}
+
+/// Looks for missing media by name and size: under `folder` when given (the user picked it),
+/// else around the project and where the files used to be.
+#[tauri::command]
+pub async fn videoedit_relink(project: Option<String>, folder: Option<String>, missing: Vec<relink::Wanted>, old_paths: Vec<String>) -> Result<Vec<relink::Found>, String> {
+    crate::ensure_unlocked()?;
+    blocking(move || {
+        let roots = match folder {
+            Some(f) => vec![std::path::PathBuf::from(f)],
+            None => relink::roots_for(project.as_deref().map(Path::new), &old_paths),
+        };
+        Ok(relink::search(&roots, &missing))
+    })
+    .await
+}
+
+fn recovery_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("videoedit").join("recovery"))
+}
+
+/// Keeps a snapshot of an unsaved project (AutoRecover).
+#[tauri::command]
+pub async fn videoedit_recovery_save(app: tauri::AppHandle, meta: recover::Snapshot, text: String) -> Result<(), String> {
+    crate::ensure_unlocked()?;
+    let dir = recovery_dir(&app)?;
+    blocking(move || recover::save(&dir, meta, &text, std::process::id(), crate::notes::now())).await
+}
+
+/// Snapshots left by a CorePro that stopped without saving, newest first.
+#[tauri::command]
+pub async fn videoedit_recovery_list(app: tauri::AppHandle) -> Result<Vec<recover::Snapshot>, String> {
+    crate::ensure_unlocked()?;
+    let dir = recovery_dir(&app)?;
+    blocking(move || Ok(recover::list(&dir, std::process::id()))).await
+}
+
+#[tauri::command]
+pub async fn videoedit_recovery_read(app: tauri::AppHandle, id: String) -> Result<String, String> {
+    crate::ensure_unlocked()?;
+    let dir = recovery_dir(&app)?;
+    blocking(move || {
+        let text = recover::read(&dir, &id)?;
+        // Files may have gone since: mark them, as opening a project does.
+        let mut value: serde_json::Value = serde_json::from_str(&text).map_err(|_| "The snapshot is damaged.".to_string())?;
+        project::from_disk(&mut value, Path::new("/"), |p| p.is_file())?;
+        serde_json::to_string(&value).map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn videoedit_recovery_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let dir = recovery_dir(&app)?;
+    blocking(move || recover::delete(&dir, &id)).await
+}
+
+/// Writes a small text file (captions as .srt).
+#[tauri::command]
+pub async fn videoedit_write_text(path: String, text: String) -> Result<(), String> {
+    crate::ensure_unlocked()?;
+    blocking(move || crate::fs::text::write_bytes(Path::new(&path), text.as_bytes()).map(|_| ())).await
+}
+
+#[derive(serde::Serialize)]
+pub struct Recording {
+    id: u64,
+    path: String,
+}
+
+/// Starts a voice-over: into `folder` (the project's Voice-overs folder) or the app's own.
+#[tauri::command]
+pub async fn videoedit_record_start(app: tauri::AppHandle, folder: Option<String>) -> Result<Recording, String> {
+    crate::ensure_unlocked()?;
+    let dir = match folder {
+        Some(f) => std::path::PathBuf::from(f),
+        None => app.path().app_data_dir().map_err(|e| e.to_string())?.join("videoedit").join("voice-overs"),
+    };
+    blocking(move || {
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let path = (1..10_000).map(|n| dir.join(format!("Voice-over {n}.wav"))).find(|p| !p.exists()).ok_or("Too many voice-overs here.")?;
+        let path = path.to_string_lossy().into_owned();
+        let id = record::start(&path)?;
+        Ok(Recording { id, path })
+    })
+    .await
+}
+
+/// The microphone's loudest moment since the last call (0…1).
+#[tauri::command]
+pub async fn videoedit_record_level(id: u64) -> Result<f32, String> {
+    record::level(id)
+}
+
+#[tauri::command]
+pub async fn videoedit_record_stop(id: u64, keep: bool) -> Result<record::Recorded, String> {
+    blocking(move || record::stop(id, keep)).await
 }
 
 /// Runs against real files: `COREPRO_VIDEOEDIT_SAMPLE=clip.mp4 cargo test videoedit -- --ignored`.

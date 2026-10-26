@@ -276,3 +276,131 @@
 .vp-panel-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 14px 18px; }
 .vp.fullscreen.panel-open .vp-panel { position: absolute; top: 56px; right: 12px; bottom: 76px; border-radius: 14px; background: var(--glass-strong); box-shadow: inset 0 1px 0 var(--shine), var(--shadow-pop); }
 .vp.fullscreen.idle .vp-panel { opacity: 0; pointer-events: none; }
+
+/* ---- Liquid Glass (Settings → Video → Interface, on by default) ---------------------------------
+   As in macOS 26: the controls float over the picture as capsules of glass. The video's own
+   canvas bends and blurs the picture under each one (surface.ts, from --lg-rim and --lg-blur);
+   CSS adds the rim, the light catching its edges and the glow under the pointer. Over video the
+   glass is always the dark kind, with white symbols, in either theme. */
+
+.vp.liquid { --vp-left: 0px; --vp-right: 0px; --lg-gap: 12px; --lg-spring: cubic-bezier(0.34, 1.56, 0.64, 1); }
+.vp.liquid.sidebar-open:not(.fullscreen) { --vp-left: 300px; }
+.vp.liquid.panel-open:not(.fullscreen) { --vp-right: 340px; }
+
+/* The picture fills the player; the bars float over it. */
+.vp.liquid.view-player .vp-body { position: absolute; inset: 0; }
+.vp.liquid.view-player .vp-top {
+  position: absolute; z-index: 5; top: var(--lg-gap); left: calc(var(--vp-left) + var(--lg-gap)); right: calc(var(--vp-right) + var(--lg-gap));
+  gap: 10px; padding: 0; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; pointer-events: none;
+}
+.vp.liquid.view-player .vp-top > * { pointer-events: auto; }
+.vp.liquid.view-player .vp-top-side { position: relative; justify-self: start; max-width: 100%; height: var(--vp-top-h); padding: 0 12px 0 6px; border-radius: calc(var(--vp-top-h) / 2); }
+.vp.liquid.view-player .vp-top-side.end { justify-self: end; padding: 0 6px; }
+.vp.liquid.view-player .vp-top-side:empty { display: none; }
+.vp.liquid.view-player .vp-top-title { position: relative; height: var(--vp-top-h); padding: 0 18px; border-radius: calc(var(--vp-top-h) / 2); line-height: var(--vp-top-h); }
+.vp.liquid.view-player .vp-top-title:empty { visibility: hidden; }
+.vp.liquid.view-player .vp-bar {
+  position: absolute; z-index: 5; bottom: 14px; left: calc(var(--vp-left) + 14px); right: calc(var(--vp-right) + 14px); max-width: 1180px; margin: 0 auto;
+  gap: 12px; padding: 0 12px 0 11px; border-radius: calc(var(--vp-bar-h) / 2);
+}
+.vp.liquid.view-player .vp-custom { bottom: calc(var(--vp-bar-h) + 24px); }
+.vp.liquid.view-player .vp-bar.editing { z-index: 60; }
+
+/* The material. */
+.vp.liquid.view-player :is(.vp-bar, .vp-top-side, .vp-top-title),
+.vp.liquid.fullscreen :is(.vp-sidebar, .vp-panel) {
+  --lg-rim: 14; --lg-blur: 2.8;
+  --text: rgba(255, 255, 255, 0.96); --text-2: rgba(255, 255, 255, 0.88); --muted: rgba(255, 255, 255, 0.74); --faint: rgba(255, 255, 255, 0.52);
+  --fg: 255, 255, 255; --hover: rgba(255, 255, 255, 0.12); --control-hover: rgba(255, 255, 255, 0.2);
+  --line: rgba(255, 255, 255, 0.12); --line-strong: rgba(255, 255, 255, 0.2); --selection: rgba(255, 255, 255, 0.14);
+  color: var(--text); color-scheme: dark; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+  background:
+    radial-gradient(160px 90px at var(--lx, 30%) var(--ly, -30px), rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 70%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.035) 40%, rgba(255, 255, 255, 0.015) 62%, rgba(255, 255, 255, 0.07));
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.5),
+    inset 0 -0.5px 1px rgba(255, 255, 255, 0.14),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.16),
+    inset 0 -14px 20px -16px rgba(255, 255, 255, 0.22),
+    0 14px 34px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.22);
+  transition: opacity 0.35s var(--ease-out), transform 0.5s cubic-bezier(0.2, 0.9, 0.25, 1.12);
+}
+/* The wide bar blurs a little more than the small pills. */
+.vp.liquid.view-player .vp-bar { --lg-blur: 3.2; }
+/* Light catching the rim: brightest at the top left and bottom right, as on real glass. */
+.vp.liquid.view-player :is(.vp-bar, .vp-top-side, .vp-top-title)::before,
+.vp.liquid.fullscreen :is(.vp-sidebar, .vp-panel)::before {
+  content: ""; position: absolute; inset: 0; z-index: 0; padding: 1px; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(125deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.14) 20%, rgba(255, 255, 255, 0) 42%,
+    rgba(255, 255, 255, 0) 62%, rgba(255, 255, 255, 0.1) 82%, rgba(255, 255, 255, 0.3));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  mix-blend-mode: plus-lighter;
+}
+
+/* Symbols in the glass: a soft light under the pointer, and a press that swells like a drop. */
+.vp.liquid.view-player :is(.vp-bar, .vp-top) .icon-btn {
+  border-radius: 999px; color: var(--text-2);
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast), transform 0.4s var(--lg-spring);
+}
+.vp.liquid.view-player :is(.vp-bar, .vp-top) .icon-btn:hover {
+  background: radial-gradient(closest-side, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.1) 72%, rgba(255, 255, 255, 0.04)); color: var(--text);
+}
+.vp.liquid.view-player :is(.vp-bar, .vp-top) .icon-btn:active { transform: scale(1.16); background: rgba(255, 255, 255, 0.24); transition-duration: 0.12s; }
+.vp.liquid.view-player :is(.vp-bar, .vp-top) .icon-btn.active { color: var(--accent); background: rgba(255, 255, 255, 0.1); }
+
+.vp.liquid.view-player .vc-play {
+  width: 52px; height: 34px; border-radius: 17px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.08) 48%, rgba(0, 0, 0, 0.06)),
+    var(--accent);
+  box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.7), inset 0 -1px 1.5px rgba(0, 0, 0, 0.2), inset 0 0 0 0.5px rgba(255, 255, 255, 0.3),
+    0 4px 14px color-mix(in srgb, var(--accent) 45%, transparent);
+  transition: transform 0.4s var(--lg-spring), filter var(--dur-fast);
+}
+.vp.liquid.view-player .vc-play:hover { background: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.12) 48%, rgba(0, 0, 0, 0.04)), var(--accent); }
+.vp.liquid.view-player .vc-play:active { transform: scale(1.1); transition-duration: 0.12s; }
+
+/* The seek groove: a channel cut into the glass, the played part lit, the playhead a glass bead
+   that swells into a clear lens while dragged. */
+.vp.liquid.view-player .vc-time { color: var(--muted); }
+.vp.liquid.view-player .vc-track {
+  height: 26px; border-radius: 13px; background: rgba(0, 0, 0, 0.26);
+  box-shadow: inset 0 1px 2.5px rgba(0, 0, 0, 0.42), inset 0 -0.5px 0 rgba(255, 255, 255, 0.16), 0 0.5px 0 rgba(255, 255, 255, 0.1);
+}
+.vp.liquid.view-player .vc-played {
+  top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) * var(--p)); border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0) 60%), color-mix(in srgb, var(--accent) 62%, transparent);
+}
+.vp.liquid.view-player .vc-thumb {
+  top: 3px; bottom: 3px; left: calc(3px + (100% - 16px) * var(--p)); width: 10px; border-radius: 5px; background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.15), 0 1px 4px rgba(0, 0, 0, 0.35);
+  transition: left 250ms linear, transform 0.35s var(--lg-spring), background-color 0.2s, box-shadow 0.2s;
+}
+.vp.liquid.view-player .vc-track:hover .vc-thumb { transform: scaleY(1.12); }
+.vp.liquid.view-player .vc-track.dragging .vc-thumb {
+  transform: scale(2.1, 1.45); background: rgba(255, 255, 255, 0.16);
+  -webkit-backdrop-filter: blur(1px) saturate(1.8) brightness(1.25); backdrop-filter: blur(1px) saturate(1.8) brightness(1.25);
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.85), inset 0 0 0 0.5px rgba(255, 255, 255, 0.5), inset 0 -1px 2px rgba(255, 255, 255, 0.25), 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+.vp.liquid.view-player .vc-vol-wedge { background: rgba(255, 255, 255, 0.16); }
+.vp.liquid.view-player .vc-divider { background: rgba(255, 255, 255, 0.2); }
+
+/* Fullscreen: the playlist and the side panel float as glass sheets too. */
+.vp.liquid.fullscreen .vp-sidebar {
+  left: var(--lg-gap); top: calc(var(--lg-gap) * 2 + var(--vp-top-h)); bottom: calc(28px + var(--vp-bar-h)); overflow: hidden; border-radius: 22px;
+}
+.vp.liquid.fullscreen.panel-open .vp-panel { top: calc(var(--lg-gap) * 2 + var(--vp-top-h)); bottom: calc(28px + var(--vp-bar-h)); right: var(--lg-gap); border-radius: 22px; }
+
+/* Resting while the video plays: the glass sinks away; the pointer brings it back. */
+.vp.liquid.view-player.idle :is(.vp-top, .vp-bar), .vp.liquid.fullscreen.idle :is(.vp-sidebar, .vp-panel) { opacity: 0; pointer-events: none; }
+.vp.liquid.view-player .vp-top { transition: opacity 0.35s var(--ease-out), transform 0.5s cubic-bezier(0.2, 0.9, 0.25, 1.12); }
+.vp.liquid.view-player.idle .vp-bar { transform: translateY(12px) scale(0.96); }
+.vp.liquid.view-player.idle .vp-top { transform: translateY(-10px) scale(0.97); }
+.vp.liquid.view-player.idle .vp-stage { cursor: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .vp.liquid.view-player.idle :is(.vp-top, .vp-bar) { transform: none; }
+  .vp.liquid.view-player :is(.vp-bar, .vp-top) .icon-btn:active, .vp.liquid.view-player .vc-play:active { transform: none; }
+}

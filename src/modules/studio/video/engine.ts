@@ -1,9 +1,15 @@
 import { api } from "../../../api";
+import { readText } from "../../../shared/quicklook/api";
 import { GRADES, TRANSITION_IDS } from "../../gallery/slideshow/settings";
 import { editApi } from "./api";
-import { Compositor, type LayerDraw, type Source } from "./gfx";
-import { audibleClips, clampedSource, clipEnd, mainTrack, mediaOf, projectDuration, sceneAt, type Clip, type Media, type MediaClip, type Project, type TextClip } from "./model";
-import type { MediaStore } from "./media";
+import { CURVE_RATE, gainCurve, rateCurve, steadyGain, voiceWindows, clipGain, type Windows } from "./audio";
+import { Compositor, SHADER_EFFECTS, type LayerDraw, type LayerFx, type Lut3D, type Source } from "./gfx";
+import { parseCube } from "./lut";
+import {
+  audibleClips, clampedSource, clipEnd, mainTrack, mediaOf, placeAt, projectDuration, sceneAt, sourceSpan, sourceTime,
+  type Clip, type Media, type MediaClip, type Project, type TextClip,
+} from "./model";
+import { PEAK_RATE, type MediaStore } from "./media";
 import { drawText, textKey, textLook } from "./text";
 
 /**
@@ -32,6 +38,17 @@ function hash(text: string) {
   return (h >>> 0) / 4294967296;
 }
 
+/** Smooth noise in −1…1 (for camera shake). */
+function noise(x: number, seed: number): number {
+  const i = Math.floor(x), f = x - i;
+  const h = (n: number) => hash(`${n}:${seed}`);
+  const u = f * f * (3 - 2 * f);
+  return (h(i) * (1 - u) + h(i + 1) * u) * 2 - 1;
+}
+
+/** A .cube file this big isn't a colour table. */
+const LUT_BYTES = 16 * 1024 * 1024;
+
 function parseColor(color: string): [number, number, number] {
   const m = /^#?([0-9a-f]{6})$/i.exec(color);
   if (!m) return [0, 0, 0];
@@ -48,10 +65,23 @@ export function baseSize(m: Media, fit: "fill" | "fit", W: number, H: number): [
 }
 
 /** The layer rectangle of a media clip at `local` seconds into it. */
-export function placeMedia(c: MediaClip, m: Media, W: number, H: number, local: number): { center: [number, number]; size: [number, number]; rotation: number } {
+export function placeMedia(c: MediaClip, m: Media, W: number, H: number, local: number): { center: [number, number]; size: [number, number]; rotation: number; opacity: number } {
   const [w, h] = baseSize(m, c.fit, W, H);
-  let scale = c.place.scale;
-  let cx = c.place.x * W, cy = c.place.y * H;
+  const place = placeAt(c, local);
+  let scale = place.scale;
+  let cx = place.x * W, cy = place.y * H;
+  let rotation = place.rotation;
+  const amount = c.fx.amount;
+  if (c.fx.effect === "shake") {
+    const seed = hash(c.id) * 1000;
+    cx += noise(local * 14, seed) * W * 0.025 * amount;
+    cy += noise(local * 14 + 31, seed) * H * 0.02 * amount;
+    rotation += noise(local * 9 + 7, seed) * 2.5 * amount;
+    scale *= 1 + 0.04 * amount;
+  } else if (c.fx.effect === "pulse") {
+    const phase = (local % 0.5) / 0.5;
+    scale *= 1 + 0.08 * amount * Math.exp(-phase * 5);
+  }
   if (m.kind === "image" && c.motion) {
     // Ken Burns: a slow zoom with a drift, its direction fixed per clip.
     const r = hash(c.id);
@@ -63,7 +93,7 @@ export function placeMedia(c: MediaClip, m: Media, W: number, H: number, local: 
     cx += Math.cos(angle) * W * 0.035 * (u - 0.5);
     cy += Math.sin(angle) * H * 0.035 * (u - 0.5);
   }
-  return { center: [cx, cy], size: [w * scale, h * scale], rotation: (c.place.rotation * Math.PI) / 180 };
+  return { center: [cx, cy], size: [w * scale, h * scale], rotation: (rotation * Math.PI) / 180, opacity: place.opacity };
 }
 
 export interface EngineHost {
@@ -85,6 +115,10 @@ export class Engine {
   private slots = new Map<string, Slot>();
   private pictures = new Map<string, Source>();
   private texts = new Map<string, { canvas: HTMLCanvasElement; key: string; source: Source | null; size: { width: number; height: number } }>();
+  private luts = new Map<string, Lut3D | null>();
+  private lutLoads = new Map<string, Promise<void>>();
+  /** Playback measurements (frames drawn, frames that showed an older picture than due). */
+  readonly stats = { frames: 0, stale: 0, since: performance.now() };
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private nodes: AudioScheduledSourceNode[] = [];
@@ -100,6 +134,8 @@ export class Engine {
   private lead = 0.03;
   /** Export owns the compositor: the preview doesn't draw. */
   private held = false;
+  /** A clip whose chroma key is off while its colour is picked from the preview. */
+  keyOff: string | null = null;
 
   constructor(readonly canvas: HTMLCanvasElement, private host: EngineHost) {
     this.gfx = new Compositor(canvas);
@@ -221,30 +257,22 @@ export class Engine {
     const when0 = ctx.currentTime + 0.06;
     this.clockStart = ctx.state === "running" ? when0 : performance.now() / 1000;
     const p = this.host.project();
+    const windows = duckWindows(p, this.host.store);
     for (const c of audibleClips(p)) {
       const end = clipEnd(c);
       if (end <= t0) continue;
       const m = mediaOf(p, c.media)!;
-      const sound = this.host.store.soundNow(m);
+      const sound = c.reverse ? this.host.store.reversedNow(m) : this.host.store.soundNow(m);
       if (sound === undefined) {
         // Not decoded yet: start it, and rebuild the graph when it's ready.
-        void this.host.store.sound(m).then(() => {
+        void (c.reverse ? this.host.store.reversed(m) : this.host.store.sound(m)).then(() => {
           if (this.playing && !this.disposed) this.startSound(this.clock());
         });
         continue;
       }
       if (!sound) continue;
-      const from = Math.max(c.start, t0);
-      const offset = c.in + (from - c.start) * c.speed;
-      if (offset >= sound.buffer.duration) continue;
-      const node = ctx.createBufferSource();
-      node.buffer = sound.buffer;
-      node.playbackRate.value = c.speed;
-      const gain = ctx.createGain();
-      envelope(gain.gain, c, t0, when0);
-      node.connect(gain).connect(this.master);
-      node.start(when0 + (from - t0), offset, (end - from) * c.speed);
-      this.nodes.push(node);
+      const node = playClip(ctx, this.master, sound, c, t0, when0, windows);
+      if (node) this.nodes.push(node);
     }
   }
 
@@ -336,6 +364,7 @@ export class Engine {
     if (!m || m.missing || m.kind === "audio") return [];
     const local = t - c.start;
     const place = placeMedia(c, m, W, H, local);
+    if (place.opacity <= 0.001) return [];
     let source: Source | null = null;
     if (m.kind === "image") {
       source = this.picture(m);
@@ -350,21 +379,88 @@ export class Engine {
         if (exact) exact.push(wait);
       }
       source = this.slots.get(key)?.source ?? null;
+      if (source && this.playing && !exact) {
+        this.stats.frames++;
+        if (Math.abs(source.pts - clampedSource(c, m, t)) > 1.5 / Math.max(10, m.fps || 30)) this.stats.stale++;
+      }
     }
     if (!source) return [];
     const look = c.fx.look !== "none" ? GRADES[c.fx.look] : null;
+    const fx = this.layerFx(c, local, t, place.size, H, exact);
+    let blur = c.fx.blur * 5;
+    if (c.fx.effect === "blurin") blur += c.fx.amount * 6 * (1 - Math.min(1, local / 0.6));
     const draw: LayerDraw = {
-      source, center: place.center, size: place.size, rotation: place.rotation, opacity: c.place.opacity,
-      grade: look, adjust: [c.fx.brightness, c.fx.contrast, c.fx.saturation], blur: 0, dim: 0,
+      source, center: place.center, size: place.size, rotation: place.rotation, opacity: place.opacity,
+      grade: look, adjust: [c.fx.brightness, c.fx.contrast, c.fx.saturation], blur, dim: 0, fx,
     };
     const draws: LayerDraw[] = [];
     if (background && this.host.project().canvas.background === "blur") {
       const [bw, bh] = baseSize(m, "fill", W, H);
-      const covers = c.fit === "fill" && c.place.scale >= 1 && Math.abs(c.place.x - 0.5) < 1e-3 && Math.abs(c.place.y - 0.5) < 1e-3 && c.place.rotation === 0;
-      if (!covers) draws.push({ ...draw, center: [W / 2, H / 2], size: [bw * 1.08, bh * 1.08], rotation: 0, opacity: 1, blur: 4.5, dim: 0.28 });
+      const covers = c.fit === "fill" && placeAt(c, local).scale >= 1 && !c.mask && !c.fx.key && Math.abs(place.center[0] - W / 2) < 1 && Math.abs(place.center[1] - H / 2) < 1 && place.rotation === 0 && place.opacity >= 1;
+      if (!covers) draws.push({ ...draw, center: [W / 2, H / 2], size: [bw * 1.08, bh * 1.08], rotation: 0, opacity: 1, blur: 4.5, dim: 0.28, fx: undefined });
+    }
+    if (c.frame && c.frame.shadow > 0) {
+      const soft = H * (0.012 + 0.03 * c.frame.shadow);
+      draws.push({
+        ...draw, fx: undefined, center: [place.center[0], place.center[1] + H * 0.01], size: [place.size[0] + soft * 4, place.size[1] + soft * 4],
+        opacity: place.opacity * 0.65 * Math.min(1, c.frame.shadow * 1.4),
+        shadow: { box: [place.size[0] / 2, place.size[1] / 2], radius: fx.radius, softness: soft },
+      });
     }
     draws.push(draw);
     return draws;
+  }
+
+  /** A media clip's extras for the layer shader. Export waits (`exact`) for a colour table still loading. */
+  private layerFx(c: MediaClip, local: number, t: number, size: [number, number], H: number, exact: Promise<void>[] | null): LayerFx {
+    const f = c.fx;
+    let lut: Lut3D | null = null;
+    if (f.lut && f.lut.strength > 0) {
+      const have = this.luts.get(f.lut.path);
+      if (have !== undefined) lut = have;
+      else {
+        const loading = this.loadLut(f.lut.path);
+        if (exact) exact.push(loading);
+      }
+    }
+    const key = f.key && this.keyOff !== c.id ? [...parseColor(f.key.color), f.key.tolerance * 0.25, f.key.softness * 0.15, f.key.spill] as LayerFx["key"] : null;
+    const mask = c.mask ? { shape: c.mask.shape === "circle" ? 1 as const : 2 as const, rect: [c.mask.x, c.mask.y, c.mask.w, c.mask.h] as [number, number, number, number], feather: c.mask.feather, invert: c.mask.invert } : null;
+    const fr = c.frame;
+    return {
+      sharpen: f.sharpen, vignette: f.vignette, grain: f.grain,
+      effect: SHADER_EFFECTS[f.effect] ?? 0, amount: f.amount, local, time: t, seed: hash(c.id) * 100,
+      key, lut, lutStrength: f.lut?.strength ?? 1, mask,
+      radius: fr ? fr.radius * Math.min(size[0], size[1]) : 0,
+      border: fr ? (fr.border / 1000) * H : 0,
+      borderColor: fr ? parseColor(fr.color) : [1, 1, 1],
+    };
+  }
+
+  /** Reads and uploads a .cube colour table once; a broken one draws without it. */
+  private loadLut(path: string): Promise<void> {
+    let p = this.lutLoads.get(path);
+    if (p) return p;
+    p = readText(path, LUT_BYTES).then((file) => {
+      if (this.disposed) return;
+      const cube = parseCube(file.text);
+      this.luts.set(path, this.gfx.uploadLut(cube.size, cube.data));
+    }).catch((err) => {
+      console.warn("[video-editor] colour table", path, err);
+      this.luts.set(path, null);
+    }).finally(() => {
+      this.dirty = true;
+      this.kick();
+    });
+    this.lutLoads.set(path, p);
+    return p;
+  }
+
+  /** A colour table changed on disk or was replaced: read it again. */
+  forgetLut(path: string) {
+    const have = this.luts.get(path);
+    if (have) this.gfx.releaseLut(have);
+    this.luts.delete(path);
+    this.lutLoads.delete(path);
   }
 
   /**
@@ -395,16 +491,17 @@ export class Engine {
 
   private textLayer(c: TextClip, t: number, W: number, H: number): LayerDraw[] {
     const look = textLook(c, t - c.start);
-    if (look.opacity <= 0.001 || look.scale <= 0.001) return [];
+    const place = placeAt(c, t - c.start);
+    if (look.opacity <= 0.001 || look.scale <= 0.001 || place.opacity <= 0.001) return [];
     const drawn = this.text(c, W, H, look.chars);
     if (!drawn.source) return [];
-    const s = c.place.scale * look.scale;
+    const s = place.scale * look.scale;
     return [{
       source: drawn.source,
-      center: [c.place.x * W, (c.place.y + look.dy) * H],
+      center: [place.x * W, (place.y + look.dy) * H],
       size: [drawn.size.width * s, drawn.size.height * s],
-      rotation: (c.place.rotation * Math.PI) / 180,
-      opacity: c.place.opacity * look.opacity,
+      rotation: (place.rotation * Math.PI) / 180,
+      opacity: place.opacity * look.opacity,
       grade: null, adjust: [0, 0, 0], blur: 0, dim: 0,
     }];
   }
@@ -428,8 +525,9 @@ export class Engine {
         const drawn = this.texts.get(layer.id);
         if (!drawn) continue;
         const look = textLook(layer, t - layer.start);
-        const s = layer.place.scale * look.scale;
-        if (inside([layer.place.x * W, (layer.place.y + look.dy) * H], [drawn.size.width * s, drawn.size.height * s], (layer.place.rotation * Math.PI) / 180)) return layer;
+        const place = placeAt(layer, t - layer.start);
+        const s = place.scale * look.scale;
+        if (inside([place.x * W, (place.y + look.dy) * H], [drawn.size.width * s, drawn.size.height * s], (place.rotation * Math.PI) / 180)) return layer;
       } else {
         const m = mediaOf(p, layer.media);
         if (!m) continue;
@@ -453,6 +551,19 @@ export class Engine {
       const place = placeMedia(next, m, W, H, 0);
       void this.request(`${keyPrefix}${next.id}`, m, clampedSource(next, m, next.start), [Math.min(place.size[0], W * 1.5), Math.min(place.size[1], H * 1.5)]);
     }
+  }
+
+  /** The preview's colour at a point (composition pixels), as #rrggbb. */
+  colorAt(x: number, y: number): string | null {
+    const px = this.gfx.readPixel(x, y);
+    return px ? `#${px.map((v) => v.toString(16).padStart(2, "0")).join("")}` : null;
+  }
+
+  /** Draws the current frame now (after a change the eyedropper must see). */
+  drawNow() {
+    if (this.width <= 0) return;
+    this.compose(Math.min(this.time, Math.max(0, projectDuration(this.host.project()) - 1e-3)), this.width, this.height, this.host.prefix, null, false);
+    this.gfx.present();
   }
 
   /** Stops (or resumes) drawing the preview while export uses the compositor. */
@@ -487,7 +598,18 @@ export class Engine {
       }
     }
     if (this.playing || this.dirty) this.kick();
+    if (import.meta.env.DEV && this.playing && performance.now() - this.stats.since > 5000) this.logStats();
   };
+
+  /** Development builds: how smoothly the last few seconds played (in the app's log). */
+  private logStats() {
+    const seconds = (performance.now() - this.stats.since) / 1000;
+    const { frames, stale } = this.stats;
+    if (frames) void api.log("info", `[video-editor] playback ${this.width}x${this.height}: ${(frames / seconds).toFixed(1)} clip frames/s, ${((stale / frames) * 100).toFixed(1)}% late, lead ${(this.lead * 1000).toFixed(0)} ms`).catch(() => undefined);
+    this.stats.frames = 0;
+    this.stats.stale = 0;
+    this.stats.since = performance.now();
+  }
 
   private reported = new Set<string>();
 
@@ -545,47 +667,74 @@ export class Engine {
     this.stopSound();
     void this.ctx?.close().catch(() => undefined);
     void editApi.release([], this.host.prefix).catch(() => undefined);
+    for (const lut of this.luts.values()) if (lut) this.gfx.releaseLut(lut);
     this.gfx.dispose();
   }
 }
 
-/** Volume with fades for a clip, on an AudioParam of a graph started at `when0` for `t0`. */
-export function envelope(param: AudioParam, c: MediaClip, t0: number, when0: number) {
-  const at = (t: number) => when0 + (t - t0);
+/**
+ * Plays one clip from timeline time `t0` on a graph whose clock reads `when0` at `t0`: its gain
+ * (volume keyframes, fades, ducking), its speed or speed curve, backwards from a reversed buffer.
+ */
+export function playClip(ctx: BaseAudioContext, out: AudioNode, sound: { buffer: AudioBuffer }, c: MediaClip, t0: number, when0: number, windows: Windows): AudioBufferSourceNode | null {
   const end = clipEnd(c);
-  const v = c.volume;
-  const fi = Math.min(c.fadeIn, c.duration / 2), fo = Math.min(c.fadeOut, c.duration / 2);
-  const value = (t: number) => {
-    let g = v;
-    if (fi > 0 && t < c.start + fi) g *= Math.max(0, (t - c.start) / fi);
-    if (fo > 0 && t > end - fo) g *= Math.max(0, (end - t) / fo);
-    return g;
-  };
   const from = Math.max(c.start, t0);
-  param.setValueAtTime(value(from), at(from));
-  if (fi > 0 && from < c.start + fi) param.linearRampToValueAtTime(v, at(c.start + fi));
-  if (fo > 0) {
-    const s = Math.max(from, end - fo);
-    param.setValueAtTime(value(s), at(s));
-    param.linearRampToValueAtTime(0, at(end));
-  }
+  if (end - from < 0.005) return null;
+  const buffer = sound.buffer;
+  // Where in the (maybe reversed) buffer the clip is at `from`, and how much of it is left.
+  const s = sourceTime(c, from);
+  const offset = c.reverse ? buffer.duration - s : s;
+  const left = c.reverse ? s - c.in : c.in + sourceSpan(c) - s;
+  if (offset >= buffer.duration || left <= 0.001) return null;
+  const node = ctx.createBufferSource();
+  node.buffer = buffer;
+  const at = when0 + (from - t0);
+  const rates = rateCurve(c, from);
+  if (rates) node.playbackRate.setValueCurveAtTime(rates, at, end - from);
+  else node.playbackRate.value = c.speed;
+  const gain = ctx.createGain();
+  if (steadyGain(c, windows)) gain.gain.setValueAtTime(clipGain(c, from, windows), at);
+  else gain.gain.setValueCurveAtTime(gainCurve(c, from, windows), at, end - from);
+  node.connect(gain).connect(out);
+  node.start(at, Math.max(0, offset), left);
+  node.stop(at + (end - from) + 1 / CURVE_RATE);
+  return node;
+}
+
+/** When voice-overs are heard (from their waveforms once decoded), for ducking the music. */
+export function duckWindows(p: Project, store: MediaStore): Windows {
+  if (!p.tracks.some((t) => t.clips.some((c) => c.type === "media" && !!c.duck))) return [];
+  return voiceWindows(p, (c, t) => {
+    const m = mediaOf(p, c.media);
+    const sound = m ? store.soundNow(m) : null;
+    // Not decoded yet: count it as speaking.
+    if (!sound) return true;
+    const i = Math.floor(sourceTime(c, t) * PEAK_RATE);
+    return (sound.peaks[i] ?? 0) / 255 * propAt01(c, t) > 0.12;
+  });
+}
+
+/** A clip's volume at timeline time `t`, at most 1 (for telling speech from silence). */
+function propAt01(c: MediaClip, t: number): number {
+  return Math.min(1, Math.max(0, clipGain(c, t, [])));
 }
 
 /** Renders the whole sound mix offline (for export): interleaved 16-bit stereo at 48 kHz. */
 export async function mixdown(p: Project, store: MediaStore, seconds: number): Promise<Uint8Array> {
   const length = Math.max(1, Math.ceil(seconds * 48000));
   const ctx = new OfflineAudioContext({ numberOfChannels: 2, length, sampleRate: 48000 });
-  for (const c of audibleClips(p)) {
+  const clips = audibleClips(p);
+  // Every sound decoded first, so ducking sees the voice-overs' waveforms.
+  await Promise.all(clips.map((c) => {
     const m = mediaOf(p, c.media)!;
-    const sound = await store.sound(m);
-    if (!sound) continue;
-    const node = ctx.createBufferSource();
-    node.buffer = sound.buffer;
-    node.playbackRate.value = c.speed;
-    const gain = ctx.createGain();
-    envelope(gain.gain, c, 0, 0);
-    node.connect(gain).connect(ctx.destination);
-    node.start(c.start, c.in, c.duration * c.speed);
+    return c.reverse ? store.reversed(m) : store.sound(m);
+  }));
+  await Promise.all(p.tracks.flatMap((t) => t.clips).filter((c): c is MediaClip => c.type === "media" && c.role === "voice").map((c) => store.sound(mediaOf(p, c.media)!)));
+  const windows = duckWindows(p, store);
+  for (const c of clips) {
+    const m = mediaOf(p, c.media)!;
+    const sound = await (c.reverse ? store.reversed(m) : store.sound(m));
+    if (sound) playClip(ctx, ctx.destination, sound, c, 0, 0, windows);
   }
   const rendered = await ctx.startRendering();
   const l = rendered.getChannelData(0), r = rendered.getChannelData(1);

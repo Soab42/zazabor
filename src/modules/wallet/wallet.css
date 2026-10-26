@@ -178,7 +178,7 @@
 .wl-day:first-child { margin-top: 0; }
 .wl-day-total { color: var(--text-2); font-variant-numeric: tabular-nums; }
 .wl-tx {
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; align-items: center; gap: 12px;
   min-height: 48px; padding: 6px 12px; border-radius: var(--radius-md); cursor: default; user-select: none;
   transition: background-color var(--dur-fast) var(--ease-out);
 }
@@ -381,3 +381,153 @@ button.wl-hbar { cursor: pointer; }
 }
 
 .wl-reports { display: flex; flex-direction: column; gap: 12px; }
+
+/* ---- bills */
+
+.wl-view-actions .segmented { flex: none; }
+.wl-bill-list { padding-bottom: 8px; }
+.wl-bill {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto auto; align-items: center; gap: 12px;
+  min-height: 54px; padding: 6px 8px; border-radius: var(--radius-md); cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.wl-bill:hover { background: var(--hover); }
+.wl-bill:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
+.wl-bill + .wl-bill { box-shadow: inset 0 0.5px 0 var(--line); }
+.wl-bill.dim { opacity: 0.55; }
+.wl-bill-text, .wl-bill-due { display: flex; flex-direction: column; min-width: 0; }
+.wl-bill-due { align-items: flex-end; }
+.wl-bill-name { display: flex; align-items: center; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.wl-bill-sub, .wl-bill-year { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11.5px; }
+.wl-bill-when { display: inline-flex; align-items: center; gap: 4px; color: var(--text-2); font-size: var(--text-sm); font-weight: 600; white-space: nowrap; }
+.wl-bill-when.soon .icon, .wl-bill-when.soon { color: var(--text); }
+.wl-bill-when.late .icon { color: var(--st-critical); }
+.wl-late { color: var(--text) !important; font-weight: 600; }
+.wl-badge {
+  flex: none; padding: 1px 7px; border-radius: 9px; background: var(--accent-soft); color: var(--accent);
+  font-size: 10.5px; font-weight: 650; letter-spacing: 0.02em;
+}
+.wl-empty.small { padding: 28px 16px; }
+.wl-mini-bill { cursor: default; }
+.wl-mini-bill .text-btn { height: auto; padding: 0; color: inherit; font-weight: inherit; text-align: left; }
+.wl-inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wl-inline .tt-field { flex: 1; min-width: 180px; }
+.tt-dialog .wl-inline { flex-wrap: nowrap; }
+.wl-inline > .wl-select { flex: 1; width: auto; min-width: 0; }
+.wl-every { width: 64px; text-align: center; }
+.wl-toggle-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
+.wl-toggle-row > div { flex: 1; min-width: 0; }
+.wl-toggle-row strong { font-weight: 600; }
+.wl-toggle-row .tt-hint { margin: 2px 0 0; }
+
+/* ---- budgets: roll-over */
+
+.wl-budget-foot { align-items: center; gap: 10px; }
+.wl-budget-carry { color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.wl-rollover { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: var(--text-sm); opacity: 0; }
+.wl-rollover.active { color: var(--accent); opacity: 1; }
+.wl-budget:hover .wl-rollover, .wl-rollover:focus-visible { opacity: 1; }
+
+/* ---- receipts */
+
+.wl-tx-marks { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.wl-tx-mark { display: inline-flex; align-items: center; gap: 2px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.wl-tx.wl-drop-over { box-shadow: inset 0 0 0 2px var(--accent); background: var(--accent-soft); }
+.tt-dialog.wl-drop-over { box-shadow: 0 0 0 3px var(--accent), var(--elev-3); }
+body.drop-claimed.dropping::after { display: none; }
+.wl-receipt-box { display: flex; flex-direction: column; gap: 8px; }
+.wl-receipts { display: flex; flex-wrap: wrap; gap: 8px; }
+.wl-receipts[hidden] { display: none; }
+.wl-receipt { position: relative; display: flex; flex-direction: column; gap: 4px; width: 86px; }
+.wl-receipt-open {
+  display: grid; place-items: center; width: 86px; height: 86px; padding: 0; overflow: hidden; border: 0; border-radius: var(--radius-md);
+  background: var(--control); box-shadow: inset 0 0 0 0.5px var(--line-strong); cursor: zoom-in;
+}
+.wl-receipt-open img { width: 100%; height: 100%; object-fit: cover; }
+.wl-receipt-open:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
+.wl-receipt-pdf { color: var(--danger); }
+.wl-receipt-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
+.wl-receipt-remove { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border-radius: 10px; background: var(--glass-strong-surface, var(--glass)); opacity: 0; }
+.wl-receipt:hover .wl-receipt-remove, .wl-receipt-remove:focus-visible { opacity: 1; }
+.wl-receipt-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* "Attach to a transaction" (from Files). */
+.wl-attach { width: min(560px, 100%); }
+.wl-attach .wl-search { width: 100%; }
+.wl-pick-list { display: flex; flex-direction: column; max-height: 360px; overflow-y: auto; margin-top: 8px; }
+.wl-pick {
+  display: grid; grid-template-columns: 64px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; min-height: 38px; padding: 4px 10px;
+  border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.wl-pick:hover { background: var(--hover); }
+.wl-pick.selected { background: var(--selection); }
+.wl-pick-date { color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.wl-pick-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 560; }
+.wl-pick-clip { display: inline-flex; width: 14px; color: var(--muted); }
+
+/* ---- import and export */
+
+.wl-import { width: min(980px, calc(100vw - 48px)); }
+.wl-map-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px 12px; align-items: end; }
+.wl-check { display: flex; align-items: center; gap: 8px; height: 34px; color: var(--text-2); font-size: var(--text-sm); }
+.wl-import-summary { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; }
+.wl-pill {
+  display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 9px; border-radius: 11px;
+  background: var(--control-hover); color: var(--text-2); font-size: var(--text-xs); font-weight: 650; white-space: nowrap;
+}
+.wl-pill.good { background: color-mix(in srgb, var(--wl-in) 16%, transparent); color: var(--text); }
+.wl-pill.warn { background: color-mix(in srgb, var(--st-warning) 18%, transparent); color: var(--text); }
+.wl-import-table { display: flex; flex-direction: column; max-height: min(46vh, 460px); overflow: auto; border-radius: var(--radius-md); box-shadow: inset 0 0 0 0.5px var(--line); }
+.wl-import-row {
+  display: grid; grid-template-columns: 28px 44px 74px minmax(160px, 1fr) 110px 170px 110px; align-items: center; gap: 8px;
+  min-height: 36px; padding: 2px 10px; font-size: var(--text-sm);
+}
+.wl-import-row + .wl-import-row { box-shadow: inset 0 0.5px 0 var(--line); }
+.wl-import-row.head { position: sticky; top: 0; z-index: 1; min-height: 30px; background: var(--glass-strong-surface, var(--glass)); color: var(--faint); font-size: var(--text-xs); font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; }
+.wl-import-row.off { color: var(--muted); }
+.wl-import-line, .wl-import-date { color: var(--muted); font-variant-numeric: tabular-nums; }
+.wl-import-payee { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wl-import-amount { text-align: right; font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wl-import-amount.in { color: var(--wl-in); }
+.wl-select.small { height: 28px; font-size: var(--text-sm); }
+.wl-row-status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--text-xs); }
+.wl-row-status.good { color: var(--text-2); }
+.wl-row-status.warn { color: var(--text); }
+.wl-import-start { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+.wl-import-hero { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 280px; }
+.wl-import-hero h3 { margin: 0; font-size: var(--text-md); font-weight: 700; }
+.wl-import-start .wl-inline { align-items: flex-end; }
+.wl-import-start .wl-inline .tt-field { min-width: 220px; }
+.wl-batch-list, .wl-rule-list, .wl-earn-list { display: flex; flex-direction: column; gap: 2px; }
+.wl-batch, .wl-rule, .wl-earn { display: flex; align-items: center; gap: 10px; min-height: 38px; padding: 4px 6px; border-radius: var(--radius-md); }
+.wl-batch:hover, .wl-rule:hover { background: var(--hover); }
+.wl-batch.dim { opacity: 0.55; }
+.wl-batch-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.wl-batch-text .wl-card-sub { margin: 0; font-size: 11.5px; }
+.wl-batch-name, .wl-rule-pattern, .wl-earn-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 560; }
+.wl-rule-cat { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.wl-rule .icon-btn { opacity: 0; }
+.wl-rule:hover .icon-btn, .wl-rule:focus-within .icon-btn { opacity: 1; }
+.wl-earn .wl-card-sub { margin: 0; font-variant-numeric: tabular-nums; }
+.wl-earn strong, .wl-earn .text-btn { font-variant-numeric: tabular-nums; }
+.wl-export-kinds { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.wl-export-kind {
+  display: flex; flex-direction: column; gap: 4px; padding: 12px; border: 0; border-radius: var(--radius-md); text-align: left;
+  background: var(--control); box-shadow: inset 0 0 0 0.5px var(--line-strong); color: var(--text); font: inherit; cursor: pointer;
+}
+.wl-export-kind span { color: var(--muted); font-size: var(--text-sm); }
+.wl-export-kind.active { box-shadow: inset 0 0 0 2px var(--accent); background: var(--accent-soft); }
+
+/* Settings → Wallet */
+.st-wallet-rates, .st-wallet-backups { display: flex; flex-direction: column; gap: 6px; }
+.st-wallet-rate-row { display: grid; grid-template-columns: minmax(120px, 1fr) 110px 76px auto; align-items: center; gap: 8px; }
+.st-wallet-project { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 560; }
+.st-wallet-rate { height: 28px; text-align: right; }
+.st-wallet-backup { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: var(--text-sm); }
+.st-wallet-backup-box { align-items: flex-start; flex-direction: column; }
+.st-wallet-note:empty { display: none; }
+
+@container (max-width: 980px) {
+  .wl-bill { grid-template-columns: auto minmax(0, 1fr) auto auto auto; }
+  .wl-bill-year { display: none; }
+}

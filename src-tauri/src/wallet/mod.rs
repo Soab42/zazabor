@@ -5,9 +5,15 @@
 //!
 //! Every command refuses while CorePro is locked; changes go out to all windows as `wallet-changed`.
 
+mod bills;
+mod dates;
 mod db;
+mod earnings;
+mod export;
+mod import;
 mod money;
 mod quick;
+mod receipts;
 
 use rusqlite::Connection;
 use serde::Serialize;
@@ -16,7 +22,12 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 use tauri::Emitter;
 
 use crate::notes::now;
+use dates::civil_from_days;
 use db::{db_err, Result};
+
+/// A receipt file nothing points to is kept this long, so restoring a backup (14 are kept)
+/// finds its receipts.
+const RECEIPT_GRACE: std::time::Duration = std::time::Duration::from_secs(15 * 86_400);
 
 /// Daily copies kept.
 const KEEP_BACKUPS: usize = 14;
@@ -43,6 +54,26 @@ fn open(dir: &Path) -> Result<Connection> {
     Ok(conn)
 }
 
+/// Runs `f` on a thread of its own (imports and exports read and write files).
+fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'static) -> impl std::future::Future<Output = Result<T>> {
+    async move { tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())? }
+}
+
+/// Posts the bills that post by themselves and are due, then tells the windows.
+fn post_due_bills() -> Result<usize> {
+    let posted = {
+        let mut store = store();
+        let Some(conn) = store.conn.as_mut() else { return Ok(0) };
+        bills::post_due(conn, &today(), now())?
+    };
+    if posted > 0 {
+        if let Some(app) = APP.get() {
+            let _ = app.emit("wallet-changed", ());
+        }
+    }
+    Ok(posted)
+}
+
 /// Opens the ledger and starts the daily backup. `dir` is the app's data folder.
 pub fn init(app: tauri::AppHandle, dir: PathBuf) {
     let dir = dir.join("wallet");
@@ -55,10 +86,21 @@ pub fn init(app: tauri::AppHandle, dir: PathBuf) {
     };
     let _ = STORE.set(Mutex::new(Store { dir, conn, error }));
     let _ = APP.set(app);
+    // Each hour (and at start): the day's backup, then the bills that came due, catching up on
+    // the days CorePro wasn't running. Neither runs while CorePro is locked.
     let _ = std::thread::Builder::new().name("wallet-backup".into()).spawn(|| loop {
         if let Err(err) = backup_if_due() {
             eprintln!("Wallet backup: {err}");
         }
+        if crate::ensure_unlocked().is_ok() {
+            if let Err(err) = post_due_bills() {
+                eprintln!("Wallet bills: {err}");
+            }
+        }
+        let _ = {
+            let store = store();
+            store.conn.as_ref().map(|conn| receipts::sweep(conn, &store.dir, RECEIPT_GRACE))
+        };
         std::thread::sleep(std::time::Duration::from_secs(3600));
     });
 }
@@ -82,6 +124,25 @@ fn change<T>(f: impl FnOnce(&mut Connection) -> Result<T>) -> Result<T> {
 
 // ---- backups
 
+/// Milliseconds since the epoch at local midnight starting a date.
+fn local_midnight(date: &str) -> i64 {
+    let (y, m, d) = dates::parts(date);
+    #[cfg(unix)]
+    // SAFETY: mktime only reads and normalises the struct handed to it.
+    unsafe {
+        let mut tm: libc::tm = std::mem::zeroed();
+        tm.tm_year = (y - 1900) as i32;
+        tm.tm_mon = m as i32 - 1;
+        tm.tm_mday = d as i32;
+        tm.tm_isdst = -1;
+        let t = libc::mktime(&mut tm);
+        if t != -1 {
+            return t as i64 * 1000;
+        }
+    }
+    dates::days_from_civil(y, m, d) * 86_400_000
+}
+
 /// Today's local date, "YYYY-MM-DD".
 fn today() -> String {
     #[cfg(unix)]
@@ -98,18 +159,6 @@ fn today() -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-/// Days since 1970-01-01 to a date (Howard Hinnant's algorithm), for when local time is unknown.
-fn civil_from_days(z: i64) -> (i64, u32, u32) {
-    let z = z + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let m = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32;
-    (yoe + era * 400 + i64::from(m <= 2), m, d)
-}
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -243,7 +292,219 @@ pub fn wallet_tx_save(tx: db::TxInput) -> Result<db::Tx> {
 
 #[tauri::command]
 pub fn wallet_tx_delete(ids: Vec<String>) -> Result<usize> {
-    change(|conn| db::delete_txs(conn, &ids))
+    let n = change(|conn| db::delete_txs(conn, &ids))?;
+    sweep_receipts();
+    Ok(n)
+}
+
+/// Deletes receipt files nothing points to any more.
+fn sweep_receipts() {
+    let store = store();
+    if let Some(conn) = store.conn.as_ref() {
+        let _ = receipts::sweep(conn, &store.dir, RECEIPT_GRACE);
+    }
+}
+
+#[tauri::command]
+pub fn wallet_category_archive(id: String, archived: bool) -> Result<()> {
+    change(|conn| db::archive_category(conn, &id, archived, now()))
+}
+
+#[tauri::command]
+pub fn wallet_budget_rollover(month: String, category_id: String, on: bool) -> Result<()> {
+    change(|conn| db::set_rollover(conn, &month, &category_id, on))
+}
+
+// ---- bills
+
+/// Every bill; `today` is the page's local date (for what's due).
+#[tauri::command]
+pub fn wallet_bills(today: String) -> Result<Vec<bills::Bill>> {
+    crate::ensure_unlocked()?;
+    // Catches up first (the hourly check skips while CorePro is locked).
+    post_due_bills()?;
+    with(|conn| bills::list(conn, &today))
+}
+
+#[tauri::command]
+pub fn wallet_bill_save(bill: bills::BillInput, today: String) -> Result<bills::Bill> {
+    let saved = change(|conn| bills::save(conn, bill, &today, now()))?;
+    // A bill that posts by itself and started in the past catches up at once.
+    if post_due_bills()? > 0 {
+        return with(|conn| bills::get(conn, &saved.id, &today));
+    }
+    Ok(saved)
+}
+
+#[tauri::command]
+pub fn wallet_bill_pause(id: String, paused: bool) -> Result<()> {
+    change(|conn| bills::set_paused(conn, &id, paused, now()))
+}
+
+#[tauri::command]
+pub fn wallet_bill_delete(id: String) -> Result<()> {
+    change(|conn| bills::delete(conn, &id))
+}
+
+/// Marks the next due date as paid (on `date`, or the due date); returns the transaction.
+#[tauri::command]
+pub fn wallet_bill_pay(id: String, date: Option<String>, today: String) -> Result<db::Tx> {
+    change(|conn| {
+        let tx = bills::pay(conn, &id, date.as_deref(), &today, now())?;
+        db::tx(conn, &tx)
+    })
+}
+
+#[tauri::command]
+pub fn wallet_bill_skip(id: String, today: String) -> Result<()> {
+    change(|conn| bills::skip(conn, &id, &today, now()))
+}
+
+// ---- receipts
+
+#[tauri::command]
+pub fn wallet_receipts(transaction_id: String) -> Result<Vec<receipts::Receipt>> {
+    crate::ensure_unlocked()?;
+    let store = store();
+    let conn = store.conn.as_ref().ok_or("Wallet couldn't open its database.")?;
+    receipts::list(conn, &store.dir, &transaction_id)
+}
+
+/// Copies files into the wallet and attaches them to a transaction.
+#[tauri::command]
+pub async fn wallet_receipt_attach(transaction_id: String, paths: Vec<String>) -> Result<Vec<receipts::Receipt>> {
+    let out = blocking(move || {
+        crate::ensure_unlocked()?;
+        let store = store();
+        let conn = store.conn.as_ref().ok_or("Wallet couldn't open its database.")?;
+        paths.iter().map(|p| receipts::attach(conn, &store.dir, &transaction_id, Path::new(p), now())).collect::<Result<Vec<_>>>()
+    })
+    .await?;
+    if let Some(app) = APP.get() {
+        let _ = app.emit("wallet-changed", ());
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+pub fn wallet_receipt_remove(id: String) -> Result<()> {
+    change(|conn| receipts::remove(conn, &id))?;
+    sweep_receipts();
+    Ok(())
+}
+
+// ---- import and export
+
+#[tauri::command]
+pub async fn wallet_import_preview(path: String, sheet: Option<u32>, account_id: String, mapping: Option<import::Mapping>) -> Result<import::Preview> {
+    blocking(move || with(|conn| import::preview(conn, Path::new(&path), sheet, &account_id, mapping))).await
+}
+
+#[tauri::command]
+pub async fn wallet_import_commit(path: String, sheet: Option<u32>, account_id: String, mapping: import::Mapping, edits: Vec<import::RowEdit>) -> Result<import::Batch> {
+    blocking(move || change(|conn| import::commit(conn, Path::new(&path), sheet, &account_id, &mapping, &edits, now()))).await
+}
+
+#[tauri::command]
+pub fn wallet_import_undo(id: String) -> Result<usize> {
+    let n = change(|conn| import::undo(conn, &id))?;
+    sweep_receipts();
+    Ok(n)
+}
+
+#[tauri::command]
+pub fn wallet_import_batches() -> Result<Vec<import::Batch>> {
+    with(|conn| import::batches(conn))
+}
+
+#[tauri::command]
+pub fn wallet_profiles() -> Result<Vec<import::Profile>> {
+    with(|conn| import::profiles(conn))
+}
+
+#[tauri::command]
+pub fn wallet_profile_save(name: String, account_id: Option<String>, mapping: import::Mapping) -> Result<import::Profile> {
+    change(|conn| import::save_profile(conn, &name, account_id.as_deref(), &mapping, now()))
+}
+
+#[tauri::command]
+pub fn wallet_profile_delete(id: String) -> Result<()> {
+    change(|conn| import::delete_profile(conn, &id))
+}
+
+#[tauri::command]
+pub fn wallet_rules() -> Result<Vec<import::Rule>> {
+    with(|conn| import::rules(conn))
+}
+
+#[tauri::command]
+pub fn wallet_rule_save(rule: import::Rule) -> Result<import::Rule> {
+    change(|conn| import::save_rule(conn, rule, now()))
+}
+
+#[tauri::command]
+pub fn wallet_rule_delete(id: String) -> Result<()> {
+    change(|conn| import::delete_rule(conn, &id))
+}
+
+/// Writes transactions (filtered) as "csv" or "xlsx", or the whole ledger as "json"; returns how
+/// many transactions went out.
+#[tauri::command]
+pub async fn wallet_export(kind: String, filter: db::Filter, path: String) -> Result<usize> {
+    blocking(move || {
+        with(|conn| match kind.as_str() {
+            "csv" => export::csv(conn, &filter, Path::new(&path)),
+            "xlsx" => export::xlsx(conn, &filter, Path::new(&path)),
+            "json" => export::json(conn, Path::new(&path), now()),
+            _ => Err("Unknown kind of export.".into()),
+        })
+    })
+    .await
+}
+
+// ---- earnings from Time
+
+/// Minutes per Time project in a month (local time).
+fn month_minutes(month: &str) -> Vec<(String, i64)> {
+    let from = local_midnight(&format!("{month}-01"));
+    let to = local_midnight(&format!("{}-01", db::add_months(month, 1)));
+    crate::time::project_minutes(from, to).into_iter().map(|p| (p.project, p.minutes)).collect()
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Earnings {
+    rows: Vec<earnings::Earning>,
+    rates: Vec<earnings::ProjectRate>,
+    /// Every project Time has tracked work on, for the rates.
+    projects: Vec<String>,
+}
+
+#[tauri::command]
+pub fn wallet_earnings(month: String) -> Result<Earnings> {
+    crate::ensure_unlocked()?;
+    if !db::valid_month(&month) {
+        return Err("Pick a month.".into());
+    }
+    let minutes = month_minutes(&month);
+    let projects: Vec<String> = crate::time::project_minutes(0, i64::MAX / 2).into_iter().map(|p| p.project).filter(|p| !p.is_empty()).collect();
+    with(|conn| Ok(Earnings { rows: earnings::earnings(conn, &month, &minutes)?, rates: earnings::rates(conn)?, projects }))
+}
+
+#[tauri::command]
+pub fn wallet_project_rate_set(project: String, rate: String, currency: String) -> Result<()> {
+    change(|conn| earnings::set_rate(conn, &project, &rate, &currency, now()))
+}
+
+/// Records the month's earnings as income; returns how many transactions were added.
+#[tauri::command]
+pub fn wallet_earnings_post(month: String, account_id: String, category_id: Option<String>, today: String) -> Result<usize> {
+    crate::ensure_unlocked()?;
+    if !db::valid_month(&month) {
+        return Err("Pick a month.".into());
+    }
+    let minutes = month_minutes(&month);
+    change(|conn| earnings::post(conn, &month, &minutes, &account_id, category_id.as_deref(), &today, now()))
 }
 
 #[tauri::command]

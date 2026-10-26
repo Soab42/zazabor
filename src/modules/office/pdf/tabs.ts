@@ -2,6 +2,7 @@ import { h } from "../../../ui/dom";
 import { icon } from "../../../ui/icons";
 import { button, combo, colorButton, custom, menuButton, stack, type Ribbon } from "../ribbon";
 import type { PdfLib } from "./engine";
+import type { MarkupTool, OwnTool } from "./markup";
 
 /** The panels of the navigation pane. */
 export type NavId = "pages" | "bookmarks" | "comments" | "attachments";
@@ -64,6 +65,26 @@ export interface PdfCtx {
   sign(anchor: HTMLElement): void;
   mark(kind: "check" | "cross" | "dot"): void;
   addDate(): void;
+
+  // ---- CorePro's own tools (markup.ts, tools.ts)
+  ownTool(): OwnTool | null;
+  setOwnTool(tool: OwnTool | null): void;
+  /** Text markup on the selected text, or the tool on when nothing is selected. */
+  markText(kind: MarkupTool): void;
+  addText(): void;
+  addContentPicture(): void;
+  watermark(): void;
+  headerFooter(bates: boolean): void;
+  flatten(comments: boolean, forms: boolean): void;
+  redactFind(): void;
+  redactApply(): void;
+  redactClear(): void;
+  redactMarks(): number;
+  protect(): void;
+  unprotect(): void;
+  encrypted(): boolean;
+  sanitize(): void;
+  compress(): void;
 
   // ---- organize
   orgSelection(): number[];
@@ -167,31 +188,54 @@ export function buildTabs(ribbon: Ribbon, ctx: PdfCtx) {
   // ---- Comment
 
   const sizes = ["8", "9", "10", "11", "12", "14", "16", "18", "20", "24", "28", "36", "48", "72"];
+  const own = (t: OwnTool) => () => ctx.setOwnTool(ctx.ownTool() === t ? null : t);
+  const shapeTools: { id: OwnTool; label: string; icon: "pfRect" | "pfOval" | "pfLine" | "pfArrow" | "pfPolygon" }[] = [
+    { id: "square", label: "Rectangle", icon: "pfRect" },
+    { id: "circle", label: "Oval", icon: "pfOval" },
+    { id: "line", label: "Line", icon: "pfLine" },
+    { id: "arrow", label: "Arrow", icon: "pfArrow" },
+    { id: "polygon", label: "Polygon (double-click to finish)", icon: "pfPolygon" },
+  ];
+  const drawing = () => ["square", "circle", "line", "arrow", "polygon"].includes(ctx.ownTool() ?? "");
   ribbon.tab("comment", "Comment", [
     {
       label: "Annotate",
       controls: [
         button({ icon: "highlighter", label: "Highlight", size: "large", title: "Highlight Text (select text, or drag to mark freely)", run: tool(T.HIGHLIGHT), active: () => ctx.mode() === T.HIGHLIGHT, enabled: reading }),
+        stack(
+          [button({ icon: "pfUnderline", label: "Underline", size: "small", title: "Underline the selected text (or select text with it on)", run: () => ctx.markText("underline"), active: () => ctx.ownTool() === "underline", enabled: reading })],
+          [button({ icon: "pfStrike", label: "Strikethrough", size: "small", title: "Strike through the selected text (or select text with it on)", run: () => ctx.markText("strikeOut"), active: () => ctx.ownTool() === "strikeOut", enabled: reading })],
+          [button({ icon: "pfSquiggly", label: "Squiggly", size: "small", title: "A squiggly line under the selected text (or select text with it on)", run: () => ctx.markText("squiggly"), active: () => ctx.ownTool() === "squiggly", enabled: reading })]),
+        button({ icon: "comment", label: "Note", size: "large", title: "Add a Note (click where it goes)", run: own("note"), active: () => ctx.ownTool() === "note", enabled: reading }),
         button({ icon: "textBox", label: "Text Box", size: "large", title: "Add a Text Box (click on the page)", run: tool(T.FREETEXT), active: () => ctx.mode() === T.FREETEXT, enabled: reading }),
         button({ icon: "pencil", label: "Draw", size: "large", title: "Draw Freehand", run: tool(T.INK), active: () => ctx.mode() === T.INK, enabled: reading }),
         button({ icon: "image", label: "Picture", size: "large", title: "Add a Picture…", run: () => ctx.addPicture(), active: () => ctx.mode() === T.STAMP, enabled: reading }),
       ],
     },
     {
+      label: "Shapes",
+      controls: [
+        stack(
+          ...shapeTools.slice(0, 3).map((t) => [button({ icon: t.icon, label: t.label, size: "small", title: `Draw: ${t.label} (Shift keeps it even)`, run: own(t.id), active: () => ctx.ownTool() === t.id, enabled: reading })])),
+        stack(
+          ...shapeTools.slice(3).map((t) => [button({ icon: t.icon, label: t.label.replace(/ \(.*/, ""), size: "small", title: `Draw: ${t.label}`, run: own(t.id), active: () => ctx.ownTool() === t.id, enabled: reading })])),
+      ],
+    },
+    {
       label: "Format",
       controls: [
         stack(
-          [colorButton({ icon: "palette", title: "Colour", initial: "#e5484d", noneLabel: "Automatic", apply: (c) => ctx.setColor(c ?? "#000000"), enabled: () => reading() && [T.FREETEXT, T.INK, T.HIGHLIGHT].includes(ctx.mode()) })],
+          [colorButton({ icon: "palette", title: "Colour", initial: "#e5484d", noneLabel: "Automatic", apply: (c) => ctx.setColor(c ?? "#000000"), enabled: () => reading() && ([T.FREETEXT, T.INK, T.HIGHLIGHT].includes(ctx.mode()) || (!!ctx.ownTool() && ctx.ownTool() !== "redact")) })],
           [combo({ title: "Text Size", width: 46, editable: true, options: () => sizes, value: () => String(ctx.fontSize()), set: (v) => Number(v) > 0 && ctx.setFontSize(Math.min(100, Number(v))), enabled: () => reading() && ctx.mode() === T.FREETEXT })]),
         stack(
-          [combo({ title: "Line Thickness", width: 46, options: () => ["1", "2", "3", "5", "8", "12", "20"], value: () => String(ctx.thickness()), set: (v) => ctx.setThickness(Number(v)), enabled: () => reading() && [T.INK, T.HIGHLIGHT].includes(ctx.mode()) })],
-          [combo({ title: "Opacity", width: 46, options: () => ["100%", "75%", "50%", "25%"], value: () => `${Math.round(ctx.opacity() * 100)}%`, set: (v) => ctx.setOpacity(Number.parseInt(v, 10) / 100), enabled: () => reading() && ctx.mode() === T.INK })]),
+          [combo({ title: "Line Thickness", width: 46, options: () => ["1", "2", "3", "5", "8", "12", "20"], value: () => String(ctx.thickness()), set: (v) => ctx.setThickness(Number(v)), enabled: () => reading() && ([T.INK, T.HIGHLIGHT].includes(ctx.mode()) || drawing()) })],
+          [combo({ title: "Opacity", width: 46, options: () => ["100%", "75%", "50%", "25%"], value: () => `${Math.round(ctx.opacity() * 100)}%`, set: (v) => ctx.setOpacity(Number.parseInt(v, 10) / 100), enabled: () => reading() && (ctx.mode() === T.INK || (!!ctx.ownTool() && ctx.ownTool() !== "redact")) })]),
       ],
     },
     {
       label: "Edit",
       controls: [
-        button({ icon: "textCursor", label: "Done", size: "large", title: "Stop Annotating (Esc)", run: () => ctx.setMode(T.NONE), enabled: () => ctx.mode() !== T.NONE }),
+        button({ icon: "textCursor", label: "Done", size: "large", title: "Stop Annotating (Esc)", run: () => (ctx.setMode(T.NONE), ctx.setOwnTool(null)), enabled: () => ctx.mode() !== T.NONE || !!ctx.ownTool() }),
         button({ icon: "trash", label: "Delete", size: "large", title: "Delete the Selected Comment (Delete)", run: () => ctx.deleteSelected(), enabled: () => ctx.hasSelection() }),
       ],
     },
@@ -275,6 +319,68 @@ export function buildTabs(ribbon: Ribbon, ctx: PdfCtx) {
     {
       label: "Close",
       controls: [button({ icon: "close", label: "Close", size: "large", title: "Back to Reading", run: () => ribbon.select("home") })],
+    },
+  ]);
+
+  // ---- Edit: content written into the pages
+
+  ribbon.tab("edit", "Edit", [
+    {
+      label: "Add",
+      controls: [
+        button({ icon: "pfAddText", label: "Add Text", size: "large", title: "Add Text to the page itself (click where it goes)", run: () => ctx.addText(), active: () => ctx.ownTool() === "text", enabled: reading }),
+        button({ icon: "image", label: "Add Picture", size: "large", title: "Add a Picture to the page itself…", run: () => ctx.addContentPicture(), active: () => ctx.ownTool() === "picture", enabled: reading }),
+      ],
+    },
+    {
+      label: "Pages",
+      controls: [
+        button({ icon: "pfWatermark", label: "Watermark", size: "large", title: "Add a Watermark…", run: () => ctx.watermark() }),
+        button({ icon: "pfHeaderFooter", label: "Header & Footer", size: "large", title: "Add a Header and Footer…", run: () => ctx.headerFooter(false) }),
+        button({ icon: "pfBates", label: "Bates Numbering", size: "large", title: "Add Bates Numbers…", run: () => ctx.headerFooter(true) }),
+      ],
+    },
+    {
+      label: "Flatten",
+      controls: [
+        menuButton({
+          icon: "pfFlatten", label: "Flatten", size: "large", title: "Draw comments and form fields into the pages",
+          items: () => [
+            { label: "Flatten Comments", icon: "comment", action: () => ctx.flatten(true, false) },
+            { label: "Flatten Form Fields", icon: "checkSquare", action: () => ctx.flatten(false, true) },
+            { label: "Flatten Both", icon: "pfFlatten", action: () => ctx.flatten(true, true) },
+          ],
+        }),
+      ],
+    },
+  ]);
+
+  // ---- Protect: redaction, passwords, hidden information, size
+
+  ribbon.tab("protect", "Protect", [
+    {
+      label: "Redact",
+      controls: [
+        button({ icon: "pfMarkArea", label: "Mark Area", size: "large", title: "Mark for Redaction: drag over what must go (click a mark to remove it)", run: own("redact"), active: () => ctx.ownTool() === "redact", enabled: reading }),
+        button({ icon: "search", label: "Find & Mark", size: "large", title: "Find text, phone numbers, emails or ID numbers to redact…", run: () => ctx.redactFind(), enabled: reading }),
+        stack(
+          [button({ icon: "pfRedact", label: "Apply Redactions", size: "small", title: "Apply Redactions: replace marked pages with pictures, the marks painted black", run: () => ctx.redactApply(), enabled: () => ctx.redactMarks() > 0 })],
+          [button({ icon: "close", label: "Clear Marks", size: "small", title: "Remove all redaction marks", run: () => ctx.redactClear(), enabled: () => ctx.redactMarks() > 0 })]),
+      ],
+    },
+    {
+      label: "Security",
+      controls: [
+        button({ icon: "lock", label: "Protect", size: "large", title: "Protect with a Password (AES-256)…", run: () => ctx.protect(), enabled: () => !ctx.encrypted() }),
+        button({ icon: "pfUnlock", label: "Remove Security", size: "large", title: "Remove the Password and Restrictions…", run: () => ctx.unprotect(), enabled: () => ctx.encrypted() }),
+      ],
+    },
+    {
+      label: "Clean Up",
+      controls: [
+        button({ icon: "eyeOff", label: "Remove Hidden Info", size: "large", title: "Remove Hidden Information: metadata, attachments, scripts…", run: () => ctx.sanitize() }),
+        button({ icon: "pfCompress", label: "Reduce Size", size: "large", title: "Reduce File Size…", run: () => ctx.compress() }),
+      ],
     },
   ]);
 

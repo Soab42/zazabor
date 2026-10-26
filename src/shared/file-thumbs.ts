@@ -155,7 +155,8 @@ async function drawPdf(entry: ThumbEntry, size: number): Promise<string> {
     // One worker for every thumbnail, not one started per document.
     pdfWorker ??= new pdfjs.PDFWorker();
     const data = new Uint8Array(await readBinary(entry.path, PDF_BYTES));
-    const task = pdfjs.getDocument({ data, worker: pdfWorker });
+    // OffscreenCanvas off: WebKitGTK draws big page pictures (scans) blank through it.
+    const task = pdfjs.getDocument({ data, worker: pdfWorker, isOffscreenCanvasSupported: false });
     try {
       const doc = await task.promise;
       const page = await doc.getPage(1);

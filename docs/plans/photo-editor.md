@@ -3,7 +3,8 @@
 *Researched 2026-10-26. Licences, versions and release dates were read from each project's
 repository, crates.io, the npm registry and Hugging Face model cards on that day. Target: Tauri 2 +
 plain TypeScript on Linux (WebKitGTK 2.50.4; Intel UHD (Tiger Lake) graphics on this machine).
-Status: **I0, I1 and the core of I2 built on 2026-10-26** (below). Section 11 lists the decisions only the user can make.*
+Status: **I0, I1, I2 and I3 built, and most of I4 (2026-10-26/27, below); I5 (AI) and I6 (RAW) wait on
+the user.** Section 11 lists the decisions only the user can make.*
 
 ## What's built (2026-10-26)
 
@@ -53,10 +54,80 @@ Canvas (1080 × 1080 default, presets). `.coreimage` save and open (zip: `docume
 asks before replacing the picture it came from; Export As picks the format and JPEG quality.
 Live strokes recomposite only the changed area over a cached composite of the layers below.
 
+### Round 2 (2026-10-27): masks, groups, selections, adjustments, type, shapes, transform, filters, PSD
+
+The user said "start left ones"; the plan's recommendations were taken again. Checked in the app
+on a nested display with screenshots, and by pixel comparisons in Python and Node.
+
+- **I2 finished.** Layer masks on any layer (pixel, adjustment, group): Reveal/Hide All, from the
+  selection or its inverse, paint on them (black hides; the eraser paints the background colour),
+  fill, gradient, filters, invert (Ctrl+I), disable (Shift+click the thumbnail), apply, delete,
+  load as a selection; Q switches between pixels and mask. Groups (Ctrl+G, Ctrl+Shift+G, New
+  Group): Pass Through or a blend mode, opacity and mask, open/closed in the panel, nested; drag
+  rows above, below or into a group; merge a group (Ctrl+E). Clipping masks (Ctrl+Alt+G): a layer
+  shows only inside the opaque pixels (and mask and opacity) of the layer below it.
+  The compositor (`engine.ts`) became a recursive pass over the layer tree with a buffer pair per
+  nesting depth; live painting keeps its "layers below composited once" shortcut at the top level.
+- **I3 selections** (`selection.ts`): Rectangular and Elliptical Marquee, Lasso, Polygonal Lasso
+  (double-click or Enter closes, Backspace takes a corner back), Magic Wand (tolerance, contiguous,
+  all layers); New/Add/Subtract/Intersect from the options bar or Shift/Alt; Select All, Deselect,
+  Reselect, Inverse, Color Range (live outline while choosing), Layer Transparency (Ctrl+click a
+  thumbnail), Feather (Shift+F6), Expand and Contract (exact distance transform). Marching ants are
+  traced once per change into a `Path2D`. Every painting tool, fill, clear (Delete), bucket, filter,
+  invert and the healing brush stays inside the selection (soft edges included); a new adjustment
+  layer takes the selection as its mask. Cut, Copy, Copy Merged, Paste (as a new layer where it
+  came from, or a picture from the system clipboard), Layer via Copy (Ctrl+J) and via Cut.
+- **I3 adjustment layers** (`layeradjust.ts`, `props.ts`): Levels (per channel, histogram),
+  Curves (per channel, drag points, type values, drag off to delete), Exposure, Vibrance,
+  Hue/Saturation (master and six ranges, Colorize), Color Balance (three tones, Preserve
+  Luminosity), Black & White (six weights, Tint), Photo Filter (Photoshop's presets), Gradient
+  Map, Invert, Posterize and Threshold, beside the existing Light & Colour. Levels, Curves,
+  Exposure and Posterize are worked out per pixel in the shader (a natural cubic spline for
+  Curves, the coefficients from `tone.ts`); only Gradient Map uses a lookup table. The first try,
+  a 1,024-entry table, missed Photoshop's 1/255 by up to 3.7/255 near a black point with a high
+  midtone gamma, so it was dropped. **Checked:** `node --test tools/photo-tone.test.mjs`
+  (Levels with gamma 0.1–9.9 and Curves with up to 8 points, against independent references,
+  also with 32-bit float rounding: all within 1/255); and on the GPU, a 0–255 ramp through Levels
+  (30/0.60/235, output 10) then an S-curve, saved and compared with the reference worked out
+  from the saved settings: worst 0.87/255 over every value. Quick slider changes (arrow keys) fold
+  into one History step.
+- **I4, most of it.** Type layers (`vector.ts`): click to type with the system's fonts (Bangla
+  through the browser's shaping), size, bold, italic, alignment, colour; Ctrl+Enter keeps,
+  Esc drops; click the text or double-click its thumbnail to edit; option changes apply to the
+  chosen type layer. Shape layers: rectangle (corner radius), ellipse, polygon (sides), line;
+  fill and stroke, editable until rasterized. Free Transform (Ctrl+T, `transform.ts`): move,
+  scale (corners in proportion, Shift free), rotate outside the box (Shift: 15°), skew
+  (Ctrl+top/bottom edge), flip, typed X/Y/W/H/angle, Enter/Esc; on selected pixels it lifts them
+  and the selection follows; the Move tool drags selected pixels the same way; Flip/Rotate Layer
+  in the Edit menu. Filters (`filters.ts`, GPU): Gaussian Blur (large radii on a shrunk copy),
+  Motion Blur, Unsharp Mask, Add Noise, each previewed live in a dialog that leaves the canvas
+  visible, on pixels or a mask, inside the selection; Last Filter (Ctrl+Alt+F). Clone Stamp and
+  Healing Brush (Alt+click the source, Aligned): the healing brush clones while painting, then
+  blends the stroke into its surroundings with a coarse-to-fine Poisson solve (`heal.ts`).
+  **PSD** (`psd.ts`, ag-psd 31.0.3, MIT, published 2026-10-07; the plan's 33.0.0 was 2 days old
+  and skipped): open and Save As .psd with pixel layers, groups (Pass Through), masks, clipping,
+  blend modes, opacity and the adjustment layers both apps have; type layers go as pixels, Light &
+  Colour layers are left out with a message. **Checked:** a document with a masked layer, a group,
+  Levels and text saved as PSD, read back in Node (structure and Levels values as written),
+  reopened in Photo (same layers), flattened: identical to the PSD's own composite (difference 0).
+  **Export:** lossy WebP (libwebp, with the colour profile and EXIF put back by our own container
+  writer) and AVIF (ravif, pure Rust: this machine has no nasm, so no assembly; written as sRGB)
+  next to JPEG, PNG, lossless WebP, TIFF and BMP; a Rust test checks both.
+- **Projects:** `.coreimage` is version 2 (groups, masks, clipping, adjustment kinds, type and
+  shape sources); version 1 files still open.
+
+**Not done in round 2:** perspective/distort and warp in Free Transform; Select Subject, quick
+selection, Refine Edge; spot healing (PatchMatch); box, lens and surface blurs, high pass, reduce
+noise; LUT (.cube) and Channel Mixer adjustments; text on a path, layer styles; layer locks;
+the tiled layer store and colour management (from I0); PSD colour profiles (ag-psd 31 has no
+ICC field) and 16-bit PSDs.
+
+**Waiting on the user:** I5 (AI tools: model downloads need the user's OK, decision 5) and I6
+(RAW: samples and the licence choice, decisions 6 and 7).
+
 **Left for later milestones:** tiles and eviction (I0), colour management, 16-bit documents,
-masks, groups, clipping, selections, text and shapes, filters, clone/heal, AI tools, PSD, RAW,
-AVIF and lossy WebP, keeping EXIF in `.coreimage`, history in the file. A shortcut for Export As
-(Studio takes every Ctrl+W/Ctrl+S combination, so Photoshop's Ctrl+Alt+Shift+W can't be used).
+keeping EXIF in `.coreimage`, history in the file. A shortcut for Export As (Studio takes every
+Ctrl+W/Ctrl+S combination, so Photoshop's Ctrl+Alt+Shift+W can't be used).
 
 ## 1. Summary
 

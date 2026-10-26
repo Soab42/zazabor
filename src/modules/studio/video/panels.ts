@@ -18,6 +18,10 @@ export interface PanelHost {
   project(): Project;
   store: MediaStore;
   importFiles(kind: "any" | "audio"): void;
+  /** Starts (or stops) a voice-over at the playhead. */
+  record(): void;
+  importSrt(): void;
+  exportSrt(): void;
   addMedia(id: string): void;
   addMusic(path: string): void;
   removeMedia(id: string): void;
@@ -156,6 +160,7 @@ export class Panel {
     }
     return [
       h("button", { class: "btn primary ve-import", type: "button", onclick: () => this.host.importFiles("audio") }, icon("plus", 16), "Import music"),
+      h("button", { class: "btn ve-import ve-voice-btn", type: "button", title: "Records from the microphone at the playhead (R)", onclick: () => this.host.record() }, icon("veMic", 16), "Record a voice-over"),
       media.length ? h("h3", { class: "ve-panel-h" }, "In this project") : null,
       media.length ? h("div", { class: "ve-cards" }, ...media.map((m) => this.card(m))) : null,
       this.tracks.length ? h("h3", { class: "ve-panel-h" }, "CorePro soundtracks") : null,
@@ -191,6 +196,11 @@ export class Panel {
           onclick: () => this.host.addText(preset.id),
         }, sample, h("span", { class: "ve-text-label" }, preset.label));
       })),
+      h("h3", { class: "ve-panel-h" }, "Captions"),
+      h("p", { class: "ve-panel-note" }, "Subtitle files (.srt) come in as texts on a track of their own; your texts go out as one."),
+      h("div", { class: "ve-row ve-row-buttons" },
+        h("button", { class: "btn small", type: "button", onclick: () => this.host.importSrt() }, icon("subtitles", 14), "Import .srt…"),
+        h("button", { class: "btn small", type: "button", onclick: () => this.host.exportSrt() }, icon("download", 14), "Export .srt…")),
     ];
   }
 

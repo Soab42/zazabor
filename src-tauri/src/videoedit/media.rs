@@ -261,6 +261,8 @@ pub struct AudioInfo {
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct Probe {
     pub duration: f64,
+    /// The file's size (for finding it again if it moves).
+    pub bytes: u64,
     pub video: Option<VideoInfo>,
     pub audio: Option<AudioInfo>,
     /// Decoders GStreamer asked for and doesn't have.
@@ -312,7 +314,7 @@ pub fn probe(path: &str) -> Result<Probe, String> {
     });
     let mut messages = Vec::new();
     let started = wait_state(&pipeline, gst::State::Paused, 15, &mut messages);
-    let mut out = Probe { missing: missing_plugins(&messages), ..Default::default() };
+    let mut out = Probe { missing: missing_plugins(&messages), bytes: std::fs::metadata(path).map(|m| m.len()).unwrap_or(0), ..Default::default() };
     if let Err(why) = started {
         let _ = pipeline.set_state(gst::State::Null);
         return Err(why);

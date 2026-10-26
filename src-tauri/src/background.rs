@@ -2,9 +2,11 @@
 //! CorePro with no window (at login, from an autostart entry), and while that entry exists,
 //! closing the last window leaves CorePro running, so the clipboard history keeps recording and
 //! Super+V, quick notes and the time tracker answer at once. Launching CorePro again shows its
-//! window (see `notes::quick`, which carries the request).
+//! window (see `notes::quick`, which carries the request). Quit (`corepro --quit`, the menu
+//! entry's action, or Settings) ends it.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub const FLAG: &str = "--background";
 
@@ -61,9 +63,59 @@ pub fn app_set_background(on: bool) -> Result<(), String> {
     crate::fs::text::write_text(&path, &entry_text(&exe.to_string_lossy())).map(|_| ())
 }
 
+/// Set by Quit until the windows that ask first have closed; a later launch clears it.
+static QUITTING: AtomicBool = AtomicBool::new(false);
+
+/// Windows that may hold unsaved work and ask before closing: the main window and section
+/// windows (Office files among them). Notes and the clipboard popup simply close with CorePro,
+/// so the notes left open come back next time.
+fn asks_first(label: &str) -> bool {
+    label == "main" || label.starts_with("window-")
+}
+
+/// Quits CorePro, background mode or not. The main and section windows close as if their ×
+/// was pressed, so Office still asks about unsaved files; CorePro exits once they're gone.
+pub fn quit(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    let open: Vec<_> = app.webview_windows().into_iter().filter(|(label, _)| asks_first(label)).collect();
+    if open.is_empty() {
+        return app.exit(0);
+    }
+    QUITTING.store(true, Ordering::SeqCst);
+    for (_, window) in open {
+        let _ = window.close();
+    }
+}
+
+/// A window was destroyed: while quitting, the last one that asks first ends CorePro.
+pub fn window_destroyed(app: &tauri::AppHandle, label: &str) {
+    use tauri::Manager;
+    if QUITTING.load(Ordering::SeqCst) && asks_first(label) && !app.webview_windows().keys().any(|l| l != label && asks_first(l)) {
+        app.exit(0);
+    }
+}
+
+/// CorePro was opened again: a quit the user stopped (by keeping an unsaved file) is over.
+pub fn cancel_quit() {
+    QUITTING.store(false, Ordering::SeqCst);
+}
+
+#[tauri::command]
+pub fn app_quit(app: tauri::AppHandle) {
+    quit(&app);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_main_and_section_windows_ask_before_quitting() {
+        assert!(asks_first("main"));
+        assert!(asks_first("window-3"));
+        assert!(!asks_first("note-abc"));
+        assert!(!asks_first("clipboard-popup"));
+    }
 
     #[test]
     fn the_entry_starts_this_corepro_in_the_background() {

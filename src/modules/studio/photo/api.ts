@@ -14,15 +14,20 @@ export interface Decoded {
 }
 
 /** Formats Photo saves pictures in. JPEG and BMP keep no transparency (see `hasAlpha`). */
-export type SaveFormat = "jpeg" | "png" | "webp" | "tiff" | "bmp";
+export type SaveFormat = "jpeg" | "png" | "webp" | "webp-lossy" | "avif" | "tiff" | "bmp";
 
 export const SAVE_FORMATS: { id: SaveFormat; name: string; extension: string }[] = [
   { id: "jpeg", name: "JPEG", extension: "jpg" },
   { id: "png", name: "PNG", extension: "png" },
+  { id: "webp-lossy", name: "WebP", extension: "webp" },
   { id: "webp", name: "WebP (lossless)", extension: "webp" },
+  { id: "avif", name: "AVIF", extension: "avif" },
   { id: "tiff", name: "TIFF", extension: "tiff" },
   { id: "bmp", name: "BMP", extension: "bmp" },
 ];
+
+/** Formats with a quality setting. */
+export const hasQuality = (format: SaveFormat) => format === "jpeg" || format === "webp-lossy" || format === "avif";
 
 /** Whether a format keeps transparency; pictures for the others are flattened onto white first. */
 export const hasAlpha = (format: SaveFormat) => format !== "jpeg" && format !== "bmp";
@@ -43,6 +48,7 @@ export function formatFor(path: string): SaveFormat {
   const ext = extensionOf(path);
   if (["jpg", "jpeg", "jpe", "jfif"].includes(ext)) return "jpeg";
   if (ext === "webp") return "webp";
+  if (ext === "avif") return "avif";
   if (ext === "tif" || ext === "tiff") return "tiff";
   if (ext === "bmp") return "bmp";
   return "png";
@@ -96,13 +102,19 @@ export const photoApi = {
   /** Saves RGBA pixels as a picture with its profile and EXIF data. Returns the new mtime. */
   encode(path: string, o: { rgba: Uint8Array; width: number; height: number; format: SaveFormat; quality?: number; icc?: Uint8Array; exif?: Uint8Array }) {
     const icc = o.icc ?? new Uint8Array(0);
-    const exif = o.format === "jpeg" || o.format === "png" || o.format === "webp" ? o.exif ?? new Uint8Array(0) : new Uint8Array(0);
+    const exif = o.format === "jpeg" || o.format === "png" || o.format === "webp" || o.format === "webp-lossy" ? o.exif ?? new Uint8Array(0) : new Uint8Array(0);
     const meta = { width: o.width, height: o.height, format: o.format, quality: Math.round(o.quality ?? 92), iccLen: icc.length, exifLen: exif.length };
     return invoke<number>("photo_encode", concat([o.rgba, icc, exif]), { headers: { "x-path": headerValue(path), "x-meta": headerValue(JSON.stringify(meta)) } });
   },
 
   /** "IMG_1234 (edited).jpg" next to the picture, numbered when that exists. */
   copyPath: (path: string, ext?: string) => invoke<string>("photo_copy_path", { path, ext: ext ?? null }),
+
+  /** A file's bytes (Photoshop documents). */
+  readFile: async (path: string) => bytesOf(await invoke("photo_read_file", { path })),
+
+  /** Saves bytes over `path` (safely); returns the new modification time. */
+  writeFile: (path: string, bytes: Uint8Array) => invoke<number>("photo_write_file", bytes, { headers: { "x-path": headerValue(path) } }),
 
   saveProject(path: string, o: { json: string; layers: ProjectLayer[]; preview: ProjectLayer; icc: Uint8Array }) {
     const json = new TextEncoder().encode(o.json);

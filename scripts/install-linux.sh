@@ -86,7 +86,7 @@ Categories=Utility;FileManager;Graphics;AudioVideo;
 Keywords=files;folders;photo;picture;gallery;slideshow;video;viewer;notes;sticky;time;tracker;wallet;money;office;word;excel;docx;xlsx;spreadsheet;document;clipboard;emoji;
 MimeType=image/jpeg;image/png;image/gif;image/webp;image/bmp;image/tiff;video/mp4;video/x-matroska;video/webm;video/quicktime;video/x-msvideo;inode/directory;application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;application/vnd.ms-excel.sheet.macroEnabled.12;text/csv;text/tab-separated-values;application/pdf;
 StartupWMClass=corepro
-Actions=new-note;clipboard;
+Actions=new-note;clipboard;quit;
 
 [Desktop Action new-note]
 Name=New Note
@@ -95,6 +95,10 @@ Exec=$bin_dir/corepro --new-note
 [Desktop Action clipboard]
 Name=Clipboard History
 Exec=$bin_dir/corepro --clipboard
+
+[Desktop Action quit]
+Name=Quit CorePro
+Exec=$bin_dir/corepro --quit
 EOF
 
 # At login, CorePro starts with no window and keeps the clipboard history (the same entry

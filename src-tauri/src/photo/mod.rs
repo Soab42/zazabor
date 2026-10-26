@@ -184,9 +184,9 @@ pub fn reset_orientation(exif: &mut [u8]) {
 struct EncodeMeta {
     width: u32,
     height: u32,
-    /// "jpeg", "png", "webp", "tiff" or "bmp".
+    /// "jpeg", "png", "webp" (lossless), "webp-lossy", "avif", "tiff" or "bmp".
     format: String,
-    /// JPEG quality, 1–100.
+    /// JPEG, lossy WebP and AVIF quality, 1–100.
     #[serde(default = "default_quality")]
     quality: u8,
     #[serde(default)]
@@ -253,8 +253,89 @@ pub fn encode(rgba: &[u8], width: u32, height: u32, format: &str, quality: u8, i
             let mut enc = image::codecs::bmp::BmpEncoder::new(&mut out);
             enc.encode(&flat()?, width, height, image::ExtendedColorType::Rgb8).map_err(|e| e.to_string())?;
         }
+        "webp-lossy" => {
+            let opaque = rgba.chunks_exact(4).all(|p| p[3] == 255);
+            let encoded = if opaque {
+                webp::Encoder::from_rgb(&flat()?, width, height).encode(f32::from(quality.clamp(1, 100)))
+            } else {
+                webp::Encoder::from_rgba(rgba, width, height).encode(f32::from(quality.clamp(1, 100)))
+            };
+            out = webp_with_meta(&encoded, width, height, !opaque, icc, &exif)?;
+        }
+        "avif" => {
+            // AV1 in pure Rust (no assembly here), at a quick speed; written as sRGB.
+            let pixels: Vec<ravif::RGBA8> = rgba.chunks_exact(4).map(|p| ravif::RGBA8::new(p[0], p[1], p[2], p[3])).collect();
+            let encoded = ravif::Encoder::new()
+                .with_quality(f32::from(quality.clamp(1, 100)))
+                .with_alpha_quality(f32::from(quality.clamp(1, 100)))
+                .with_speed(8)
+                .encode_rgba(ravif::Img::new(pixels.as_slice(), width as usize, height as usize))
+                .map_err(|e| e.to_string())?;
+            out = encoded.avif_file;
+        }
         other => return Err(format!("Can’t save as {other}.")),
     }
+    Ok(out)
+}
+
+/// libwebp's simple encoder writes no colour profile or EXIF: this rewraps its chunks in the
+/// extended format (a `VP8X` header, `ICCP` first and `EXIF` last), as the WebP container spec has it.
+fn webp_with_meta(file: &[u8], width: u32, height: u32, alpha: bool, icc: &[u8], exif: &[u8]) -> Result<Vec<u8>, String> {
+    if file.len() < 12 || &file[0..4] != b"RIFF" || &file[8..12] != b"WEBP" {
+        return Err("The WebP encoder made something unexpected.".into());
+    }
+    if icc.is_empty() && exif.is_empty() {
+        return Ok(file.to_vec());
+    }
+    // The chunks after the header, without any VP8X (one is written below).
+    let mut chunks: Vec<(&[u8], &[u8])> = Vec::new();
+    let mut at = 12;
+    while at + 8 <= file.len() {
+        let id = &file[at..at + 4];
+        let len = u32::from_le_bytes([file[at + 4], file[at + 5], file[at + 6], file[at + 7]]) as usize;
+        let end = (at + 8 + len).min(file.len());
+        if id != b"VP8X" && id != b"ICCP" && id != b"EXIF" {
+            chunks.push((id, &file[at + 8..end]));
+        }
+        at = at + 8 + len + (len & 1);
+    }
+    let mut body = Vec::new();
+    let mut put = |id: &[u8], data: &[u8]| {
+        body.extend_from_slice(id);
+        body.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        body.extend_from_slice(data);
+        if data.len() & 1 == 1 {
+            body.push(0);
+        }
+    };
+    let mut flags = 0u8;
+    if !icc.is_empty() {
+        flags |= 0x20;
+    }
+    if alpha {
+        flags |= 0x10;
+    }
+    if !exif.is_empty() {
+        flags |= 0x08;
+    }
+    let mut vp8x = vec![flags, 0, 0, 0];
+    vp8x.extend_from_slice(&(width - 1).to_le_bytes()[..3]);
+    vp8x.extend_from_slice(&(height - 1).to_le_bytes()[..3]);
+    put(b"VP8X", &vp8x);
+    if !icc.is_empty() {
+        put(b"ICCP", icc);
+    }
+    for (id, data) in &chunks {
+        put(id, data);
+    }
+    if !exif.is_empty() {
+        put(b"EXIF", exif);
+    }
+    let mut out = Vec::with_capacity(body.len() + 12);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&((body.len() + 4) as u32).to_le_bytes());
+    out.extend_from_slice(b"WEBP");
+    out.extend_from_slice(&body);
     Ok(out)
 }
 
@@ -315,6 +396,26 @@ pub fn copy_path(path: &Path, ext: Option<&str>) -> PathBuf {
 #[tauri::command]
 pub fn photo_copy_path(path: String, ext: Option<String>) -> String {
     copy_path(Path::new(&path), ext.as_deref()).to_string_lossy().into_owned()
+}
+
+// ---- raw files (Photoshop documents are read and written in the page)
+
+/// A file's bytes (a .psd), up to the project limit.
+#[tauri::command]
+pub async fn photo_read_file(path: String) -> Result<Response, String> {
+    crate::ensure_unlocked()?;
+    let bytes = blocking(move || crate::fs::text::read_bytes(Path::new(&path), MAX_PROJECT_BYTES)).await?;
+    Ok(Response::new(bytes))
+}
+
+/// Saves the request body to `x-path` (safely: a temporary file renamed over it); returns the new
+/// modification time.
+#[tauri::command]
+pub async fn photo_write_file(request: Request<'_>) -> Result<f64, String> {
+    crate::ensure_unlocked()?;
+    let path = header(&request, "x-path")?;
+    let bytes = body(&request)?.to_vec();
+    blocking(move || crate::fs::text::write_bytes(Path::new(&path), &bytes)).await
 }
 
 // ---- projects (.coreimage)
@@ -474,6 +575,30 @@ mod tests {
         reset_orientation(&mut junk);
         let mut short_ifd = b"II\x2a\x00\xff\x00\x00\x00".to_vec();
         reset_orientation(&mut short_ifd);
+    }
+
+    #[test]
+    fn lossy_webp_keeps_profile_and_avif_is_avif() {
+        let (w, h) = (24u32, 16u32);
+        let mut rgba = Vec::new();
+        for y in 0..h {
+            for x in 0..w {
+                rgba.extend_from_slice(&[(x * 10) as u8, (y * 15) as u8, 128, if x < 4 { 0 } else { 255 }]);
+            }
+        }
+        let icc = vec![7u8; 131];
+        let webp = encode(&rgba, w, h, "webp-lossy", 80, &icc, &[]).unwrap();
+        assert_eq!(&webp[0..4], b"RIFF");
+        assert_eq!(&webp[12..16], b"VP8X");
+        assert_eq!(webp[20] & 0x30, 0x30, "ICC and alpha flags");
+        assert_eq!(u32::from_le_bytes([webp[4], webp[5], webp[6], webp[7]]) as usize, webp.len() - 8);
+        let img = image::load_from_memory_with_format(&webp, image::ImageFormat::WebP).unwrap().to_rgba8();
+        assert_eq!(img.dimensions(), (w, h));
+        assert!(img.get_pixel(0, 0)[3] < 20 && img.get_pixel(20, 8)[3] > 235);
+        let decoded = image::codecs::webp::WebPDecoder::new(Cursor::new(&webp)).unwrap().icc_profile().unwrap();
+        assert_eq!(decoded, Some(icc));
+        let avif = encode(&rgba, w, h, "avif", 70, &[], &[]).unwrap();
+        assert_eq!(&avif[4..12], b"ftypavif");
     }
 
     #[test]

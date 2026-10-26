@@ -277,6 +277,41 @@ pub fn parse(conn: &Connection, text: &str, today: &str) -> Result<Guess> {
     Ok(Guess { kind, amount, amount_minor, account_id, category_id, date, payee })
 }
 
+/// A category for a line of text from a statement ("FOODPANDA*BD 1234", "SALARY OCT"): a payee
+/// seen before brings its category, else a category's name or a word that points to one, among
+/// categories of `kind`.
+pub fn guess_category(conn: &Connection, kind: &str, text: &str) -> Result<Option<String>> {
+    let payee = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let known: Option<Option<String>> = conn
+        .query_row(
+            "SELECT t.category_id FROM transactions t JOIN categories c ON c.id = t.category_id
+              WHERE lower(t.payee) = lower(?1) AND t.transfer_id IS NULL AND c.kind = ?2 ORDER BY t.created DESC LIMIT 1",
+            [&payee, kind],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(db_err)?;
+    if let Some(Some(cat)) = known {
+        return Ok(Some(cat));
+    }
+    let words: Vec<String> = text.to_lowercase().split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(str::to_string).collect();
+    let categories: Vec<db::Category> = db::categories(conn)?.into_iter().filter(|c| !c.archived && c.kind == kind).collect();
+    let names: Vec<String> = categories.iter().map(|c| c.name.to_lowercase()).collect();
+    if let Some((_, _, n)) = find_phrase(&words, &names) {
+        return Ok(Some(categories[n].id.clone()));
+    }
+    for w in &words {
+        for (name, keys) in KEYWORDS {
+            if keys.contains(&w.as_str()) {
+                if let Some(c) = categories.iter().find(|c| c.name.eq_ignore_ascii_case(name)) {
+                    return Ok(Some(c.id.clone()));
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

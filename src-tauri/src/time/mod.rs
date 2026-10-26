@@ -119,6 +119,13 @@ pub struct Data {
     now: i64,
 }
 
+/// Minutes of work on a project's tasks in a span.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct ProjectHours {
+    pub project: String,
+    pub minutes: i64,
+}
+
 /// What `time_stop` stopped, and the task timer it started again (after an activity that paused it).
 #[derive(Serialize)]
 pub struct Stopped {
@@ -298,6 +305,22 @@ impl Saved {
             running: self.running().cloned(),
             now,
         }
+    }
+
+    /// Minutes of work per task project within `from..to` ("" for tasks without one), for
+    /// Wallet's earnings.
+    fn project_minutes(&self, from: i64, to: i64, now: i64) -> Vec<ProjectHours> {
+        let mut minutes: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
+        for e in self.entries.iter().filter(|e| e.kind == "work") {
+            let start = e.start.max(from);
+            let end = e.end.unwrap_or(now).min(to);
+            if end <= start {
+                continue;
+            }
+            let project = e.task.as_ref().and_then(|t| self.tasks.iter().find(|k| &k.id == t)).map(|k| k.project.clone()).unwrap_or_default();
+            *minutes.entry(project).or_default() += end - start;
+        }
+        minutes.into_iter().map(|(project, ms)| ProjectHours { project, minutes: (ms + 30_000) / 60_000 }).collect()
     }
 
     fn check_in(&mut self, at: Option<i64>, now: i64) -> Result<Session, String> {
@@ -567,6 +590,17 @@ pub fn time_data(from: i64, to: i64) -> Result<Data, String> {
     Ok(store.saved.data(from, to, at))
 }
 
+/// Minutes of work per project within `from..to` (ms since the epoch); Wallet reads it too.
+pub fn project_minutes(from: i64, to: i64) -> Vec<ProjectHours> {
+    store().saved.project_minutes(from, to, now())
+}
+
+#[tauri::command]
+pub fn time_project_hours(from: i64, to: i64) -> Result<Vec<ProjectHours>, String> {
+    crate::ensure_unlocked()?;
+    Ok(project_minutes(from, to))
+}
+
 #[tauri::command]
 pub fn time_check_in(at: Option<i64>) -> Result<Session, String> {
     change(|saved, now| saved.check_in(at, now))
@@ -641,6 +675,17 @@ mod tests {
         let task = saved.add_task("Fix login", "Portal", "development", NOON).unwrap().id;
         saved.check_in(Some(NOON - 60 * MIN), NOON).unwrap();
         (saved, task)
+    }
+
+    #[test]
+    fn work_adds_up_per_project() {
+        let (mut saved, task) = day();
+        let other = saved.add_task("Standup", "", "meeting", NOON).unwrap().id;
+        saved.add("work", Some(task.clone()), "", NOON - 50 * MIN, NOON - 20 * MIN, NOON).unwrap();
+        saved.add("work", Some(other), "", NOON - 20 * MIN, NOON - 10 * MIN, NOON).unwrap();
+        saved.add("lunch", None, "", NOON - 10 * MIN, NOON - 5 * MIN, NOON).unwrap();
+        let hours = saved.project_minutes(NOON - 40 * MIN, NOON, NOON);
+        assert_eq!(hours, vec![ProjectHours { project: "".into(), minutes: 10 }, ProjectHours { project: "Portal".into(), minutes: 20 }]);
     }
 
     #[test]

@@ -58,6 +58,14 @@ In CorePro the Video module lives right of the app rail; its own pieces:
   mouse movement (cursor hidden too); any movement brings them back.
 - **Light theme** (`light.png`): bars and sidebar turn light glass, text dark; the stage stays dark.
 
+## Liquid Glass (2026-10-27, on by default)
+
+The user asked for macOS 26's glass "specially for the video player". With Settings → Video →
+Interface → Liquid Glass controls on, the same 54px single-row bar (same items, same order) and
+the top bar float over the picture as glass capsules (14px from the edges, the bar at most
+1180px wide; the top bar splits into pills: menu and crumb, title, extras), and hide while the
+video plays and the pointer rests. Off gives the docked Figma layout above.
+
 ## Customise player (`customize.png`, frame `2107:5604`)
 
 A sheet over the player: "Customize Player — Drag items around and out of the box below to

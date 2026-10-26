@@ -13,7 +13,9 @@ import { addMonths, monthLabel, setCurrencies, thisMonth } from "./format";
 import { quickAdd } from "./quickadd";
 import { txSheet } from "./sheets";
 import { accountsView } from "./views/accounts";
+import { billsView } from "./views/bills";
 import { budgetsView } from "./views/budgets";
+import { importView } from "./views/importer";
 import { overviewView } from "./views/overview";
 import { reportsView } from "./views/reports";
 import { transactionsView } from "./views/transactions";
@@ -59,14 +61,16 @@ export const createWalletModule: ModuleFactory = (shell) => {
     transactions: transactionsView(ctx),
     accounts: accountsView(ctx),
     budgets: budgetsView(ctx),
+    bills: billsView(ctx),
     reports: reportsView(ctx),
+    import: importView(ctx),
   };
 
   // ---- sidebar
 
   const nav: [ViewId, string, IconName][] = [
     ["overview", "Overview", "pieChart"], ["transactions", "Transactions", "list"], ["accounts", "Accounts", "wallet"],
-    ["budgets", "Budgets", "target"], ["reports", "Reports", "barChart"],
+    ["budgets", "Budgets", "target"], ["bills", "Bills", "repeat"], ["reports", "Reports", "barChart"], ["import", "Import & Export", "download"],
   ];
   const navButtons = nav.map(([id, label, glyph]) => h("button", { class: "wl-nav", type: "button", onclick: () => show(id) }, icon(glyph, 17), h("span", null, label)));
   const sideAccounts = h("div", { class: "wl-side-accounts" });

@@ -3,7 +3,7 @@ import { icon, type IconName } from "../../../ui/icons";
 import type { MediaStore } from "./media";
 import { PEAK_RATE } from "./media";
 import {
-  clipEnd, mainIndexAt, mainTrack, mediaOf, moveFree, moveMain, MIN_CLIP, projectDuration, snap, trimEnd, trimStart,
+  beatTimes, clipEnd, keyTimes, sourceTime, mainIndexAt, mainTrack, mediaOf, moveFree, moveMain, MIN_CLIP, projectDuration, snap, trimEnd, trimStart,
   type Clip, type MediaClip, type Project, type Track, type TrackKind,
 } from "./model";
 
@@ -381,7 +381,7 @@ export class Timeline {
 
   private drawHeads() {
     const p = this.host.project();
-    const sig = this.rows.map((r) => `${r.track.id}:${r.track.kind}:${r.track.muted}:${r.track.hidden}:${r.y}`).join("|");
+    const sig = this.rows.map((r) => `${r.track.id}:${r.track.kind}:${r.track.muted}:${r.track.hidden}:${r.y}:${r.track.clips.some((c) => c.type === "media" && c.role === "voice")}`).join("|");
     if (this.heads.dataset.sig === sig) return;
     this.heads.dataset.sig = sig;
     const total = this.rows.length ? this.rows[this.rows.length - 1].y + this.rows[this.rows.length - 1].h + PAD_BOTTOM : 0;
@@ -392,9 +392,10 @@ export class Timeline {
         h("button", { class: `icon-btn small${on ? " active" : ""}`, type: "button", title, "aria-label": title, onclick: run }, icon(name, 14));
       const sameKind = p.tracks.filter((x) => x.kind === t.kind);
       const n = sameKind.length > 1 ? ` ${sameKind.indexOf(t) + 1}` : "";
+      const voice = t.kind === "audio" && t.clips.length > 0 && t.clips.every((c) => c.type === "media" && c.role === "voice");
       return h("div", { class: `ve-tl-head kind-${t.kind}`, style: { top: `${row.y}px`, height: `${row.h}px` } },
-        icon(KIND_ICON[t.kind], 14),
-        h("span", { class: "ve-tl-head-name" }, KIND_LABEL[t.kind] + n),
+        icon(voice ? "veMic" : KIND_ICON[t.kind], 14),
+        h("span", { class: "ve-tl-head-name" }, (voice ? "Voice" : KIND_LABEL[t.kind]) + n),
         t.kind !== "text" ? toggle(t.muted ? "mute" : "volume", t.muted, t.muted ? "Unmute track" : "Mute track", () => this.trackFlag(t.id, "muted")) : null,
         t.kind !== "audio" ? toggle(t.hidden ? "eyeOff" : "eye", t.hidden, t.hidden ? "Show track" : "Hide track", () => this.trackFlag(t.id, "hidden")) : null,
       );
@@ -460,13 +461,13 @@ export class Timeline {
           const first = Math.max(0, Math.floor(-x0 / tw));
           for (let i = first, x = x0 + first * tw; x < Math.min(x1, this.width + tw); i++, x += tw) {
             const tl = clip.start + ((x - x0 + tw / 2) / w) * clip.duration;
-            const src = m.kind === "image" ? 0 : clip.in + (tl - clip.start) * clip.speed;
+            const src = m.kind === "image" ? 0 : sourceTime(clip, tl);
             const k = m.kind === "image" ? 0 : Math.max(0, Math.min(s.count - 1, Math.floor((src / Math.max(0.001, m.duration)) * s.count)));
             g.drawImage(img, k * s.thumbWidth, 0, s.thumbWidth, s.thumbHeight, x, y, tw, th);
           }
         }
       }
-      if (m && m.audio && !m.missing) {
+      if (m && m.audio && !m.missing && clip.freeze === undefined) {
         const sound = this.host.store.soundNow(m);
         if (sound === undefined) void this.host.store.sound(m).then(() => this.redraw(false));
         if (sound) {
@@ -481,8 +482,8 @@ export class Timeline {
           const start = Math.max(x0, 0), end = Math.min(x1, this.width);
           const vol = Math.min(1.5, clip.volume);
           for (let x = Math.floor(start); x < end; x += 2) {
-            const a = clip.in + ((x - x0) / this.pps) * clip.speed;
-            const b = clip.in + ((x + 2 - x0) / this.pps) * clip.speed;
+            const sa = sourceTime(clip, clip.start + (x - x0) / this.pps), sb = sourceTime(clip, clip.start + (x + 2 - x0) / this.pps);
+            const a = Math.min(sa, sb), b = Math.max(sa, sb, a + 1 / PEAK_RATE);
             let peak = 0;
             for (let i = Math.floor(a * PEAK_RATE), e = Math.ceil(b * PEAK_RATE); i < e && i < sound.peaks.length; i++) peak = Math.max(peak, sound.peaks[i]);
             const ph = Math.max(1, (peak / 255) * band * vol);
@@ -491,8 +492,41 @@ export class Timeline {
           }
         }
       }
-      if (clip.speed !== 1) label = `${clip.speed.toFixed(clip.speed < 1 ? 2 : 1)}×  ${label}`;
-      if (clip.volume === 0 && m?.audio) label = `🔇 ${label}`;
+      if (clip.speed !== 1 && !clip.curve) label = `${clip.speed.toFixed(clip.speed < 1 ? 2 : 1)}×  ${label}`;
+      if (clip.curve) label = `Curve  ${label}`;
+      if (clip.reverse) label = `◀◀  ${label}`;
+      if (clip.freeze !== undefined) label = `Freeze  ${label}`;
+      if (clip.role === "voice") label = `Voice-over`;
+      if (clip.volume === 0 && m?.audio && !clip.keys?.volume) label = `🔇 ${label}`;
+      // Beat marks.
+      const beats = beatTimes(clip);
+      if (beats.length) {
+        g.fillStyle = "rgba(255, 209, 102, 0.9)";
+        for (const b of beats) {
+          const bx = this.x(b);
+          if (bx >= x0 && bx <= x1) g.fillRect(Math.round(bx) - 0.5, y + hh - 9, 1.5, 7);
+        }
+      }
+    }
+    // Keyframes: diamonds along the clip's foot.
+    if (clip.keys) {
+      const size = selected ? 5 : 3.5;
+      const ky = y + hh - (selected ? 8 : 6);
+      for (const kt of keyTimes(clip)) {
+        const kx = this.x(clip.start + kt);
+        if (kx < x0 - 1 || kx > x1 + 1) continue;
+        g.fillStyle = selected ? "#ffd166" : "rgba(255, 209, 102, 0.75)";
+        g.strokeStyle = "rgba(0,0,0,0.6)";
+        g.lineWidth = 1;
+        g.beginPath();
+        g.moveTo(kx, ky - size);
+        g.lineTo(kx + size, ky);
+        g.lineTo(kx, ky + size);
+        g.lineTo(kx - size, ky);
+        g.closePath();
+        g.fill();
+        g.stroke();
+      }
     }
     // Label.
     g.font = `600 11px ${pal.font}`;
@@ -592,9 +626,25 @@ export class Timeline {
     return s;
   }
 
+  /** The keyframe of a selected clip under a point (its timeline time). */
+  private keyAtPoint(x: number, y: number): number | null {
+    const row = this.rowAt(y);
+    if (!row || y < row.y + row.h - 15 || y > row.y + row.h) return null;
+    for (const clip of row.track.clips) {
+      if (!clip.keys || !this.host.selection.has(clip.id)) continue;
+      for (const kt of keyTimes(clip)) if (Math.abs(this.x(clip.start + kt) - x) <= 6) return clip.start + kt;
+    }
+    return null;
+  }
+
   private down(e: PointerEvent) {
     if (e.button !== 0) return;
     const { x, y } = this.local(e);
+    const key = this.keyAtPoint(x, y);
+    if (key !== null) {
+      this.host.seek(key);
+      return;
+    }
     const cut = this.cutAtPoint(x, y);
     if (cut) {
       this.host.openTransition(cut.id);

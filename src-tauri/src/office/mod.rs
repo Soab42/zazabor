@@ -13,6 +13,7 @@ use std::sync::OnceLock;
 use tauri::ipc::{InvokeBody, Request, Response};
 
 pub mod pdf_signatures;
+pub mod pdf_tools;
 
 /// Bigger files than this aren't opened (a document or a workbook this size is no longer one).
 const MAX_BYTES: u64 = 256 * 1024 * 1024;
@@ -182,7 +183,7 @@ fn separator(path: &str) -> Option<char> {
 
 /// Splits delimited text into rows of fields, as RFC 4180 has it: quotes around a field allow the
 /// separator, line breaks and doubled quotes inside it. A byte-order mark is dropped.
-fn parse_delimited(text: &str, sep: char) -> Vec<Vec<String>> {
+pub(crate) fn parse_delimited(text: &str, sep: char) -> Vec<Vec<String>> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut rows = Vec::new();
     let mut row = Vec::new();
@@ -221,7 +222,7 @@ fn parse_delimited(text: &str, sep: char) -> Vec<Vec<String>> {
 }
 
 /// A field as delimited text writes it: quoted when it holds the separator, a quote or a line break.
-fn quote_field(value: &str, sep: char) -> String {
+pub(crate) fn quote_field(value: &str, sep: char) -> String {
     if value.contains(sep) || value.contains('"') || value.contains('\n') || value.contains('\r') {
         format!("\"{}\"", value.replace('"', "\"\""))
     } else {

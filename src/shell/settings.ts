@@ -2,6 +2,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "../shared/dialog";
 import { clipboardCategory } from "../clipboard/settings";
+import { walletCategory } from "../modules/wallet/settings";
 import { notesApi, onSyncStatus, syncText, type SyncStatus } from "../notes/api";
 import { createAppearanceControls, type SettingsGroup, type SettingsRow } from "../appearance";
 import type { Config, FilesView } from "../config";
@@ -326,6 +327,7 @@ export class Settings {
         }],
       },
       this.notesCategory(),
+      walletCategory(this.host),
       clipboardCategory(),
       ...videoCategories(this.host),
       this.aboutCategory(),

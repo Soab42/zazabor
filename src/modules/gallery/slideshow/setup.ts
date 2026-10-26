@@ -353,8 +353,11 @@ function estimate(photos: number, settings: SlideshowSettings) {
   return minutes < 90 ? `about ${minutes} minutes` : `about ${(minutes / 60).toFixed(1)} hours`;
 }
 
-/** Asks what to play and how; resolves with the chosen scope, or null when cancelled. */
-export function openSetupDialog(scopes: SlideshowScope[], settings: SlideshowSettings, onChange: () => void): Promise<SlideshowScope | null> {
+/**
+ * Asks what to play and how; resolves with the chosen scope, or null when cancelled. With
+ * `makeVideo`, a "Make a Video" button hands the chosen photos and style to the Video Editor.
+ */
+export function openSetupDialog(scopes: SlideshowScope[], settings: SlideshowSettings, onChange: () => void, makeVideo?: (scope: SlideshowScope) => void): Promise<SlideshowScope | null> {
   return new Promise((resolve) => {
     let chosen = 0;
     const summary = h("p", { class: "setup-summary" });
@@ -402,6 +405,13 @@ export function openSetupDialog(scopes: SlideshowScope[], settings: SlideshowSet
     document.addEventListener("keydown", onKey, true);
 
     const play = h("button", { class: "btn primary large", onclick: () => finish(scopes[chosen]) }, icon("play", 16), "Play");
+    const video = makeVideo
+      ? h("button", { class: "btn large", title: "Turns these photos into a reel in the Video Editor, in this style and with this music", onclick: () => {
+        const scope = scopes[chosen];
+        finish(null);
+        makeVideo(scope);
+      } }, icon("videoEdit", 16), "Make a Video")
+      : null;
     const side = h(
       "div",
       { class: "setup-side" },
@@ -419,6 +429,7 @@ export function openSetupDialog(scopes: SlideshowScope[], settings: SlideshowSet
         h("span", { class: "muted small" }, "Space pauses · ← → skip · S opens these settings during the show"),
         h("div", { class: "spacer" }),
         h("button", { class: "btn", onclick: () => finish(null) }, "Cancel"),
+        video,
         play),
     );
     overlay.addEventListener("pointerdown", (e) => {

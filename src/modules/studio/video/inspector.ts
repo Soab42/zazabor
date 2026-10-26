@@ -3,16 +3,18 @@ import { h } from "../../../ui/dom";
 import { icon } from "../../../ui/icons";
 import { LOOKS, TRANSITION_GROUPS, type LookId, type TransitionKind } from "../../gallery/slideshow/settings";
 import {
-  defaultFx, defaultPlace, findClip, layoutMain, maxDuration, maxTransition, mediaOf, MIN_CLIP, trimEnd,
-  type Clip, type MediaClip, type Project, type TextAnim, type TextClip,
+  CURVE_PRESETS, curveMean, defaultFrame, defaultFx, defaultMask, defaultPlace, findClip, hasKeys, keyAt, keyTimes, layoutMain, maxDuration,
+  maxTransition, mediaOf, MIN_CLIP, propAt, removeKey, setKey, setProp, sourceSpan, trimEnd,
+  type Clip, type CurvePreset, type Ease, type EffectId, type KeyProp, type MediaClip, type Project, type TextAnim, type TextClip,
 } from "./model";
 import { TEXT_ANIMS, TEXT_FONTS } from "./text";
 
 /**
- * The right panel: the selected clip's settings (picture, filter, speed, sound, text, animation),
- * or the project's (shape, background, frame rate) when nothing is selected. It's rebuilt when
- * the selection changes and only updates its values otherwise, so typing and dragging sliders
- * keep their focus.
+ * The right panel: the selected clip's settings (picture, keyframes, filter and effects, colour
+ * table, chroma key, mask, frame, speed, sound, text, animation), or the project's (shape,
+ * background, frame rate) when nothing is selected. It's rebuilt when the selection changes and
+ * only updates its values otherwise (also as the playhead moves, for keyframed values), so typing
+ * and dragging sliders keep their focus.
  */
 
 export interface InspectorHost {
@@ -21,16 +23,35 @@ export interface InspectorHost {
   /** Changes the project; edits with the same `key` in a row make one undo step. */
   change(fn: (p: Project) => void, key: string): void;
   setAspect(aspect: Aspect): void;
+  /** The playhead. */
+  time(): number;
+  seek(t: number): void;
+  /** Asks for a .cube file for the clip. */
+  loadLut(id: string): void;
+  /** Picks the key colour by clicking the preview. */
+  pickKeyColor(id: string): void;
+  /** Freezes the frame under the playhead into a clip of its own. */
+  freezeFrame(): void;
+  /** Marks the beats of an audio clip from its sound. */
+  markBeats(id: string): void;
 }
 
 type Sync = () => void;
 
 const ASPECTS: [Aspect, string][] = [["9:16", "9:16"], ["16:9", "16:9"], ["1:1", "1:1"], ["4:5", "4:5"]];
+const EASES: [Ease, string][] = [["smooth", "Smooth"], ["linear", "Linear"], ["in", "Ease in"], ["out", "Ease out"], ["hold", "Hold"]];
+const EFFECTS: [EffectId, string][] = [
+  ["none", "None"], ["shake", "Shake"], ["pulse", "Zoom pulse"], ["glitch", "Glitch"], ["rgb", "RGB split"], ["vhs", "VHS"],
+  ["mirror", "Mirror"], ["flash", "Flash in"], ["blurin", "Blur in"],
+];
+/** Picture-in-picture spots: centre and scale. */
+const PIP_SPOTS: [string, number, number][] = [["Top left", 0.27, 0.2], ["Top right", 0.73, 0.2], ["Bottom left", 0.27, 0.8], ["Bottom right", 0.73, 0.8], ["Centre", 0.5, 0.5]];
 
 export class Inspector {
   readonly el: HTMLElement;
   private shown = "";
   private syncs: Sync[] = [];
+  private lastTimeSync = 0;
 
   constructor(private host: InspectorHost) {
     this.el = h("aside", { class: "ve-inspector" });
@@ -42,7 +63,9 @@ export class Inspector {
     const id = this.host.selectedId();
     const p = this.host.project();
     const found = id ? findClip(p, id) : null;
-    const key = found ? `${found.clip.id}:${found.track.kind}` : `project:${p.canvas.aspect}:${p.media.length}`;
+    const c = found?.clip;
+    const shape = c?.type === "media" ? `${c.freeze !== undefined}:${!!c.fx.key}:${!!c.mask}:${!!c.frame}:${!!c.fx.lut}:${c.fx.effect !== "none"}:${!!c.curve}` : "";
+    const key = found ? `${found.clip.id}:${found.track.kind}:${shape}` : `project:${p.canvas.aspect}:${p.media.length}`;
     if (!force && key === this.shown) {
       for (const s of this.syncs) s();
       return;
@@ -56,11 +79,24 @@ export class Inspector {
     this.el.scrollTop = scroll;
   }
 
+  /** The playhead moved: keyframed values and the diamonds follow (at most ten times a second). */
+  timeChanged(playing: boolean) {
+    const now = performance.now();
+    if (playing && now - this.lastTimeSync < 100) return;
+    this.lastTimeSync = now;
+    for (const s of this.syncs) s();
+  }
+
   // ---- controls
 
   /** The selected clip as it is now (projects are replaced on undo and drags). */
   private live<T extends Clip>(id: string): T | null {
     return (findClip(this.host.project(), id)?.clip as T) ?? null;
+  }
+
+  /** Seconds into the clip at the playhead, kept inside it. */
+  private local(c: Clip): number {
+    return Math.max(0, Math.min(c.duration, this.host.time() - c.start));
   }
 
   private edit<T extends Clip>(id: string, key: string, fn: (c: T, p: Project) => void) {
@@ -70,7 +106,7 @@ export class Inspector {
     }, `${id}:${key}`);
   }
 
-  private slider(label: string, o: { min: number; max: number; step: number; get: () => number; set: (v: number) => void; format: (v: number) => string }): HTMLElement {
+  private slider(label: string, o: { min: number; max: number; step: number; get: () => number; set: (v: number) => void; format: (v: number) => string }, keyed?: { id: string; prop: KeyProp }): HTMLElement {
     const input = h("input", { type: "range", min: String(o.min), max: String(o.max), step: String(o.step), value: String(o.get()) });
     const value = h("span", { class: "ve-value" }, o.format(o.get()));
     input.addEventListener("input", () => {
@@ -78,14 +114,44 @@ export class Inspector {
       o.set(v);
       value.textContent = o.format(v);
     });
-    input.addEventListener("dblclick", () => input.dispatchEvent(new Event("reset")));
+    let diamond: HTMLButtonElement | null = null;
+    if (keyed) {
+      diamond = h("button", { class: "ve-key", type: "button", title: "Add a keyframe at the playhead", "aria-label": `Keyframe ${label}`, onclick: () => this.toggleKey(keyed.id, keyed.prop) }, icon("veKey", 12));
+    }
     this.syncs.push(() => {
+      if (diamond && keyed) {
+        const c = this.live(keyed.id);
+        const on = c ? !!keyAt(c, keyed.prop, this.local(c)) : false;
+        diamond.classList.toggle("on", on);
+        diamond.classList.toggle("has", !!c && hasKeys(c, keyed.prop));
+        diamond.title = on ? "Remove the keyframe at the playhead" : "Add a keyframe at the playhead";
+      }
       if (document.activeElement === input) return;
       const v = o.get();
       input.value = String(v);
       value.textContent = o.format(v);
     });
-    return h("div", { class: "ve-row" }, h("label", null, label), input, value);
+    return h("div", { class: `ve-row${keyed ? " keyed" : ""}` }, diamond, h("label", null, label), input, value);
+  }
+
+  private toggleKey(id: string, prop: KeyProp) {
+    this.edit(id, `key-${prop}`, (c) => {
+      const local = this.local(c);
+      if (keyAt(c, prop, local)) removeKey(c, prop, local);
+      else setKey(c, prop, local, propAt(c, prop, local));
+    });
+  }
+
+  /** A keyable slider: its value at the playhead, edited there. */
+  private keyedSlider(id: string, prop: KeyProp, label: string, o: { min: number; max: number; step: number; format: (v: number) => string }): HTMLElement {
+    return this.slider(label, {
+      ...o,
+      get: () => {
+        const c = this.live(id);
+        return c ? propAt(c, prop, this.local(c)) : 0;
+      },
+      set: (v) => this.edit(id, prop, (x) => setProp(x, prop, this.local(x), v)),
+    }, { id, prop });
   }
 
   private choice<V extends string>(label: string, options: readonly (readonly [V, string])[], get: () => V, set: (v: V) => void): HTMLElement {
@@ -115,15 +181,19 @@ export class Inspector {
     return h("div", { class: "ve-row" }, h("label", null, label), h("span", { class: "spacer" }), el);
   }
 
-  private color(label: string, get: () => string | null, set: (v: string | null) => void, optional: boolean): HTMLElement {
+  private color(label: string, get: () => string | null, set: (v: string | null) => void, optional: boolean, extra?: Node): HTMLElement {
     const input = h("input", { type: "color", value: toHex(get() ?? "#ffffff"), oninput: () => set(input.value) });
     const on = optional ? h("input", { type: "checkbox", class: "switch", checked: get() !== null, onchange: () => set(on!.checked ? input.value : null) }) : null;
     this.syncs.push(() => {
       const v = get();
-      if (v) input.value = toHex(v);
+      if (v && document.activeElement !== input) input.value = toHex(v);
       if (on) on.checked = v !== null;
     });
-    return h("div", { class: "ve-row" }, h("label", null, label), h("span", { class: "spacer" }), input, on);
+    return h("div", { class: "ve-row" }, h("label", null, label), h("span", { class: "spacer" }), extra ?? null, input, on);
+  }
+
+  private buttons(...items: [string, () => void, boolean?][]): HTMLElement {
+    return h("div", { class: "ve-row ve-row-buttons" }, ...items.map(([text, run, disabled]) => h("button", { class: "btn small", type: "button", disabled: !!disabled, onclick: run }, text)));
   }
 
   private section(title: string, ...rows: (Node | null)[]): HTMLElement {
@@ -150,17 +220,54 @@ export class Inspector {
     ];
   }
 
+  /** Keyframe tools: step between keyframes, and the ease of the ones at the playhead. */
+  private keyTools(id: string): HTMLElement {
+    const c = () => this.live(id);
+    const nav = (dir: -1 | 1) => {
+      const clip = c();
+      if (!clip) return;
+      const local = this.local(clip);
+      const times = keyTimes(clip);
+      const next = dir > 0 ? times.find((t) => t > local + 1e-3) : [...times].reverse().find((t) => t < local - 1e-3);
+      if (next !== undefined) this.host.seek(clip.start + next);
+    };
+    const ease = h("select", { onchange: () => this.edit(id, "ease", (x) => {
+      const local = this.local(x);
+      for (const list of Object.values(x.keys ?? {})) for (const k of list ?? []) if (Math.abs(k.t - local) <= 1 / 60) k.ease = ease.value as Ease;
+    }) }, ...EASES.map(([v, t]) => h("option", { value: v }, t)));
+    const count = h("span", { class: "ve-value" });
+    const row = h("div", { class: "ve-row ve-key-tools" },
+      h("button", { class: "icon-btn small", type: "button", title: "Previous keyframe", onclick: () => nav(-1) }, icon("chevronLeft", 15)),
+      h("button", { class: "icon-btn small", type: "button", title: "Next keyframe", onclick: () => nav(1) }, icon("chevronRight", 15)),
+      h("label", null, "Ease"), ease, count);
+    this.syncs.push(() => {
+      const clip = c();
+      const local = clip ? this.local(clip) : 0;
+      const here = Object.values(clip?.keys ?? {}).flatMap((l) => l ?? []).find((k) => Math.abs(k.t - local) <= 1 / 60);
+      ease.disabled = !here;
+      if (here && document.activeElement !== ease) ease.value = here.ease;
+      const n = clip ? keyTimes(clip).length : 0;
+      count.textContent = n ? `${n} key${n === 1 ? "" : "s"}` : "";
+      row.hidden = !n;
+    });
+    return row;
+  }
+
   private placement(id: string, isMain: boolean): HTMLElement {
-    const c = () => this.live<MediaClip | TextClip>(id);
     const pct = (v: number) => `${Math.round(v * 100)}%`;
     return this.section("Position",
-      this.slider("Scale", { min: 0.1, max: 3, step: 0.01, get: () => c()?.place.scale ?? 1, set: (v) => this.edit(id, "scale", (x) => (x.place.scale = v)), format: pct }),
-      this.slider("X", { min: -0.5, max: 1.5, step: 0.005, get: () => c()?.place.x ?? 0.5, set: (v) => this.edit(id, "x", (x) => (x.place.x = v)), format: (v) => pct(v - 0.5) }),
-      this.slider("Y", { min: -0.5, max: 1.5, step: 0.005, get: () => c()?.place.y ?? 0.5, set: (v) => this.edit(id, "y", (x) => (x.place.y = v)), format: (v) => pct(v - 0.5) }),
-      this.slider("Rotation", { min: -180, max: 180, step: 1, get: () => c()?.place.rotation ?? 0, set: (v) => this.edit(id, "rotation", (x) => (x.place.rotation = v)), format: (v) => `${Math.round(v)}°` }),
-      this.slider("Opacity", { min: 0, max: 1, step: 0.01, get: () => c()?.place.opacity ?? 1, set: (v) => this.edit(id, "opacity", (x) => (x.place.opacity = v)), format: pct }),
-      h("div", { class: "ve-row ve-row-buttons" }, h("button", { class: "btn small", type: "button", onclick: () =>
-        this.edit(id, "reset", (x) => (x.place = { ...defaultPlace(), ...(isMain ? {} : { scale: x.place.scale }) })) }, "Reset position")),
+      h("p", { class: "ve-panel-note" }, "◆ adds a keyframe at the playhead; with keyframes, moving a slider changes the one there."),
+      this.keyedSlider(id, "scale", "Scale", { min: 0.1, max: 3, step: 0.01, format: pct }),
+      this.keyedSlider(id, "x", "X", { min: -0.5, max: 1.5, step: 0.005, format: (v) => pct(v - 0.5) }),
+      this.keyedSlider(id, "y", "Y", { min: -0.5, max: 1.5, step: 0.005, format: (v) => pct(v - 0.5) }),
+      this.keyedSlider(id, "rotation", "Rotation", { min: -180, max: 180, step: 1, format: (v) => `${Math.round(v)}°` }),
+      this.keyedSlider(id, "opacity", "Opacity", { min: 0, max: 1, step: 0.01, format: pct }),
+      this.keyTools(id),
+      this.buttons(["Reset position", () => this.edit(id, "reset", (x) => {
+        x.place = { ...defaultPlace(), ...(isMain ? {} : { scale: x.place.scale }) };
+        if (x.keys) for (const prop of ["x", "y", "scale", "rotation", "opacity"] as KeyProp[]) delete x.keys[prop];
+        if (x.keys && !Object.keys(x.keys).length) delete x.keys;
+      })]),
     );
   }
 
@@ -170,7 +277,11 @@ export class Inspector {
     const m = mediaOf(p, clip.media);
     const c = () => this.live<MediaClip>(id);
     const visual = m && m.kind !== "audio" && trackKind !== "audio";
-    const out: Node[] = [h("header", { class: "ve-inspector-head" }, icon(m?.kind === "audio" ? "music" : m?.kind === "image" ? "image" : "video", 16), h("span", { title: m?.path ?? "" }, m?.name ?? "Missing file"))];
+    const frozen = clip.freeze !== undefined;
+    const signed = (v: number) => `${v > 0 ? "+" : ""}${Math.round(v * 100)}`;
+    const pct = (v: number) => `${Math.round(v * 100)}%`;
+    const head = frozen ? "Freeze frame" : clip.role === "voice" ? "Voice-over" : m?.name ?? "Missing file";
+    const out: Node[] = [h("header", { class: "ve-inspector-head" }, icon(m?.kind === "audio" ? (clip.role === "voice" ? "veMic" : "music") : frozen ? "snowflake" : m?.kind === "image" ? "image" : "video", 16), h("span", { title: m?.path ?? "" }, head))];
     if (m?.note) out.push(h("p", { class: "ve-panel-note warn" }, m.note));
     if (m?.missing) out.push(h("p", { class: "ve-panel-note warn" }, `${m.path} can't be found.`));
     if (visual) {
@@ -180,43 +291,113 @@ export class Inspector {
       ));
       out.push(this.placement(id, trackKind === "main"));
       const looks: [LookId | "none", string][] = [["none", "None"], ...LOOKS.map((l) => [l.id, l.label] as [LookId, string])];
-      const signed = (v: number) => `${v > 0 ? "+" : ""}${Math.round(v * 100)}`;
+      const lutName = h("span", { class: "ve-value ve-lut-name" });
+      this.syncs.push(() => (lutName.textContent = c()?.fx.lut?.name ?? "None"));
       out.push(this.section("Filter and adjust",
         this.select("Filter", looks, () => c()?.fx.look ?? "none", (v) => this.edit<MediaClip>(id, "look", (x) => (x.fx.look = v))),
         this.slider("Brightness", { min: -1, max: 1, step: 0.01, get: () => c()?.fx.brightness ?? 0, set: (v) => this.edit<MediaClip>(id, "brightness", (x) => (x.fx.brightness = v)), format: signed }),
         this.slider("Contrast", { min: -1, max: 1, step: 0.01, get: () => c()?.fx.contrast ?? 0, set: (v) => this.edit<MediaClip>(id, "contrast", (x) => (x.fx.contrast = v)), format: signed }),
         this.slider("Saturation", { min: -1, max: 1, step: 0.01, get: () => c()?.fx.saturation ?? 0, set: (v) => this.edit<MediaClip>(id, "saturation", (x) => (x.fx.saturation = v)), format: signed }),
-        h("div", { class: "ve-row ve-row-buttons" }, h("button", { class: "btn small", type: "button", onclick: () => this.edit<MediaClip>(id, "fx-reset", (x) => (x.fx = defaultFx())) }, "Reset")),
+        h("div", { class: "ve-row" }, h("label", null, "Colour table"), lutName,
+          h("button", { class: "btn small", type: "button", title: "Load a .cube LUT", onclick: () => this.host.loadLut(id) }, clip.fx.lut ? "Change…" : "Load .cube…")),
+        clip.fx.lut ? this.slider("Strength", { min: 0, max: 1, step: 0.01, get: () => c()?.fx.lut?.strength ?? 1, set: (v) => this.edit<MediaClip>(id, "lut-strength", (x) => x.fx.lut && (x.fx.lut.strength = v)), format: pct }) : null,
+        this.buttons(["Reset", () => this.edit<MediaClip>(id, "fx-reset", (x) => {
+          const keep = x.fx;
+          x.fx = { ...defaultFx(), effect: keep.effect, amount: keep.amount, key: keep.key, blur: keep.blur, sharpen: keep.sharpen, vignette: keep.vignette, grain: keep.grain };
+        })], ...(clip.fx.lut ? [["Remove table", () => this.edit<MediaClip>(id, "lut", (x) => (x.fx.lut = null))] as [string, () => void]] : [])),
+      ));
+      out.push(this.section("Effects",
+        this.select("Effect", EFFECTS, () => c()?.fx.effect ?? "none", (v) => this.edit<MediaClip>(id, "effect", (x) => (x.fx.effect = v))),
+        clip.fx.effect !== "none" ? this.slider("Amount", { min: 0, max: 1, step: 0.01, get: () => c()?.fx.amount ?? 0.6, set: (v) => this.edit<MediaClip>(id, "amount", (x) => (x.fx.amount = v)), format: pct }) : null,
+        this.slider("Blur", { min: 0, max: 1, step: 0.01, get: () => c()?.fx.blur ?? 0, set: (v) => this.edit<MediaClip>(id, "blur", (x) => (x.fx.blur = v)), format: pct }),
+        this.slider("Sharpen", { min: 0, max: 1, step: 0.01, get: () => c()?.fx.sharpen ?? 0, set: (v) => this.edit<MediaClip>(id, "sharpen", (x) => (x.fx.sharpen = v)), format: pct }),
+        this.slider("Vignette", { min: 0, max: 1, step: 0.01, get: () => c()?.fx.vignette ?? 0, set: (v) => this.edit<MediaClip>(id, "vignette", (x) => (x.fx.vignette = v)), format: pct }),
+        this.slider("Grain", { min: 0, max: 1, step: 0.01, get: () => c()?.fx.grain ?? 0, set: (v) => this.edit<MediaClip>(id, "grain", (x) => (x.fx.grain = v)), format: pct }),
+      ));
+      const key = () => c()?.fx.key ?? null;
+      out.push(this.section("Chroma key",
+        this.toggle("Remove a colour", () => !!key(), (v) => this.edit<MediaClip>(id, "key", (x) => (x.fx.key = v ? { color: "#00b140", tolerance: 0.35, softness: 0.25, spill: 0.4 } : null))),
+        ...(clip.fx.key ? [
+          this.color("Colour", () => key()?.color ?? "#00b140", (v) => this.edit<MediaClip>(id, "key-color", (x) => x.fx.key && (x.fx.key.color = v ?? "#00b140")), false,
+            h("button", { class: "icon-btn small", type: "button", title: "Pick it from the preview", "aria-label": "Pick the colour from the preview", onclick: () => this.host.pickKeyColor(id) }, icon("phEyedropper", 15))),
+          this.slider("Strength", { min: 0, max: 1, step: 0.01, get: () => key()?.tolerance ?? 0.35, set: (v) => this.edit<MediaClip>(id, "key-tol", (x) => x.fx.key && (x.fx.key.tolerance = v)), format: pct }),
+          this.slider("Edge", { min: 0, max: 1, step: 0.01, get: () => key()?.softness ?? 0.25, set: (v) => this.edit<MediaClip>(id, "key-soft", (x) => x.fx.key && (x.fx.key.softness = v)), format: pct }),
+          this.slider("Spill", { min: 0, max: 1, step: 0.01, get: () => key()?.spill ?? 0.4, set: (v) => this.edit<MediaClip>(id, "key-spill", (x) => x.fx.key && (x.fx.key.spill = v)), format: pct }),
+        ] : []),
+      ));
+      const mask = () => c()?.mask ?? null;
+      const mset = (k: "x" | "y" | "w" | "h" | "feather", v: number) => this.edit<MediaClip>(id, `mask-${k}`, (x) => x.mask && (x.mask[k] = v));
+      out.push(this.section("Mask",
+        this.select("Shape", [["none", "None"], ["circle", "Circle"], ["rect", "Rectangle"]] as const, () => mask()?.shape ?? "none", (v) => this.edit<MediaClip>(id, "mask", (x) => {
+          x.mask = v === "none" ? null : { ...(x.mask ?? defaultMask()), shape: v };
+        })),
+        ...(clip.mask ? [
+          this.slider("X", { min: 0, max: 1, step: 0.005, get: () => mask()?.x ?? 0.5, set: (v) => mset("x", v), format: (v) => pct(v - 0.5) }),
+          this.slider("Y", { min: 0, max: 1, step: 0.005, get: () => mask()?.y ?? 0.5, set: (v) => mset("y", v), format: (v) => pct(v - 0.5) }),
+          this.slider("Width", { min: 0.02, max: 3, step: 0.005, get: () => mask()?.w ?? 0.6, set: (v) => mset("w", v), format: pct }),
+          this.slider("Height", { min: 0.02, max: 3, step: 0.005, get: () => mask()?.h ?? 0.6, set: (v) => mset("h", v), format: pct }),
+          this.slider("Feather", { min: 0, max: 0.3, step: 0.005, get: () => mask()?.feather ?? 0.04, set: (v) => mset("feather", v), format: pct }),
+          this.toggle("Invert", () => mask()?.invert ?? false, (v) => this.edit<MediaClip>(id, "mask-invert", (x) => x.mask && (x.mask.invert = v))),
+        ] : []),
+      ));
+      const frame = () => c()?.frame ?? null;
+      out.push(this.section(trackKind === "overlay" ? "Picture in picture" : "Frame",
+        trackKind === "overlay" ? h("div", { class: "ve-row ve-row-buttons" }, ...PIP_SPOTS.map(([label, x, y]) => h("button", { class: "btn small", type: "button", onclick: () => this.edit<MediaClip>(id, "pip", (k) => {
+          const scale = label === "Centre" ? 0.6 : 0.4;
+          setProp(k, "x", this.local(k), x);
+          setProp(k, "y", this.local(k), y);
+          setProp(k, "scale", this.local(k), scale);
+          k.fit = "fit";
+          k.frame ??= defaultFrame();
+        }) }, label))) : null,
+        this.toggle("Rounded frame", () => !!frame(), (v) => this.edit<MediaClip>(id, "frame", (x) => (x.frame = v ? defaultFrame() : null))),
+        ...(clip.frame ? [
+          this.slider("Corners", { min: 0, max: 0.5, step: 0.005, get: () => frame()?.radius ?? 0.08, set: (v) => this.edit<MediaClip>(id, "frame-r", (x) => x.frame && (x.frame.radius = v)), format: pct }),
+          this.slider("Border", { min: 0, max: 30, step: 0.5, get: () => frame()?.border ?? 6, set: (v) => this.edit<MediaClip>(id, "frame-b", (x) => x.frame && (x.frame.border = v)), format: (v) => v.toFixed(1) }),
+          this.color("Border colour", () => frame()?.color ?? "#ffffff", (v) => this.edit<MediaClip>(id, "frame-c", (x) => x.frame && (x.frame.color = v ?? "#ffffff")), false),
+          this.slider("Shadow", { min: 0, max: 1, step: 0.01, get: () => frame()?.shadow ?? 0.5, set: (v) => this.edit<MediaClip>(id, "frame-s", (x) => x.frame && (x.frame.shadow = v)), format: pct }),
+        ] : []),
       ));
     }
-    if (m?.kind === "image") {
+    if (m?.kind === "image" || frozen) {
       out.push(this.section("Timing",
         this.slider("Duration", { min: 0.5, max: 30, step: 0.1, get: () => c()?.duration ?? 3, set: (v) => this.edit<MediaClip>(id, "duration", (x, q) => {
           trimEnd(q, x.id, x.start + v);
         }), format: (v) => `${v.toFixed(1)} s` })));
     } else if (m) {
+      const curves: [CurvePreset | "none", string][] = [["none", "None"], ...Object.entries(CURVE_PRESETS).map(([k, v]) => [k, v.label] as [CurvePreset, string])];
+      const setSpeed = (x: MediaClip, q: Project, v: number) => {
+        // The same part of the file plays, faster or slower.
+        const span = sourceSpan(x);
+        x.speed = v;
+        x.duration = Math.max(MIN_CLIP, Math.min(span / (v * (x.curve ? curveMean(x) : 1)), maxDuration(x, m)));
+        if (trackKind === "main") layoutMain(q);
+      };
       out.push(this.section("Speed",
-        this.slider("Speed", { min: 0.25, max: 4, step: 0.05, get: () => c()?.speed ?? 1, set: (v) => this.edit<MediaClip>(id, "speed", (x, q) => {
-          // The same part of the file plays, faster or slower.
-          const span = x.duration * x.speed;
-          x.speed = v;
-          x.duration = Math.max(MIN_CLIP, Math.min(span / v, maxDuration(x, m)));
+        this.slider("Speed", { min: 0.25, max: 4, step: 0.05, get: () => c()?.speed ?? 1, set: (v) => this.edit<MediaClip>(id, "speed", (x, q) => setSpeed(x, q, v)), format: (v) => `${v.toFixed(2)}×` }),
+        h("div", { class: "ve-row ve-row-buttons" }, ...[0.5, 1, 1.5, 2].map((s) => h("button", { class: "btn small", type: "button", onclick: () => this.edit<MediaClip>(id, "speed-preset", (x, q) => setSpeed(x, q, s)) }, `${s}×`))),
+        m.kind === "video" ? this.select("Curve", curves, () => c()?.curve?.preset ?? "none", (v) => this.edit<MediaClip>(id, "curve", (x, q) => {
+          // The clip keeps playing the same part of its file; its length follows the curve.
+          const span = sourceSpan(x);
+          x.curve = v === "none" ? null : { preset: v, points: [...CURVE_PRESETS[v].points] };
+          x.duration = Math.max(MIN_CLIP, span / (x.speed * curveMean(x)));
           if (trackKind === "main") layoutMain(q);
-        }), format: (v) => `${v.toFixed(2)}×` }),
-        h("div", { class: "ve-row ve-row-buttons" }, ...[0.5, 1, 1.5, 2].map((s) => h("button", { class: "btn small", type: "button", onclick: () => this.edit<MediaClip>(id, "speed-preset", (x, q) => {
-          const span = x.duration * x.speed;
-          x.speed = s;
-          x.duration = Math.max(MIN_CLIP, Math.min(span / s, maxDuration(x, m)));
-          if (trackKind === "main") layoutMain(q);
-        }) }, `${s}×`))),
+        })) : null,
+        m.kind === "video" ? this.toggle("Reverse", () => !!c()?.reverse, (v) => this.edit<MediaClip>(id, "reverse", (x) => (x.reverse = v || undefined))) : null,
+        m.kind === "video" && trackKind !== "audio" ? this.buttons(["Freeze frame at the playhead", () => this.host.freezeFrame()]) : null,
       ));
     }
-    if (m?.audio) {
-      const pct = (v: number) => `${Math.round(v * 100)}%`;
+    if (m?.audio && !frozen) {
       out.push(this.section("Sound",
-        this.slider("Volume", { min: 0, max: 2, step: 0.01, get: () => c()?.volume ?? 1, set: (v) => this.edit<MediaClip>(id, "volume", (x) => (x.volume = v)), format: pct }),
+        this.keyedSlider(id, "volume", "Volume", { min: 0, max: 2, step: 0.01, format: pct }),
         this.slider("Fade in", { min: 0, max: 5, step: 0.1, get: () => c()?.fadeIn ?? 0, set: (v) => this.edit<MediaClip>(id, "fadeIn", (x) => (x.fadeIn = v)), format: (v) => `${v.toFixed(1)} s` }),
         this.slider("Fade out", { min: 0, max: 5, step: 0.1, get: () => c()?.fadeOut ?? 0, set: (v) => this.edit<MediaClip>(id, "fadeOut", (x) => (x.fadeOut = v)), format: (v) => `${v.toFixed(1)} s` }),
+        clip.role !== "voice" ? this.slider("Lower under voice-overs", { min: 0, max: 1, step: 0.05, get: () => c()?.duck ?? 0, set: (v) => this.edit<MediaClip>(id, "duck", (x) => (x.duck = v || undefined)), format: (v) => (v ? `−${Math.round(v * 100)}%` : "Off") }) : null,
+        trackKind === "audio" ? this.buttons(
+          ["Mark beats", () => this.host.markBeats(id)],
+          ...(clip.beats?.length ? [["Clear beats", () => this.edit<MediaClip>(id, "beats", (x) => delete x.beats)] as [string, () => void]] : []),
+        ) : null,
+        clip.beats?.length ? h("p", { class: "ve-panel-note" }, `${clip.beats.length} beats marked: clips snap to them.`) : null,
       ));
     }
     if (trackKind === "main" && index > 0) {

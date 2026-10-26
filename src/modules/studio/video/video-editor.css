@@ -138,3 +138,35 @@
 .ve-progress { height: 8px; margin: 6px 0 10px; border-radius: 4px; overflow: hidden; background: var(--track, rgba(127, 127, 140, 0.25)); min-width: 380px; }
 .ve-progress-bar { width: 0; height: 100%; border-radius: 4px; background: var(--app); transition: width 0.2s linear; }
 .ve-progress-text { margin: 0; color: var(--text-2); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+
+/* Keyframes: a diamond before each keyable slider (hollow: none here; gold: one at the playhead). */
+.ve-row.keyed > label { width: 60px; }
+.ve-key { flex: none; display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--muted); cursor: pointer; }
+.ve-key .icon { fill: none; }
+.ve-key:hover { color: var(--text); background: var(--hover); }
+.ve-key.has { color: #ffd166; }
+.ve-key.on { color: #ffd166; }
+.ve-key.on .icon { fill: #ffd166; }
+.ve-key-tools > label { width: auto; margin-left: 4px; }
+.ve-key-tools > select { flex: 1; }
+.ve-lut-name { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Voice-over: the record button turns red and shows the microphone's level. */
+.ve-record.recording { width: auto; gap: 6px; padding: 0 8px; color: #fff; background: #d6453a; }
+.ve-record.recording:hover { background: #e2574b; }
+.ve-record-level { position: relative; width: 44px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.3); overflow: hidden; }
+.ve-record-level::after { content: ""; position: absolute; inset: 0; transform-origin: left; transform: scaleX(var(--level, 0)); background: #fff; transition: transform 80ms linear; }
+.ve-app .btn.ve-voice-btn { background: var(--control); color: var(--text); }
+
+/* Picking the chroma key colour from the preview. */
+.ve-frame.picking, .ve-frame.picking canvas { cursor: crosshair; }
+.ve-frame.picking { box-shadow: 0 0 0 2px var(--app), 0 10px 34px rgba(0, 0, 0, 0.45); }
+
+/* Missing files. */
+.ve-missing-list { display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow-y: auto; min-width: 380px; }
+.ve-missing-row { display: flex; align-items: center; gap: 10px; padding: 6px 4px; border-radius: 8px; }
+.ve-missing-row:hover { background: var(--hover); }
+.ve-missing-row > .icon { flex: none; color: var(--muted); }
+.ve-missing-text { flex: 1; min-width: 0; font-size: var(--text-sm); }
+.ve-missing-text > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ve-missing-path { color: var(--muted); font-size: 11.5px; }

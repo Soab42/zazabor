@@ -69,14 +69,36 @@ export interface SurfaceFx {
   renderPreviews(tiles: FxPreviewTile[]): boolean;
 }
 
+/**
+ * Liquid Glass: player chrome floating over the picture bends and blurs the video under it, as
+ * macOS 26 does. The canvas draws it (CSS can't refract): the picture renders into a mipmapped
+ * texture, then a second pass samples it under each tracked element's rounded box, pulled inward
+ * near the rim (the lens), blurred, with a little colour fringe at the edge. The elements draw
+ * their own rim and highlights in CSS on top.
+ */
+export interface SurfaceGlass {
+  /** Draws glass under `el` (its border box and border radius) while it shows; returns the undo. */
+  track(el: HTMLElement): () => void;
+  /** Off draws the picture alone, as before. */
+  setEnabled(on: boolean): void;
+  /** Tracked elements moved, resized or faded: redraw every frame for `ms`. */
+  invalidate(ms?: number): void;
+}
+
 /** `createVideoSurface()` returns this; a plain `VideoSurface` is assignable from it. */
 export interface FxSurface extends VideoSurface {
   readonly fx: SurfaceFx;
+  readonly glass: SurfaceGlass;
 }
 
 /** The effects of a surface made by `createVideoSurface()`, if it has any. */
 export function fxOf(surface: VideoSurface): SurfaceFx | undefined {
   return (surface as Partial<FxSurface>).fx;
+}
+
+/** The glass of a surface made by `createVideoSurface()`, if it has any. */
+export function glassOf(surface: VideoSurface): SurfaceGlass | undefined {
+  return (surface as Partial<FxSurface>).glass;
 }
 
 const VERTEX = `#version 300 es
@@ -121,6 +143,66 @@ void main(){
   c = mix(c, 1. - c, inv);
   c *= 1. - vig * smoothstep(.3, .85, distance(q, vec2(.5)) * 1.42);
   o = vec4(clamp(c, 0., 1.), 1);
+}`;
+
+/** At most this many glass shapes at once (the bar, the top bar's pills, the side panels). */
+const MAX_GLASS = 6;
+const GLASS_VERTEX = `#version 300 es
+in vec2 p;
+void main(){ gl_Position = vec4(p, 0, 1); }`;
+/**
+ * The picture (a mipmapped texture), with each glass shape in rounded-box form: `rects` in canvas
+ * pixels from the top left, `shape` = (corner radius, opacity, rim width, blur level).
+ */
+const GLASS_FRAGMENT = `#version 300 es
+precision highp float; out vec4 o;
+uniform sampler2D scene; uniform vec2 res; uniform int count;
+uniform vec4 rects[${MAX_GLASS}]; uniform vec4 shape[${MAX_GLASS}];
+const vec3 LUMA = vec3(.2126, .7152, .0722);
+float box(vec2 p, vec2 b, float r){ vec2 q = abs(p) - b + r; return length(max(q, 0.)) + min(max(q.x, q.y), 0.) - r; }
+vec3 blurred(vec2 uv, float lod){
+  vec2 s = exp2(lod) * 1.25 / res;
+  vec3 c = textureLod(scene, uv, lod).rgb * .2;
+  c += textureLod(scene, uv + vec2( s.x, 0), lod).rgb * .1;
+  c += textureLod(scene, uv + vec2(-s.x, 0), lod).rgb * .1;
+  c += textureLod(scene, uv + vec2(0,  s.y), lod).rgb * .1;
+  c += textureLod(scene, uv + vec2(0, -s.y), lod).rgb * .1;
+  c += textureLod(scene, uv + s * .7, lod).rgb * .1;
+  c += textureLod(scene, uv - s * .7, lod).rgb * .1;
+  c += textureLod(scene, uv + vec2(s.x, -s.y) * .7, lod).rgb * .1;
+  c += textureLod(scene, uv + vec2(-s.x, s.y) * .7, lod).rgb * .1;
+  return c;
+}
+void main(){
+  vec2 uv = gl_FragCoord.xy / res;
+  vec3 c = textureLod(scene, uv, 0.).rgb;
+  vec2 px = vec2(gl_FragCoord.x, res.y - gl_FragCoord.y);
+  for (int i = 0; i < ${MAX_GLASS}; i++) {
+    if (i >= count) break;
+    vec4 r = rects[i]; vec4 g = shape[i];
+    vec2 h = r.zw * .5;
+    vec2 lp = px - r.xy - h;
+    float rad = min(g.x, min(h.x, h.y));
+    float d = box(lp, h, rad);
+    if (d > 1.) continue;
+    // The outward normal, from the distance field's slope.
+    vec2 n = normalize(vec2(box(lp + vec2(1, 0), h, rad) - box(lp - vec2(1, 0), h, rad),
+                            box(lp + vec2(0, 1), h, rad) - box(lp - vec2(0, 1), h, rad)) + 1e-5);
+    float rim = max(g.z, 1.);
+    float bend = pow(1. - clamp(-d / rim, 0., 1.), 2.4);
+    // A convex lens: near the rim the picture comes from further inside, so it looks magnified.
+    vec2 shift = -n * bend * rim * .85;
+    vec2 at = uv + vec2(shift.x, -shift.y) / res;
+    vec2 fringe = vec2(n.x, -n.y) * bend * 1.6 / res;
+    vec3 glass = vec3(blurred(at + fringe, g.w).r, blurred(at, g.w).g, blurred(at - fringe, g.w).b);
+    // Vibrancy and legibility: a little more colour, darker over bright picture (the symbols on
+    // the glass are white), lifted toward the rim.
+    float l = dot(glass, LUMA);
+    glass = mix(vec3(l), glass, 1.3) * mix(.8, .56, smoothstep(.25, .85, l)) + .02 + bend * .06;
+    float a = g.y * (1. - smoothstep(-1., 1., d));
+    c = mix(c, glass, a);
+  }
+  o = vec4(c, 1);
 }`;
 
 const HEADER_BYTES = 16;
@@ -225,6 +307,7 @@ function createRenderer(gl: WebGL2RenderingContext) {
     /** Clears to black and draws the uploaded frame of the given size. */
     draw(w: number, h: number, fx: VideoFx, mode: "contain" | "cover") {
       const cw = gl.drawingBufferWidth, ch = gl.drawingBufferHeight;
+      gl.useProgram(program);
       const { scale, offset } = fitGeometry(w, h, cw, ch, fx, mode);
       const a = (fx.rotate * Math.PI) / 180;
       const c = Math.round(Math.cos(a)), s = Math.round(Math.sin(a));
@@ -262,6 +345,80 @@ function createRenderer(gl: WebGL2RenderingContext) {
   };
 }
 
+/** Glass shapes for one draw: rounded boxes in canvas pixels and their look (see GLASS_FRAGMENT). */
+interface GlassShapes {
+  count: number;
+  rects: Float32Array;
+  shape: Float32Array;
+}
+
+/** The texture unit of the picture the glass samples (the video planes use 0–2). */
+const SCENE_UNIT = 3;
+
+/** Liquid Glass's second pass: the picture as a mipmapped texture, then the glass over it. */
+function createGlassPass(gl: WebGL2RenderingContext) {
+  const program = gl.createProgram()!;
+  for (const [type, source] of [[gl.VERTEX_SHADER, GLASS_VERTEX], [gl.FRAGMENT_SHADER, GLASS_FRAGMENT]] as const) {
+    const shader = gl.createShader(type)!;
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) console.error("video glass:", gl.getShaderInfoLog(shader));
+    gl.attachShader(program, shader);
+    gl.deleteShader(shader);
+  }
+  gl.bindAttribLocation(program, 0, "p");
+  gl.linkProgram(program);
+  const ok = gl.getProgramParameter(program, gl.LINK_STATUS) as boolean;
+  if (!ok) console.error("video glass:", gl.getProgramInfoLog(program));
+  const at = (name: string) => gl.getUniformLocation(program, name);
+  const u = { scene: at("scene"), res: at("res"), count: at("count"), rects: at("rects"), shape: at("shape") };
+  const texture = gl.createTexture()!;
+  const framebuffer = gl.createFramebuffer()!;
+  let size = "";
+
+  return {
+    ok,
+    /** Sends the next draw into the picture's texture (sized like the canvas). */
+    begin() {
+      const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+      gl.activeTexture(gl.TEXTURE0 + SCENE_UNIT);
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+      if (`${w}x${h}` !== size) {
+        size = `${w}x${h}`;
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        for (const k of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T]) gl.texParameteri(gl.TEXTURE_2D, k, gl.CLAMP_TO_EDGE);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+      }
+    },
+    /** Draws the picture onto the canvas with glass over the shapes. */
+    finish({ count, rects, shape }: GlassShapes) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.activeTexture(gl.TEXTURE0 + SCENE_UNIT);
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      gl.useProgram(program);
+      gl.uniform1i(u.scene, SCENE_UNIT);
+      gl.uniform2f(u.res, gl.drawingBufferWidth, gl.drawingBufferHeight);
+      gl.uniform1i(u.count, count);
+      gl.uniform4fv(u.rects, rects);
+      gl.uniform4fv(u.shape, shape);
+      gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    },
+    dispose() {
+      gl.deleteFramebuffer(framebuffer);
+      gl.deleteTexture(texture);
+      gl.deleteProgram(program);
+    },
+  };
+}
+
+/** Events after which a tracked element's box or opacity may still be changing. */
+const GLASS_MOTION = ["transitionrun", "transitionend", "transitioncancel", "animationstart", "animationend"];
+
 export function createVideoSurface(): FxSurface {
   const el = document.createElement("canvas");
   el.style.cssText = "display:block;width:100%;height:100%;background:#000";
@@ -271,6 +428,11 @@ export function createVideoSurface(): FxSurface {
   if (!gl) console.error("video: WebGL2 is not available");
 
   const renderer = gl ? createRenderer(gl) : null;
+  const glassPass = gl ? createGlassPass(gl) : null;
+  const tracked = new Set<HTMLElement>();
+  let glassOn = true;
+  let liveUntil = 0;
+  let liveFrame = 0;
   let last: Frame | null = null;
   let frameCounter = 0;
   let fx: VideoFx = { ...DEFAULT_FX };
@@ -280,8 +442,79 @@ export function createVideoSurface(): FxSurface {
   function draw(frame: Frame, upload: boolean) {
     if (!renderer) return;
     if (upload) renderer.upload(frame);
+    const glass = glassShapes();
+    if (!glass || !glassPass) return renderer.draw(frame.width, frame.height, fx, "contain");
+    glassPass.begin();
     renderer.draw(frame.width, frame.height, fx, "contain");
+    glassPass.finish(glass);
   }
+
+  /** Where the tracked elements are over the canvas now, in its pixels; null when none shows. */
+  function glassShapes(): GlassShapes | null {
+    if (!glassOn || !glassPass?.ok || tracked.size === 0) return null;
+    const box = el.getBoundingClientRect();
+    if (box.width < 1 || box.height < 1) return null;
+    const sx = el.width / box.width, sy = el.height / box.height;
+    const rects = new Float32Array(MAX_GLASS * 4);
+    const shape = new Float32Array(MAX_GLASS * 4);
+    let count = 0;
+    for (const item of tracked) {
+      if (count === MAX_GLASS) break;
+      if (!item.isConnected) continue;
+      const r = item.getBoundingClientRect();
+      if (r.width < 1 || r.height < 1 || r.right <= box.left || r.left >= box.right || r.bottom <= box.top || r.top >= box.bottom) continue;
+      const style = getComputedStyle(item);
+      if (style.visibility === "hidden") continue;
+      const opacity = Number(style.opacity) * (item.parentElement ? Number(getComputedStyle(item.parentElement).opacity) : 1);
+      if (!(opacity > 0.01)) continue;
+      // The box may be scaled by a transform; its radius scales with it.
+      const k = item.offsetHeight ? r.height / item.offsetHeight : 1;
+      const radius = (parseFloat(style.borderTopLeftRadius) || 0) * k * sy;
+      const rim = (parseFloat(style.getPropertyValue("--lg-rim")) || 14) * k * sy;
+      const blur = parseFloat(style.getPropertyValue("--lg-blur")) || 2.5;
+      rects.set([(r.left - box.left) * sx, (r.top - box.top) * sy, r.width * sx, r.height * sy], count * 4);
+      shape.set([radius, opacity, rim, blur], count * 4);
+      count++;
+    }
+    return count ? { count, rects, shape } : null;
+  }
+
+  /** Redraws every frame until `liveUntil` (the glass follows its elements while they animate). */
+  function invalidate(ms = 300) {
+    liveUntil = Math.max(liveUntil, performance.now() + ms);
+    if (!liveFrame && !disposed) liveFrame = requestAnimationFrame(tick);
+  }
+  function tick() {
+    liveFrame = 0;
+    if (disposed) return;
+    if (last) draw(last, false);
+    if (performance.now() < liveUntil) liveFrame = requestAnimationFrame(tick);
+  }
+
+  const glassApi: SurfaceGlass = {
+    track(item) {
+      tracked.add(item);
+      const resize = new ResizeObserver(() => invalidate(60));
+      resize.observe(item);
+      const moving = (e: Event) => {
+        if (e.target === item) invalidate(450);
+      };
+      for (const type of GLASS_MOTION) item.addEventListener(type, moving);
+      invalidate(60);
+      return () => {
+        tracked.delete(item);
+        resize.disconnect();
+        for (const type of GLASS_MOTION) item.removeEventListener(type, moving);
+        invalidate(60);
+      };
+    },
+    setEnabled(on) {
+      if (on === glassOn) return;
+      glassOn = on;
+      invalidate(60);
+    },
+    invalidate,
+  };
 
   // The backing store follows the element's size in device pixels.
   const observer = new ResizeObserver(() => {
@@ -401,6 +634,7 @@ export function createVideoSurface(): FxSurface {
   return {
     el,
     fx: fxApi,
+    glass: glassApi,
     start() {
       if (running || disposed) return;
       running = true;
@@ -423,8 +657,11 @@ export function createVideoSurface(): FxSurface {
       running = false;
       abort?.abort();
       observer.disconnect();
+      cancelAnimationFrame(liveFrame);
+      tracked.clear();
       last = null;
       fxListeners.clear();
+      glassPass?.dispose();
       renderer?.dispose();
       gl?.getExtension("WEBGL_lose_context")?.loseContext();
       if (preview) {

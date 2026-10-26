@@ -497,8 +497,9 @@ export class Shell implements ShellContext {
   private async setupDragDrop() {
     await getCurrentWebview().onDragDropEvent(async (event) => {
       const payload = event.payload;
-      // A file picker open in this window takes the drop itself (see shared/filepicker).
-      const picking = document.body.classList.contains("file-picker-open");
+      // A file picker open in this window takes the drop itself (see shared/filepicker), as does
+      // a module's own drop target under the pointer (a Wallet transaction takes receipts).
+      const picking = document.body.classList.contains("file-picker-open") || document.body.classList.contains("drop-claimed");
       if (payload.type === "enter" || payload.type === "over") {
         if (!this.onboarding && !picking) document.body.classList.add("dropping");
         return;

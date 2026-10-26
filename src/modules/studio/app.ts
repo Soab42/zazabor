@@ -13,7 +13,7 @@ export type StudioKind = "photo" | "video";
 export type Aspect = "9:16" | "16:9" | "1:1" | "4:5";
 
 /** Pictures Photo opens (and its own project file). */
-export const PHOTO_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff", "avif", "coreimage"];
+export const PHOTO_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff", "avif", "psd", "coreimage"];
 /** The Video Editor's own project file; clips and pictures start a new project instead. */
 export const VIDEO_PROJECT_EXTENSIONS = ["corevideo"];
 
@@ -45,6 +45,10 @@ export interface StudioStart {
   paths?: string[];
   /** Video: the new project's shape. */
   aspect?: Aspect;
+  /** Video: an AutoRecover snapshot to open (its id). */
+  recover?: string;
+  /** Video: make a reel of `paths` in a slideshow theme's style ("Make a Video" in the Gallery). */
+  make?: { theme: string; music: string | null };
 }
 
 /** What the section offers an app. */

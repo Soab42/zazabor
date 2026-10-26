@@ -3,7 +3,7 @@
 *Researched 2026-10-26. Licences, versions and release dates were read from each project's
 repository, crates.io and the npm registry on that day. Target: Tauri 2 + plain TypeScript on
 Linux. This machine: Pop!_OS 22.04, GStreamer 1.20.3, WebKitGTK 2.50.4, Intel UHD (Tiger Lake)
-with VA-API, and an NVIDIA GTX 1650 Mobile whose driver isn't loaded. Status: **V0, V1 and a first V3 built** (see What's built). Section 11 lists the decisions only the user can make.*
+with VA-API, and an NVIDIA GTX 1650 Mobile whose driver isn't loaded. Status: **V0, V1, V2 and a first V3 built, with parts of V4 and V5** (see What's built). Section 11 lists the decisions only the user can make.*
 
 ## What's built (2026-10-26)
 
@@ -40,10 +40,80 @@ reopened.
   first (`audio.rs`, its own libVLC instance). Tested by forcing it on an MP2 clip; no AAC sample
   could be made on this machine.
 
-Not built yet: keyframes, masks, chroma key, LUTs, speed curves, reverse, freeze frame,
-voice-over, ducking, beat marks, captions (V4), templates and Make a Video from the Gallery (V5),
-proxies and the native compositor (V6), HEVC export, AAC sound, GIF export, AutoRecover, opening
-`.corevideo` from Files or the command line, relinking missing files, sticker/overlay library.
+### Round 2 (2026-10-27)
+
+- **Missing files and AutoRecover:** opening a project (or a recovered one) looks for moved files
+  by name and size under the project's folder, the folder above it and the nearest existing folder
+  of where each file was (`videoedit/relink.rs`, 200,000 entries at most, hidden folders skipped);
+  the rest are listed with Locate… (CorePro's own picker, then that folder is searched for the
+  others) and Search a folder…. Media now records its size. While a project has unsaved changes a
+  snapshot is kept every 20 s (`videoedit/recover.rs`, the app's data folder); one a CorePro left
+  behind (crash, power cut, killed) shows on Studio's Home under Recovered, opens unsaved as it was,
+  and can be discarded. Saving or closing deletes it.
+- **Keyframes (V2):** position, scale, rotation, opacity and volume, with smooth, linear, ease in,
+  ease out and hold. A ◆ before each slider adds or removes the keyframe at the playhead; with
+  keyframes, moving the slider (or dragging the layer on the preview) changes the one there. Step
+  between keyframes and set their ease in the inspector; diamonds on the clip's foot in the
+  timeline (click to jump). Splits and trims keep the motion where it was.
+- **Effects and colour (V2):** blur, sharpen, vignette, grain; Shake, Zoom pulse, Glitch, RGB
+  split, VHS, Mirror, Flash in and Blur in with an amount; .cube colour tables (3D, or 1D turned
+  into 3D; 16-bit float 3D texture) with a strength; chroma key (colour, eyedropper on the preview,
+  strength, edge, spill); masks (circle or rectangle, sizes in the picture's shorter side, feather,
+  invert); picture in picture on overlays (corner spots, rounded corners, border, drop shadow).
+  All in the one layer shader (`gfx.ts`), so preview and export match.
+- **Speed (V5):** reverse (the frame server keeps up to 64 MB of decoded frames behind the newest
+  one, so going backwards costs one seek per stretch, not per frame; the sound plays from a reversed
+  copy), freeze frame at the playhead (splits the clip and holds that frame for 3 s, silent),
+  speed curves Montage, Hero, Bullet, Jump cut, Flash in and Flash out (the clip keeps its part of
+  the file; sound follows with a playback-rate curve). Splitting a curved clip flattens it into two
+  plain speeds that play the same frames.
+- **Make a Video (V5):** the Gallery's slideshow dialog has Make a Video: the chosen photos (at most
+  200) become a reel in the Video Editor in that theme's style: its look, vignette and grain, a
+  picture length of two thirds of the theme's (on the soundtrack's beat when it has a BPM), the
+  theme's weighted transitions, and the slideshow's music (a CorePro soundtrack or the user's file)
+  faded out at the end.
+- **Sound (V4 without AI):** voice-overs recorded from the default microphone through GStreamer
+  (`videoedit/record.rs`; WebKitGTK's own microphone access is off in CorePro's webview) into
+  `Voice-overs/` beside a saved project, with a level meter; the clips play silently meanwhile and
+  the take lands on a Voice track at the playhead (R starts and stops, Esc throws it away). Music
+  can go down under voice-overs (Lower under voice-overs, by how much; 0.15 s down, 0.45 s back up,
+  pauses under 0.6 s ignored, the voice-over's own waveform decides when it speaks). Volume
+  keyframes, fades and ducking are one gain curve per clip (100 values a second, `audio.ts`), the
+  same in preview and export. Mark beats finds the beat in a sound (onsets, the best tempo from 70
+  to 180 BPM, an even grid nudged onto the onsets); clips snap to the marks.
+- **Captions:** .srt files come in as texts on a track of their own (Caption style); texts go out
+  as .srt.
+- **Checked:** Rust tests for relink matching and the search, AutoRecover (only other CorePros'
+  snapshots, newest first, ids can't leave the folder) and recording a test tone into a WAV with
+  the meter; 12 Node tests (`node --test`, kept outside the repo) on keyframe interpolation and
+  eases, keyed setters, splits and trims with keyframes, curve maths, reverse and its split, freeze,
+  ducking and gains, beat detection on a click track, SRT and .cube parsing, and old projects. In
+  the app on a nested display: keyframes added from the inspector and seen moving; reverse counting
+  down; a freeze frame; a .cube table, VHS and a vignette; chroma key over a clip; a circle mask; a
+  test-tone voice-over on a Voice track; 60 beats marked on a 120 BPM song; captions with Bangla;
+  a moved file found and a renamed one located; a project recovered after killing CorePro; a reel
+  made from six Gallery photos. An exported MP4 showed the keyframed zoom, the keyed ball, the
+  captions, the freeze, the reversed clip with the colour table and VHS, and its sound had the music
+  at about 20% under the voice-over and back after it.
+- **Measured** (optimized Rust build, the page from Vite unminified, 272×480 preview on the
+  nested display, load average about 4 from other builds): V2's bar, 20 phone-like clips
+  (1080×1920 H.264, about 9 Mb/s) with a transition on every cut plus three overlays (a keyed
+  VP9 green screen, a framed picture-in-picture 1080p clip and a picture with Ken Burns) plays at
+  the full 60 fps of drawing, about 190 clip frames a second, with 9–23% of them a frame late (a
+  repeated frame, mostly at cuts, where a decoder opens). Export of the same 30 s at 1080×1920:
+  18.2 fps (0.61× real time); a single phone clip: 27.7 fps (0.92×). In a debug build under a load
+  of 15 the same reel drew 70–105 clip frames a second with 30–43% late. Real time on the bar
+  needs a decoder per main-track file instead of per clip (cuts in the same file reuse it) and
+  read-back without the page (V6).
+- **Fixed on the way:** 10-bit video (VP9 profile 2/3, HDR phone clips) failed with "Internal data
+  stream error": `videoflip` only takes 8-bit formats, so the frame chain converts first. A focused
+  slider now takes the arrow keys instead of the playhead.
+
+Not built yet: auto captions (V4; whisper models need the user's OK to download, decision 4),
+HEVC export and AAC sound (codecs are only explained, decision 5), proxies, GIF export and the
+native compositor (V6), NVENC (decision 6), a sticker and sound library (decision 7), masks that
+move with keyframes, more transition and effect packs, speed-curve editing by hand (presets only),
+and Make a Video for clips (the Gallery has photos only).
 
 ### V0 results (this machine: i5-11400H, Intel UHD VA-API, GStreamer 1.20.3)
 

@@ -67,12 +67,22 @@ export function budgetsView(ctx: Ctx) {
     return input;
   }
 
+  async function toggleRollover(r: BudgetRow) {
+    try {
+      await walletApi.setRollover(ctx.month(), r.categoryId, !r.rollover);
+      ctx.changed();
+    } catch (err) {
+      ctx.toast(errorText(err));
+    }
+  }
+
   function row(r: BudgetRow, child: boolean): HTMLElement | null {
     const c = categoryOf(ctx, r.categoryId);
     if (!c) return null;
-    const budget = r.budgetMinor;
+    // What rolled over from last month adds to this month's budget.
+    const budget = r.budgetMinor != null ? r.budgetMinor + r.carryMinor : null;
     const amount = editing === c.id
-      ? amountEditor(c, budget)
+      ? amountEditor(c, r.budgetMinor)
       : h("button", { class: `text-btn wl-budget-amount${budget == null ? " unset" : ""}`, type: "button", title: "Set the budget", onclick: () => ((editing = c.id), draw()) },
         budget == null ? "Set budget" : `${fmt(ctx, r.spentMinor)} of ${fmt(ctx, budget)}`);
     return h("div", { class: `wl-budget${child ? " child" : ""}` },
@@ -84,7 +94,14 @@ export function budgetsView(ctx: Ctx) {
           budget == null && r.spentMinor ? h("span", { class: "wl-budget-spent" }, `${fmt(ctx, r.spentMinor)} spent`) : null,
           amount),
         budget != null ? meter(budget > 0 ? r.spentMinor / budget : r.spentMinor > 0 ? 2 : 0) : null,
-        budget != null ? h("div", { class: "wl-budget-foot" }, status(budget, r.spentMinor)) : null));
+        budget != null ? h("div", { class: "wl-budget-foot" }, status(budget, r.spentMinor),
+          r.rollover && r.carryMinor ? h("span", { class: "wl-budget-carry" }, `${fmt(ctx, r.carryMinor)} rolled over`) : null,
+          h("span", { class: "spacer" }),
+          h("button", {
+            class: `text-btn wl-rollover${r.rollover ? " active" : ""}`, type: "button", "aria-pressed": String(r.rollover),
+            title: r.rollover ? "What's left of last month's budget is added to this one. Click to stop." : "Add what's left of last month's budget to this one",
+            onclick: () => void toggleRollover(r),
+          }, icon("repeat", 12), r.rollover ? "Rolls over" : "Roll over")) : null));
   }
 
   function draw() {
@@ -107,8 +124,9 @@ export function budgetsView(ctx: Ctx) {
     list.replaceChildren(h("header", { class: "wl-card-head" }, h("div", null, h("h3", null, "Categories"), h("p", { class: "wl-card-sub" }, "Click an amount to set a budget; leave it empty to remove one."))), ...items);
     // Totals count budgets at the top level only, so a parent and its child aren't added twice.
     const budgeted = tops.filter((r) => r.budgetMinor != null);
-    const totalBudget = budgeted.reduce((s, r) => s + (r.budgetMinor ?? 0), 0)
-      + rows.filter((r) => r.budgetMinor != null && categoryOf(ctx, r.categoryId)?.parentId && byId.get(categoryOf(ctx, r.categoryId)!.parentId!)?.budgetMinor == null).reduce((s, r) => s + (r.budgetMinor ?? 0), 0);
+    const effective = (r: BudgetRow) => (r.budgetMinor ?? 0) + r.carryMinor;
+    const totalBudget = budgeted.reduce((s, r) => s + effective(r), 0)
+      + rows.filter((r) => r.budgetMinor != null && categoryOf(ctx, r.categoryId)?.parentId && byId.get(categoryOf(ctx, r.categoryId)!.parentId!)?.budgetMinor == null).reduce((s, r) => s + effective(r), 0);
     const spentInBudgets = budgeted.reduce((s, r) => s + r.spentMinor, 0);
     const spentAll = tops.reduce((s, r) => s + r.spentMinor, 0);
     summary.replaceChildren(

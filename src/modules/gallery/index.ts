@@ -185,11 +185,20 @@ class GalleryModule implements AppModule {
     this.viewer.open(folder.photos, Math.max(0, index));
   }
 
+  /** "Make a Video": the photos, the slideshow's theme and music, to Studio's Video Editor (at most 200 photos). */
+  private makeVideo(scope: SlideshowScope) {
+    const photos = scope.photos.slice(scope.start).concat(scope.photos.slice(0, scope.start)).slice(0, 200);
+    if (!photos.length) return;
+    const s = this.shell.config.slideshow;
+    this.shell.open({ kind: "studio", app: "video", paths: photos.map((p) => p.path), make: { theme: s.theme, music: s.music } });
+  }
+
   private async startSlideshow(scopes: SlideshowScope[]) {
     const config = this.shell.config;
     if (this.player || this.choosingSlideshow) return;
     this.choosingSlideshow = true;
-    const scope = await openSetupDialog(scopes, config.slideshow, () => saveConfig(config));
+    const makeVideo = config.features.studio ? (scope: SlideshowScope) => this.makeVideo(scope) : undefined;
+    const scope = await openSetupDialog(scopes, config.slideshow, () => saveConfig(config), makeVideo);
     this.choosingSlideshow = false;
     if (!scope?.photos.length) return;
     this.player = new Player({

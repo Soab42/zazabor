@@ -1,5 +1,6 @@
 import { loadImage, previewUrl } from "../../../api";
 import { basename } from "../../../ui/dom";
+import { fsApi } from "../../files/api";
 import { editApi } from "./api";
 import { uid, type Media } from "./model";
 
@@ -38,8 +39,8 @@ const PICTURE_SIZE = 2048;
 export async function probeMedia(path: string): Promise<Media> {
   const name = basename(path);
   if (PICTURE_EXTENSIONS.includes(ext(path))) {
-    const img = await loadImage(previewUrl(path, 0, 256));
-    return { id: uid(), path, name, kind: "image", duration: 0, width: img.naturalWidth, height: img.naturalHeight, fps: 0, audio: false };
+    const [img, bytes] = await Promise.all([loadImage(previewUrl(path, 0, 256)), fsApi.stat(path).then((e) => e.size, () => undefined)]);
+    return { id: uid(), path, name, kind: "image", duration: 0, width: img.naturalWidth, height: img.naturalHeight, fps: 0, audio: false, bytes };
   }
   const p = await editApi.probe(path);
   if (p.video) {
@@ -48,10 +49,10 @@ export async function probeMedia(path: string): Promise<Media> {
     if (p.audio && !p.audio.decodable) notes.push(`Its sound (${p.audio.codec ?? "unknown"}) is read through VLC.`);
     return {
       id: uid(), path, name, kind: "video", duration: p.duration, width: p.video.width, height: p.video.height,
-      fps: p.video.fps || 30, audio: !!p.audio, ...(notes.length ? { note: notes.join(" ") } : {}),
+      fps: p.video.fps || 30, audio: !!p.audio, bytes: p.bytes, ...(notes.length ? { note: notes.join(" ") } : {}),
     };
   }
-  if (p.audio) return { id: uid(), path, name, kind: "audio", duration: p.duration, width: 0, height: 0, fps: 0, audio: true };
+  if (p.audio) return { id: uid(), path, name, kind: "audio", duration: p.duration, width: 0, height: 0, fps: 0, audio: true, bytes: p.bytes };
   throw new Error(p.missing.length ? `${name}: this system has no ${p.missing.join(", ")}.` : `${name} has no picture or sound CorePro can read.`);
 }
 
@@ -108,6 +109,45 @@ export class MediaStore {
     return p;
   }
 
+  private reversedSounds = new Map<string, Promise<Sound | null>>();
+  private reversedReady = new Map<string, Sound | null>();
+
+  /** The sound backwards (for reversed clips), made once from the decoded sound. */
+  reversed(m: Media): Promise<Sound | null> {
+    let p = this.reversedSounds.get(m.id);
+    if (!p) {
+      p = this.sound(m).then((sound) => {
+        if (!sound) return null;
+        const src = sound.buffer;
+        const buffer = new AudioBuffer({ length: src.length, numberOfChannels: src.numberOfChannels, sampleRate: src.sampleRate });
+        for (let ch = 0; ch < src.numberOfChannels; ch++) {
+          const data = src.getChannelData(ch).slice();
+          data.reverse();
+          buffer.copyToChannel(data, ch);
+        }
+        const out = { buffer, peaks: sound.peaks.slice().reverse() };
+        this.reversedReady.set(m.id, out);
+        return out;
+      });
+      this.reversedSounds.set(m.id, p);
+    }
+    return p;
+  }
+
+  reversedNow(m: Media): Sound | null | undefined {
+    return this.reversedReady.get(m.id);
+  }
+
+  /** A file was relinked: what was read from the old path goes. */
+  forget(id: string) {
+    this.strips.delete(id);
+    this.pictures.delete(id);
+    this.sounds.delete(id);
+    this.ready.delete(id);
+    this.reversedSounds.delete(id);
+    this.reversedReady.delete(id);
+  }
+
   /** The sound, if it's already decoded (for drawing waveforms without waiting). */
   private ready = new Map<string, Sound | null>();
   soundNow(m: Media): Sound | null | undefined {
@@ -150,5 +190,7 @@ export class MediaStore {
     this.pictures.clear();
     this.sounds.clear();
     this.ready.clear();
+    this.reversedSounds.clear();
+    this.reversedReady.clear();
   }
 }

@@ -334,7 +334,11 @@ fn enable_cors_for_cs_scheme(webview: tauri::webview::PlatformWebview) {
 pub fn run() {
     // One CorePro at a time (two would overwrite each other's notes and time): with CorePro
     // already running, `corepro --new-note` / `--clipboard` and plain launches go to it, and a
-    // second `--background` has nothing to do.
+    // second `--background` has nothing to do. `--quit` only asks the running one to quit.
+    if notes::quick::quit_requested() {
+        notes::quick::forward_quit();
+        return;
+    }
     if notes::quick::requested() {
         if notes::quick::forward() {
             return;
@@ -378,6 +382,7 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
+                background::window_destroyed(window.app_handle(), window.label());
                 video::window_closed(window.label());
                 term::window_closed(window.label());
                 awake::window_closed(window.label());
@@ -420,6 +425,7 @@ pub fn run() {
             notes::sync::notes_sync_set_folder,
             notes::sync::notes_sync_now,
             time::time_data,
+            time::time_project_hours,
             time::time_check_in,
             time::time_check_out,
             time::time_start,
@@ -455,6 +461,31 @@ pub fn run() {
             wallet::wallet_backups,
             wallet::wallet_backup_now,
             wallet::wallet_backup_restore,
+            wallet::wallet_category_archive,
+            wallet::wallet_budget_rollover,
+            wallet::wallet_bills,
+            wallet::wallet_bill_save,
+            wallet::wallet_bill_pause,
+            wallet::wallet_bill_delete,
+            wallet::wallet_bill_pay,
+            wallet::wallet_bill_skip,
+            wallet::wallet_receipts,
+            wallet::wallet_receipt_attach,
+            wallet::wallet_receipt_remove,
+            wallet::wallet_import_preview,
+            wallet::wallet_import_commit,
+            wallet::wallet_import_undo,
+            wallet::wallet_import_batches,
+            wallet::wallet_profiles,
+            wallet::wallet_profile_save,
+            wallet::wallet_profile_delete,
+            wallet::wallet_rules,
+            wallet::wallet_rule_save,
+            wallet::wallet_rule_delete,
+            wallet::wallet_export,
+            wallet::wallet_earnings,
+            wallet::wallet_project_rate_set,
+            wallet::wallet_earnings_post,
             // office
             office::office_read,
             office::office_write,
@@ -466,16 +497,22 @@ pub fn run() {
             office::office_recovery_delete,
             background::app_background,
             background::app_set_background,
+            background::app_quit,
             // pdf (keep this block's commands together)
             office::pdf_signatures::pdf_signatures,
             office::pdf_signatures::pdf_signature_add,
             office::pdf_signatures::pdf_signature_delete,
+            office::pdf_tools::pdf_edit,
+            office::pdf_tools::pdf_ghostscript,
+            office::pdf_tools::pdf_compress_ghostscript,
             // photo (keep this block's commands together)
             photo::photo_decode,
             photo::photo_encode,
             photo::photo_copy_path,
             photo::photo_project_save,
             photo::photo_project_open,
+            photo::photo_read_file,
+            photo::photo_write_file,
             // video editor (keep this block's commands together)
             videoedit::videoedit_probe,
             videoedit::videoedit_frame,
@@ -490,6 +527,15 @@ pub fn run() {
             videoedit::videoedit_export_cancel,
             videoedit::videoedit_project_save,
             videoedit::videoedit_project_open,
+            videoedit::videoedit_relink,
+            videoedit::videoedit_recovery_save,
+            videoedit::videoedit_recovery_list,
+            videoedit::videoedit_recovery_read,
+            videoedit::videoedit_recovery_delete,
+            videoedit::videoedit_write_text,
+            videoedit::videoedit_record_start,
+            videoedit::videoedit_record_level,
+            videoedit::videoedit_record_stop,
             // clipboard
             clipboard::clipboard_list,
             clipboard::clipboard_pin,

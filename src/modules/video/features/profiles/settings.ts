@@ -18,6 +18,8 @@ export interface MediaSettings {
   // Interface
   /** The player's accent: follow CorePro's, or the video module's orange preset. */
   playerAccent: "app" | "orange";
+  /** Liquid Glass: the controls float over the video and bend it, as on macOS 26; off docks the bar. */
+  glassControls: boolean;
   // Playback
   resume: "always" | "ask" | "never";
   defaultSpeed: number;
@@ -61,6 +63,7 @@ export interface MediaSettings {
 
 export const MEDIA_DEFAULTS: MediaSettings = {
   playerAccent: "app",
+  glassControls: true,
   resume: "always",
   defaultSpeed: 1,
   skipSeconds: 5,
@@ -106,6 +109,7 @@ const bool = (value: unknown, fallback: boolean) => (typeof value === "boolean" 
 function normalize(s: MediaSettings): MediaSettings {
   const d = MEDIA_DEFAULTS;
   s.playerAccent = oneOf(s.playerAccent, ["app", "orange"], d.playerAccent);
+  s.glassControls = bool(s.glassControls, d.glassControls);
   s.resume = oneOf(s.resume, ["always", "ask", "never"], d.resume);
   s.defaultSpeed = num(s.defaultSpeed, 0.25, 2, d.defaultSpeed);
   s.skipSeconds = Math.round(num(s.skipSeconds, 1, 120, d.skipSeconds));

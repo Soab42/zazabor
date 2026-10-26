@@ -8,6 +8,7 @@
 
 use rusqlite::{params, params_from_iter, types::Value, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use super::money::{self, BASE, RATE_ONE};
 use crate::notes::new_id;
@@ -48,6 +49,41 @@ CREATE TABLE budgets (
   month TEXT NOT NULL, category_id TEXT NOT NULL REFERENCES categories(id),
   amount_minor INTEGER NOT NULL, PRIMARY KEY (month, category_id));
 CREATE TABLE rates (currency TEXT PRIMARY KEY, rate_micro INTEGER NOT NULL, updated INTEGER NOT NULL);
+"#, r#"
+ALTER TABLE budgets ADD COLUMN rollover INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE transactions ADD COLUMN recurring_id TEXT;
+ALTER TABLE transactions ADD COLUMN import_batch TEXT;
+ALTER TABLE transactions ADD COLUMN import_hash TEXT;
+ALTER TABLE transactions ADD COLUMN time_project TEXT;
+ALTER TABLE transactions ADD COLUMN time_month TEXT;
+CREATE INDEX tx_import_hash ON transactions(account_id, import_hash);
+CREATE INDEX tx_import_batch ON transactions(import_batch);
+CREATE INDEX tx_recurring ON transactions(recurring_id);
+CREATE UNIQUE INDEX tx_earning ON transactions(time_project, time_month) WHERE time_project IS NOT NULL;
+CREATE TABLE recurring (
+  id TEXT PRIMARY KEY, kind TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id),
+  amount_minor INTEGER NOT NULL, category_id TEXT REFERENCES categories(id),
+  payee TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
+  freq TEXT NOT NULL, every INTEGER NOT NULL DEFAULT 1, day INTEGER NOT NULL DEFAULT 0,
+  start_date TEXT NOT NULL, end_date TEXT, next_date TEXT,
+  auto_post INTEGER NOT NULL DEFAULT 0, subscription INTEGER NOT NULL DEFAULT 0,
+  remind_days INTEGER NOT NULL DEFAULT 3, paused INTEGER NOT NULL DEFAULT 0,
+  created INTEGER NOT NULL, updated INTEGER NOT NULL);
+CREATE TABLE receipts (
+  id TEXT PRIMARY KEY, transaction_id TEXT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+  file TEXT NOT NULL, name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, created INTEGER NOT NULL);
+CREATE INDEX receipt_tx ON receipts(transaction_id);
+CREATE TABLE rules (
+  id TEXT PRIMARY KEY, pattern TEXT NOT NULL, category_id TEXT REFERENCES categories(id),
+  payee TEXT NOT NULL DEFAULT '', position REAL NOT NULL DEFAULT 0, created INTEGER NOT NULL);
+CREATE TABLE import_profiles (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, account_id TEXT, mapping TEXT NOT NULL,
+  created INTEGER NOT NULL, updated INTEGER NOT NULL);
+CREATE TABLE import_batches (
+  id TEXT PRIMARY KEY, account_id TEXT NOT NULL, file TEXT NOT NULL, added INTEGER NOT NULL,
+  skipped INTEGER NOT NULL, created INTEGER NOT NULL, undone INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE project_rates (
+  project TEXT PRIMARY KEY, rate_minor INTEGER NOT NULL, currency TEXT NOT NULL, updated INTEGER NOT NULL);
 "#];
 
 /// The categories a new wallet starts with: (name, icon, colour, children).
@@ -443,6 +479,22 @@ pub fn save_category(conn: &Connection, input: CategoryInput, now: i64) -> Resul
     categories(conn)?.into_iter().find(|c| c.id == id).ok_or_else(|| "The category vanished.".into())
 }
 
+/// Archives a category (and, for a top category, its sub-categories), or brings it back (with
+/// its parent). Archived ones stay in reports and on their transactions but leave the pickers.
+pub fn archive_category(conn: &Connection, id: &str, archived: bool, now: i64) -> Result<()> {
+    let n = conn
+        .execute("UPDATE categories SET archived = ?2, updated = ?3 WHERE id = ?1 OR parent_id = ?1", params![id, archived, now])
+        .map_err(db_err)?;
+    if n == 0 {
+        return Err("That category no longer exists.".into());
+    }
+    if !archived {
+        conn.execute("UPDATE categories SET archived = 0, updated = ?2 WHERE id = (SELECT parent_id FROM categories WHERE id = ?1)", params![id, now])
+            .map_err(db_err)?;
+    }
+    Ok(())
+}
+
 /// Deletes a category and its sub-categories; their transactions move to `move_to` (or to no
 /// category), and their budgets go.
 pub fn delete_category(conn: &mut Connection, id: &str, move_to: Option<&str>) -> Result<()> {
@@ -460,6 +512,8 @@ pub fn delete_category(conn: &mut Connection, id: &str, move_to: Option<&str>) -
     }
     for cat in &ids {
         tx.execute("UPDATE transactions SET category_id = ?2 WHERE category_id = ?1", params![cat, move_to]).map_err(db_err)?;
+        tx.execute("UPDATE recurring SET category_id = ?2 WHERE category_id = ?1", params![cat, move_to]).map_err(db_err)?;
+        tx.execute("UPDATE rules SET category_id = ?2 WHERE category_id = ?1", params![cat, move_to]).map_err(db_err)?;
         tx.execute("DELETE FROM budgets WHERE category_id = ?1", [cat]).map_err(db_err)?;
     }
     for cat in ids.iter().rev() {
@@ -491,13 +545,19 @@ pub struct Tx {
     /// The other side of a transfer.
     pub counter_account_id: Option<String>,
     pub created: i64,
+    /// Receipts attached.
+    pub receipts: i64,
+    /// The bill that posted it.
+    pub recurring_id: Option<String>,
+    /// The import that added it (Undo Import removes the batch).
+    pub import_batch: Option<String>,
 }
 
 const TX_SELECT: &str = "SELECT t.id, t.account_id, a.currency, t.date, t.amount_minor, t.base_minor, t.rate_micro, t.category_id,
        t.payee, t.note, t.transfer_id,
        CASE WHEN t.transfer_id IS NOT NULL AND t.category_id IS NULL THEN 'transfer' WHEN t.amount_minor < 0 THEN 'expense' ELSE 'income' END,
        (SELECT o.account_id FROM transactions o WHERE t.transfer_id IS NOT NULL AND o.transfer_id = t.transfer_id AND o.id <> t.id AND o.category_id IS NULL LIMIT 1),
-       t.created
+       t.created, (SELECT COUNT(*) FROM receipts r WHERE r.transaction_id = t.id), t.recurring_id, t.import_batch
   FROM transactions t JOIN accounts a ON a.id = t.account_id LEFT JOIN categories c ON c.id = t.category_id";
 
 /// The derived kind, for WHERE clauses.
@@ -519,10 +579,13 @@ fn tx_row(r: &Row) -> rusqlite::Result<Tx> {
         kind: r.get(11)?,
         counter_account_id: r.get(12)?,
         created: r.get(13)?,
+        receipts: r.get(14)?,
+        recurring_id: r.get(15)?,
+        import_batch: r.get(16)?,
     })
 }
 
-#[derive(Deserialize, Debug, Default)]
+#[derive(Deserialize, Debug, Default, Clone)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Filter {
     /// Dates, inclusive.
@@ -817,14 +880,19 @@ pub fn transfer(conn: &Connection, id: &str) -> Result<Transfer> {
 #[serde(rename_all = "camelCase")]
 pub struct BudgetRow {
     pub category_id: String,
+    /// As set for the month, without what rolled over.
     pub budget_minor: Option<i64>,
     /// In the month, base currency; a parent's includes its sub-categories'.
     pub spent_minor: i64,
+    /// What's left of last month's budget is added to this one.
+    pub rollover: bool,
+    /// What rolled over from last month (0 without roll-over).
+    pub carry_minor: i64,
 }
 
 /// Spending per category in `from..=to` (dates), base currency; refunds into a spending category
 /// lower it.
-fn spent_by_category(conn: &Connection, from: &str, to: &str) -> Result<std::collections::HashMap<String, i64>> {
+fn spent_by_category(conn: &Connection, from: &str, to: &str) -> Result<HashMap<String, i64>> {
     let mut stmt = conn
         .prepare(&format!(
             "SELECT t.category_id, -SUM(t.base_minor) FROM transactions t JOIN categories c ON c.id = t.category_id
@@ -835,37 +903,99 @@ fn spent_by_category(conn: &Connection, from: &str, to: &str) -> Result<std::col
     rows.collect::<std::result::Result<_, _>>().map_err(db_err)
 }
 
-fn month_span(month: &str) -> (String, String) {
+pub fn month_span(month: &str) -> (String, String) {
     let y: i32 = month[..4].parse().unwrap_or(2000);
     let m: u32 = month[5..7].parse().unwrap_or(1);
     (format!("{month}-01"), format!("{month}-{:02}", days_in_month(y, m)))
 }
 
-/// A row for every spending category: its budget for `month` (if any) and what was spent.
+/// How far back a roll-over looks for what was left.
+const ROLLOVER_MONTHS: i32 = 24;
+
+/// Spending per category in a month, a parent's including its sub-categories'.
+fn spent_in_month(conn: &Connection, month: &str, cats: &[Category]) -> Result<HashMap<String, i64>> {
+    let (from, to) = month_span(month);
+    let own = spent_by_category(conn, &from, &to)?;
+    let mut out = own.clone();
+    for c in cats {
+        if let (Some(parent), Some(v)) = (&c.parent_id, own.get(&c.id)) {
+            *out.entry(parent.clone()).or_insert(0) += v;
+        }
+    }
+    Ok(out)
+}
+
+/// A month's budgets: category → (amount, rollover).
+fn budget_rows(conn: &Connection, month: &str) -> Result<HashMap<String, (i64, bool)>> {
+    let mut stmt = conn.prepare("SELECT category_id, amount_minor, rollover FROM budgets WHERE month = ?1").map_err(db_err)?;
+    let rows = stmt.query_map([month], |r| Ok((r.get::<_, String>(0)?, (r.get::<_, i64>(1)?, r.get::<_, bool>(2)?)))).map_err(db_err)?;
+    rows.collect::<std::result::Result<_, _>>().map_err(db_err)
+}
+
+/// What rolls into `month` for a category whose budget there rolls over: what was left of the
+/// month before (its own budget plus what rolled into it), never below zero. A month without a
+/// budget for the category leaves nothing.
+fn carry_into(conn: &Connection, month: &str, category: &str, cats: &[Category], cache: &mut HashMap<String, (HashMap<String, (i64, bool)>, HashMap<String, i64>)>) -> Result<i64> {
+    // Walk back to the first month of the chain, then forward.
+    let mut chain: Vec<(String, i64, i64)> = Vec::new();
+    let mut m = add_months(month, -1);
+    for _ in 0..ROLLOVER_MONTHS {
+        if !cache.contains_key(&m) {
+            let rows = budget_rows(conn, &m)?;
+            let spent = spent_in_month(conn, &m, cats)?;
+            cache.insert(m.clone(), (rows, spent));
+        }
+        let (rows, spent) = &cache[&m];
+        let Some(&(amount, rollover)) = rows.get(category) else { break };
+        chain.push((m.clone(), amount, spent.get(category).copied().unwrap_or(0)));
+        if !rollover {
+            break;
+        }
+        m = add_months(&m, -1);
+    }
+    // The oldest month first: its own carry is zero (it doesn't roll over, or the chain ended).
+    let mut carry = 0i64;
+    for (i, (_, amount, spent)) in chain.iter().rev().enumerate() {
+        let carried_in = if i == 0 { 0 } else { carry };
+        carry = (amount + carried_in - spent).max(0);
+    }
+    Ok(carry)
+}
+
+/// A row for every spending category: its budget for `month` (if any), what rolled over into
+/// it, and what was spent.
 pub fn budgets(conn: &Connection, month: &str) -> Result<Vec<BudgetRow>> {
     if !valid_month(month) {
         return Err("Pick a month.".into());
     }
-    let (from, to) = month_span(month);
-    let spent = spent_by_category(conn, &from, &to)?;
-    let mut budget: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
-    {
-        let mut stmt = conn.prepare("SELECT category_id, amount_minor FROM budgets WHERE month = ?1").map_err(db_err)?;
-        for row in stmt.query_map([month], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))).map_err(db_err)? {
-            let (k, v) = row.map_err(db_err)?;
-            budget.insert(k, v);
-        }
-    }
     let cats: Vec<Category> = categories(conn)?.into_iter().filter(|c| c.kind == "expense").collect();
-    Ok(cats
-        .iter()
-        .filter(|c| !c.archived || budget.contains_key(&c.id) || spent.contains_key(&c.id))
-        .map(|c| {
-            let children = cats.iter().filter(|k| k.parent_id.as_ref() == Some(&c.id));
-            let spent_minor = spent.get(&c.id).copied().unwrap_or(0) + children.map(|k| spent.get(&k.id).copied().unwrap_or(0)).sum::<i64>();
-            BudgetRow { category_id: c.id.clone(), budget_minor: budget.get(&c.id).copied(), spent_minor }
-        })
-        .collect())
+    let spent = spent_in_month(conn, month, &cats)?;
+    let budget = budget_rows(conn, month)?;
+    let mut cache = HashMap::new();
+    let mut out = Vec::new();
+    for c in cats.iter().filter(|c| !c.archived || budget.contains_key(&c.id) || spent.get(&c.id).is_some_and(|v| *v != 0)) {
+        let (budget_minor, rollover) = match budget.get(&c.id) {
+            Some(&(amount, rollover)) => (Some(amount), rollover),
+            None => (None, false),
+        };
+        let carry_minor = if rollover { carry_into(conn, month, &c.id, &cats, &mut cache)? } else { 0 };
+        out.push(BudgetRow { category_id: c.id.clone(), budget_minor, spent_minor: spent.get(&c.id).copied().unwrap_or(0), rollover, carry_minor });
+    }
+    Ok(out)
+}
+
+/// Turns roll-over on or off for a category's budget in a month (it needs a budget there).
+pub fn set_rollover(conn: &Connection, month: &str, category_id: &str, on: bool) -> Result<()> {
+    if !valid_month(month) {
+        return Err("Pick a month.".into());
+    }
+    let n = conn
+        .execute("UPDATE budgets SET rollover = ?3 WHERE month = ?1 AND category_id = ?2", params![month, category_id, on])
+        .map_err(db_err)?;
+    if n == 0 {
+        return Err("Set a budget for this month first.".into());
+    }
+    Ok(())
 }
 
 /// Sets (or, with an empty amount, removes) a category's budget for a month, in the base currency.
@@ -892,8 +1022,8 @@ pub fn copy_budgets(conn: &Connection, from: &str, to: &str) -> Result<usize> {
         return Err("Pick a month.".into());
     }
     conn.execute(
-        "INSERT INTO budgets (month, category_id, amount_minor) SELECT ?2, category_id, amount_minor FROM budgets WHERE month = ?1
-           ON CONFLICT(month, category_id) DO UPDATE SET amount_minor = excluded.amount_minor",
+        "INSERT INTO budgets (month, category_id, amount_minor, rollover) SELECT ?2, category_id, amount_minor, rollover FROM budgets WHERE month = ?1
+           ON CONFLICT(month, category_id) DO UPDATE SET amount_minor = excluded.amount_minor, rollover = excluded.rollover",
         params![from, to],
     )
     .map_err(db_err)

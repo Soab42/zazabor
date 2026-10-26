@@ -100,6 +100,8 @@ export interface DateTimeOptions {
   host: () => HTMLElement;
   onChange?: (value: number | null) => void;
   label?: string;
+  /** Days after today can be picked too (a bill's next due date). */
+  future?: boolean;
 }
 
 /**
@@ -176,7 +178,7 @@ export class DateTimeField {
     const choose = (day: Date) => {
       const at = pick();
       const next = new Date(day.getFullYear(), day.getMonth(), day.getDate(), this.options.dateOnly ? 0 : at.getHours(), this.options.dateOnly ? 0 : at.getMinutes());
-      this.set(Math.min(next.getTime(), this.options.dateOnly ? startOfDay(Date.now()) : Date.now()));
+      this.set(this.options.future ? next.getTime() : Math.min(next.getTime(), this.options.dateOnly ? startOfDay(Date.now()) : Date.now()));
       if (this.options.dateOnly) this.pop?.close();
       else draw();
     };
@@ -184,7 +186,7 @@ export class DateTimeField {
     const draw = () => {
       title.textContent = shown.toLocaleDateString(undefined, { month: "long", year: "numeric" });
       const today = startOfDay(Date.now());
-      next.disabled = new Date(shown.getFullYear(), shown.getMonth() + 1, 1).getTime() > today;
+      next.disabled = !this.options.future && new Date(shown.getFullYear(), shown.getMonth() + 1, 1).getTime() > today;
       const selected = this.value == null ? null : startOfDay(this.value);
       const lead = (shown.getDay() - first + 7) % 7;
       const cells: HTMLElement[] = [];
@@ -193,7 +195,7 @@ export class DateTimeField {
         const ms = day.getTime();
         const cell = h("button", {
           class: `tt-cal-day${day.getMonth() !== shown.getMonth() ? " outside" : ""}${ms === today ? " today" : ""}${ms === selected ? " selected" : ""}`,
-          type: "button", role: "gridcell", disabled: ms > today, "aria-selected": ms === selected ? "true" : "false",
+          type: "button", role: "gridcell", disabled: !this.options.future && ms > today, "aria-selected": ms === selected ? "true" : "false",
           "aria-label": day.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }),
           onclick: () => choose(day),
         }, String(day.getDate()));

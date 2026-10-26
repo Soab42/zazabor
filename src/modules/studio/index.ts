@@ -13,6 +13,7 @@ import "../office/office.css";
 import { openDialog } from "../time/dialog";
 import "../time/time-module.css";
 import { errorText } from "../time/api";
+import { editApi as videoApi, type Snapshot } from "./video/api";
 import { PHOTO_EXTENSIONS, studioKindOf, VIDEO_PROJECT_EXTENSIONS, type Aspect, type StudioApp, type StudioFactory, type StudioHost, type StudioKind, type StudioStart } from "./app";
 import "./studio.css";
 
@@ -136,6 +137,30 @@ export const createStudioModule: ModuleFactory = (shell) => {
     }));
   }
 
+  /** Video projects AutoRecover kept when CorePro stopped without saving them. */
+  function recoveredRows(): HTMLElement {
+    const box = h("div", { class: "sd-recovered", hidden: true });
+    void videoApi.recoveryList().then((list: Snapshot[]) => {
+      const fresh = list.filter((r) => !apps.some((a) => a.kind === "video" && a.path() !== null && a.path() === r.path));
+      if (!fresh.length) return;
+      box.hidden = false;
+      box.replaceChildren(
+        h("div", { class: "of-hub-head" }, h("h2", null, "Recovered"), h("span", { class: "spacer" })),
+        h("div", { class: "of-recent" }, ...fresh.map((r) =>
+          h("div", { class: "of-recent-row tone-video", role: "button", tabindex: "0", title: r.path ?? "Never saved", onclick: () => void start("video", { recover: r.id }) },
+            h("span", { class: "of-kind" }, icon("videoEdit", 15)),
+            h("span", { class: "of-recent-name" }, r.title),
+            h("span", { class: "of-recent-path" }, r.path ? dirname(r.path).replace(/^\/home\/[^/]+/, "~") : "Not saved yet"),
+            h("span", { class: "of-recent-when" }, ago(r.saved)),
+            h("button", { class: "icon-btn small", type: "button", title: "Discard this copy", "aria-label": "Discard this copy", onclick: (e: Event) => {
+              e.stopPropagation();
+              void videoApi.recoveryDelete(r.id).then(drawHub);
+            } }, icon("trash", 13))))),
+      );
+    }).catch(() => undefined);
+    return box;
+  }
+
   function drawHub() {
     // A function: Home and Photo each need their own tiles (a node has one parent).
     const photoTiles = () => [
@@ -149,6 +174,7 @@ export const createStudioModule: ModuleFactory = (shell) => {
         h("h1", null, "Studio"),
         h("p", { class: "of-hub-sub" }, "Edit photos with layers and adjustments, or cut a reel with text, music and transitions."),
         h("div", { class: "of-new" }, ...photoTiles(), ...videoTiles().slice(0, 2)),
+        recoveredRows(),
         head("Recent"), recentRows(),
       ],
       photo: [
@@ -161,6 +187,7 @@ export const createStudioModule: ModuleFactory = (shell) => {
         h("h1", null, "Video Editor"),
         h("p", { class: "of-hub-sub" }, "Cut clips on a timeline, add text, music, transitions and filters, and export for every platform."),
         h("div", { class: "of-new" }, ...videoTiles()),
+        recoveredRows(),
         head("Recent projects", "video"), recentRows("video"),
       ],
     };
@@ -228,6 +255,7 @@ export const createStudioModule: ModuleFactory = (shell) => {
       const already = apps.find((a) => a.path() === how.path);
       if (already) return showApp(already);
     }
+    if (how.recover) drawHub();
     try {
       const factory = await LOADERS[kind]();
       let made: StudioApp | null = null;
@@ -339,7 +367,7 @@ export const createStudioModule: ModuleFactory = (shell) => {
       if (request.kind !== "studio") return;
       if (request.app === "photo" && request.path) void start("photo", { path: request.path });
       else if (request.app === "video" && request.path && studioKindOf(request.path) === "video") void start("video", { path: request.path });
-      else if (request.app === "video") void start("video", { paths: request.paths ?? (request.path ? [request.path] : []), aspect: "9:16" });
+      else if (request.app === "video") void start("video", { paths: request.paths ?? (request.path ? [request.path] : []), aspect: "9:16", make: request.make });
       else void start(request.app, {});
     },
     windowPath: () => current?.path() ?? null,

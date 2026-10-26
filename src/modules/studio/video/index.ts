@@ -1,19 +1,25 @@
+import { api } from "../../../api";
 import { open, save } from "../../../shared/dialog";
+import { readText } from "../../../shared/quicklook/api";
 import { basename, dirname, h, stripExtension } from "../../../ui/dom";
 import { icon } from "../../../ui/icons";
-import type { LookId, TransitionKind } from "../../gallery/slideshow/settings";
+import { BUILTIN_MUSIC, THEMES, type LookId, type TransitionKind } from "../../gallery/slideshow/settings";
+import { openDialog } from "../../time/dialog";
 import { errorText } from "../../time/api";
 import type { Aspect, StudioApp, StudioFactory, StudioHost } from "../app";
+import { detectBeats } from "./audio";
 import { editApi } from "./api";
 import { Engine, mainClipAt } from "./engine";
 import { openExport } from "./export";
 import { Inspector } from "./inspector";
-import { AUDIO_EXTENSIONS, MediaStore, PICTURE_EXTENSIONS, probeMedia, VIDEO_EXTENSIONS } from "./media";
+import { parseCube } from "./lut";
+import { AUDIO_EXTENSIONS, MediaStore, PEAK_RATE, PICTURE_EXTENSIONS, probeMedia, VIDEO_EXTENSIONS } from "./media";
 import {
-  clipEnd, findClip, insertMain, layoutMain, mainIndexAt, mainTrack, mediaClip, mediaOf, newProject, normalizeProject, placeFree,
-  projectDuration, remove, split, TEXT_SECONDS, tidyTracks, trimEnd, trimStart, uid, defaultPlace,
+  clipEnd, findClip, insertMain, layoutMain, mainIndexAt, mainTrack, mediaClip, mediaOf, newProject, newTrack, normalizeProject, placeAt, placeFree,
+  projectDuration, remove, setProp, sourceTime, split, TEXT_SECONDS, tidyTracks, trimEnd, trimStart, uid, defaultPlace,
   type Clip, type Media, type MediaClip, type Project, type TextClip,
 } from "./model";
+import { parseSrt, writeSrt } from "./srt";
 import { Panel } from "./panels";
 import { TEXT_PRESETS } from "./text";
 import { formatTime, Timeline } from "./timeline";
@@ -30,6 +36,12 @@ interface Settings {
 }
 
 const UNDO_LIMIT = 200;
+/** AutoRecover keeps a snapshot of unsaved changes this often. */
+const RECOVER_MS = 20_000;
+/** A .srt or .cube file bigger than this isn't one. */
+const TEXT_FILE_BYTES = 16 * 1024 * 1024;
+/** A freeze frame's length when it's made. */
+const FREEZE_SECONDS = 3;
 /** Edits with the same key closer together than this are one undo step (dragging a slider). */
 const COALESCE_MS = 1500;
 
@@ -107,6 +119,15 @@ class VideoEditor implements StudioApp {
   private active = false;
   private exporting = false;
   private readonly prefix = `ve${++counter}:`;
+  /** AutoRecover: this project's snapshot id, and the text last kept. */
+  private recoverId = `v-${uid()}`;
+  private recoverText = "";
+  private recoverTimer = 0;
+  /** A voice-over being recorded. */
+  private recording: { id: number; path: string; start: number; meter: number; level: HTMLElement; volume: number } | null = null;
+  private recordBtn: HTMLButtonElement;
+  /** Picking a chroma key colour from the preview for this clip. */
+  private picking: string | null = null;
 
   constructor(private host: StudioHost, aspect: Aspect) {
     this.project = newProject(aspect);
@@ -161,6 +182,9 @@ class VideoEditor implements StudioApp {
       project: () => this.project,
       store: this.store,
       importFiles: (kind) => void this.importFiles(kind),
+      record: () => void this.toggleRecording(),
+      importSrt: () => void this.importSrt(),
+      exportSrt: () => void this.exportSrt(),
       addMedia: (id) => this.addMediaAtPlayhead(id),
       addMusic: (path) => void this.addMusic(path),
       removeMedia: (id) => this.removeMedia(id),
@@ -176,6 +200,12 @@ class VideoEditor implements StudioApp {
       selectedId: () => (this.selection.size === 1 ? [...this.selection][0] : null),
       change: (fn, key) => this.change(fn, key),
       setAspect: (a) => this.change((p) => (p.canvas.aspect = a), "aspect"),
+      time: () => this.engine.time,
+      seek: (t) => this.seek(t),
+      loadLut: (id) => void this.loadLut(id),
+      pickKeyColor: (id) => this.pickKeyColor(id),
+      freezeFrame: () => this.freezeFrame(),
+      markBeats: (id) => void this.markBeats(id),
     });
 
     const tb = (name: Parameters<typeof icon>[0], title: string, run: () => void) =>
@@ -210,6 +240,7 @@ class VideoEditor implements StudioApp {
       this.playBtn,
       tb("skipForward10", "Forward one frame (→)", () => this.step(1)),
       h("span", { class: "spacer" }),
+      this.recordBtn = h("button", { class: "icon-btn small ve-record", type: "button", title: "Record a voice-over (R)", "aria-label": "Record a voice-over", onclick: () => void this.toggleRecording() }, icon("veMic", 16)),
       h("button", { class: "icon-btn small", type: "button", title: "Safe areas for Reels and TikTok", onclick: (e: Event) => {
         this.safe.hidden = !this.safe.hidden;
         (e.currentTarget as HTMLElement).classList.toggle("active", !this.safe.hidden);
@@ -227,6 +258,7 @@ class VideoEditor implements StudioApp {
     this.observer = new ResizeObserver(() => this.fitStage());
     this.observer.observe(this.stage);
     this.refresh({ sound: false });
+    this.recoverTimer = window.setInterval(() => void this.keepSnapshot(), RECOVER_MS);
   }
 
   // ---- settings and title
@@ -339,6 +371,7 @@ class VideoEditor implements StudioApp {
     this.timeLabel.textContent = `${formatTime(t, fps)} / ${formatTime(projectDuration(this.project), fps)}`;
     this.timeline.setTime(t);
     if (playing) this.timeline.follow(t);
+    this.inspector.timeChanged(playing);
   }
 
   private onPlayState(playing: boolean) {
@@ -388,6 +421,17 @@ class VideoEditor implements StudioApp {
       if (e.button !== 0) return;
       const rect = this.canvas.getBoundingClientRect();
       const sx = this.engine.size.width / rect.width, sy = this.engine.size.height / rect.height;
+      if (this.picking) {
+        const id = this.picking;
+        this.engine.drawNow();
+        const color = this.engine.colorAt((e.clientX - rect.left) * sx, (e.clientY - rect.top) * sy);
+        this.endPicking();
+        if (color) this.change((p) => {
+          const c = findClip(p, id)?.clip;
+          if (c?.type === "media" && c.fx.key) c.fx.key.color = color;
+        }, `${id}:key-color`);
+        return;
+      }
       const hit = this.engine.clipAtPoint(this.engine.time, (e.clientX - rect.left) * sx, (e.clientY - rect.top) * sy);
       if (!hit) {
         this.select([], false);
@@ -395,7 +439,9 @@ class VideoEditor implements StudioApp {
       }
       if (!this.selection.has(hit.id)) this.select([hit.id], false);
       this.canvas.setPointerCapture(e.pointerId);
-      const start = { x: e.clientX, y: e.clientY, px: hit.place.x, py: hit.place.y };
+      const local = Math.max(0, Math.min(hit.duration, this.engine.time - hit.start));
+      const at = placeAt(hit, local);
+      const start = { x: e.clientX, y: e.clientY, px: at.x, py: at.y };
       const key = `canvas-move:${hit.id}:${Date.now()}`;
       const move = (ev: PointerEvent) => {
         const dx = (ev.clientX - start.x) / rect.width, dy = (ev.clientY - start.y) / rect.height;
@@ -403,10 +449,10 @@ class VideoEditor implements StudioApp {
         this.change((p) => {
           const c = findClip(p, hit.id)?.clip;
           if (!c) return;
-          // Snap back to the centre lines.
+          // Snap back to the centre lines; with keyframes, the move is a keyframe at the playhead.
           const x = start.px + dx, y = start.py + dy;
-          c.place.x = Math.abs(x - 0.5) < 0.012 ? 0.5 : x;
-          c.place.y = Math.abs(y - 0.5) < 0.012 ? 0.5 : y;
+          setProp(c, "x", local, Math.abs(x - 0.5) < 0.012 ? 0.5 : x);
+          setProp(c, "y", local, Math.abs(y - 0.5) < 0.012 ? 0.5 : y);
         }, key);
       };
       const up = () => {
@@ -677,6 +723,364 @@ class VideoEditor implements StudioApp {
     }
   }
 
+  // ---- freeze frames, colour tables, chroma key, beats
+
+  /** Splits the main clip under the playhead and holds that frame for a few seconds between the parts. */
+  private freezeFrame() {
+    const t = this.engine.time;
+    const chosen = [...this.selection].map((id) => findClip(this.project, id)).find((f) => f?.track.kind === "main" && f.clip.type === "media");
+    const target = (chosen?.clip as MediaClip | undefined) ?? mainClipAt(this.project, t);
+    const m = target ? mediaOf(this.project, target.media) : undefined;
+    if (!target || !m || m.kind !== "video" || target.freeze !== undefined || t < target.start || t >= clipEnd(target)) {
+      this.host.toast("Put the playhead on a video clip on the main track to freeze its frame.");
+      return;
+    }
+    let freezeId = "";
+    this.change((p) => {
+      const found = findClip(p, target.id);
+      if (!found) return;
+      const clip = found.clip as MediaClip;
+      const local = t - clip.start;
+      const frozen: MediaClip = {
+        ...structuredClone(clip), id: uid(), freeze: sourceTime(clip, t), duration: FREEZE_SECONDS, place: { ...placeAt(clip, local) },
+        curve: null, reverse: undefined, fadeIn: 0, fadeOut: 0,
+      };
+      delete frozen.keys;
+      delete frozen.transition;
+      freezeId = frozen.id;
+      const right = split(p, clip.id, t);
+      const index = mainTrack(p).clips.findIndex((c) => c.id === clip.id);
+      insertMain(p, frozen, right ? index + 1 : local <= 0.05 ? index : index + 1);
+    });
+    if (freezeId) this.select([freezeId], false);
+  }
+
+  private async loadLut(id: string) {
+    const path = await open({ title: "Load a Colour Table", filters: [{ name: "Colour tables (.cube)", extensions: ["cube"] }] }).catch(() => null);
+    if (!path) return;
+    try {
+      const text = await readText(path, TEXT_FILE_BYTES);
+      if (text.binary) throw new Error("It isn't a text file.");
+      const cube = parseCube(text.text);
+      this.engine.forgetLut(path);
+      this.change((p) => {
+        const c = findClip(p, id)?.clip;
+        if (c?.type === "media") c.fx.lut = { path, name: cube.title || stripExtension(basename(path)), strength: c.fx.lut?.strength ?? 1 };
+      }, `${id}:lut`);
+    } catch (err) {
+      this.host.toast(`Couldn't use ${basename(path)}: ${errorText(err)}`);
+    }
+  }
+
+  private pickKeyColor(id: string) {
+    this.picking = id;
+    this.engine.keyOff = id;
+    this.engine.pause();
+    this.engine.invalidate();
+    this.frame.classList.add("picking");
+    this.host.toast("Click the colour to remove in the preview (Esc to stop).");
+  }
+
+  private endPicking() {
+    this.picking = null;
+    this.engine.keyOff = null;
+    this.frame.classList.remove("picking");
+    this.engine.invalidate();
+  }
+
+  private async markBeats(id: string) {
+    const clip = findClip(this.project, id)?.clip;
+    const m = clip?.type === "media" ? mediaOf(this.project, clip.media) : undefined;
+    if (!m) return;
+    const sound = await this.store.sound(m);
+    const beats = sound ? detectBeats(sound.peaks, PEAK_RATE) : [];
+    if (beats.length < 4) {
+      this.host.toast("No steady beat was found in this sound.");
+      return;
+    }
+    this.change((p) => {
+      const c = findClip(p, id)?.clip;
+      if (c?.type === "media") c.beats = beats.map((b) => Math.round(b * 1000) / 1000);
+    }, `${id}:beats`);
+    const bpm = 60 / ((beats[beats.length - 1] - beats[0]) / (beats.length - 1));
+    this.host.toast(`Marked ${beats.length} beats (about ${Math.round(bpm)} BPM). Clips snap to them.`);
+  }
+
+  // ---- voice-overs
+
+  private async toggleRecording() {
+    if (this.recording) return this.stopRecording(true);
+    if (this.exporting) return;
+    const folder = this.file ? `${dirname(this.file)}/Voice-overs` : null;
+    let started: { id: number; path: string };
+    try {
+      started = await editApi.recordStart(folder);
+    } catch (err) {
+      this.host.toast(errorText(err));
+      return;
+    }
+    const level = h("span", { class: "ve-record-level" });
+    this.recordBtn.classList.add("recording");
+    this.recordBtn.title = "Stop recording (R)";
+    this.recordBtn.replaceChildren(icon("stop", 16), level);
+    const volume = this.settings().volume;
+    // The clips play silently while you speak, so the microphone doesn't hear them.
+    this.engine.setVolume(0);
+    const meter = window.setInterval(() => {
+      if (!this.recording) return;
+      void editApi.recordLevel(started.id).then((v) => {
+        level.style.setProperty("--level", String(Math.min(1, v * 1.6)));
+      }).catch(() => undefined);
+    }, 90);
+    // Playing from the end starts again from the beginning: the voice-over starts where playback does.
+    this.engine.play();
+    this.recording = { id: started.id, path: started.path, start: this.engine.time, meter, level, volume };
+  }
+
+  private async stopRecording(keep: boolean) {
+    const r = this.recording;
+    if (!r) return;
+    this.recording = null;
+    clearInterval(r.meter);
+    this.engine.pause();
+    this.engine.setVolume(r.volume);
+    this.recordBtn.classList.remove("recording");
+    this.recordBtn.title = "Record a voice-over (R)";
+    this.recordBtn.replaceChildren(icon("veMic", 16));
+    let done: { path: string; seconds: number };
+    try {
+      done = await editApi.recordStop(r.id, keep);
+    } catch (err) {
+      this.host.toast(errorText(err));
+      return;
+    }
+    if (!keep) return;
+    const [m] = await this.addFiles([done.path]);
+    if (!m) return;
+    let added = "";
+    this.change((p) => {
+      if (!p.media.some((x) => x.id === m.id)) p.media.push(m);
+      const clip = mediaClip(m, r.start);
+      clip.role = "voice";
+      added = clip.id;
+      const voiceTrack = p.tracks.find((t) => t.kind === "audio" && t.clips.length > 0 && t.clips.every((c) => c.type === "media" && c.role === "voice"));
+      placeFree(p, clip, "audio", voiceTrack?.id);
+    });
+    if (added) this.select([added], false);
+    this.host.toast(`Recorded ${formatTime(done.seconds, 30, false)} of voice-over.`);
+  }
+
+  // ---- captions
+
+  private async importSrt() {
+    const path = await open({ title: "Import Captions", filters: [{ name: "Captions (.srt)", extensions: ["srt"] }] }).catch(() => null);
+    if (!path) return;
+    try {
+      const file = await readText(path, TEXT_FILE_BYTES);
+      const cues = parseSrt(file.text);
+      if (!cues.length) throw new Error("It has no captions.");
+      const preset = TEXT_PRESETS.find((x) => x.id === "caption") ?? TEXT_PRESETS[0];
+      this.change((p) => {
+        const track = newTrack(p, "text");
+        for (const cue of cues) {
+          track.clips.push({
+            id: uid(), type: "text", start: cue.start, duration: cue.end - cue.start, text: cue.text,
+            style: structuredClone(preset.style), place: { ...defaultPlace(), y: 0.8 }, animIn: "none", animOut: "none",
+          });
+        }
+      });
+      this.host.toast(`Added ${cues.length} captions from ${basename(path)}.`);
+      requestAnimationFrame(() => this.timeline.fit());
+    } catch (err) {
+      this.host.toast(`Couldn't read ${basename(path)}: ${errorText(err)}`);
+    }
+  }
+
+  private async exportSrt() {
+    const texts = this.project.tracks.filter((t) => t.kind === "text" && !t.hidden).flatMap((t) => t.clips).filter((c): c is TextClip => c.type === "text");
+    if (!texts.length) {
+      this.host.toast("There are no texts to save as captions.");
+      return;
+    }
+    let path = await save({ title: "Export Captions", defaultPath: `${this.file ? dirname(this.file) + "/" : ""}${this.title()}.srt`, filters: [{ name: "Captions (.srt)", extensions: ["srt"] }] }).catch(() => null);
+    if (!path) return;
+    if (!path.toLowerCase().endsWith(".srt")) path += ".srt";
+    try {
+      await editApi.writeText(path, writeSrt(texts.map((c) => ({ start: c.start, end: clipEnd(c), text: c.text }))));
+      this.host.toast(`Saved ${texts.length} captions to ${basename(path)}.`);
+    } catch (err) {
+      this.host.toast(`Couldn't save: ${errorText(err)}`);
+    }
+  }
+
+  // ---- missing files and AutoRecover
+
+  /** Looks for moved files around the project; asks about the rest. */
+  private async relinkMissing() {
+    const missing = this.project.media.filter((m) => m.missing);
+    if (!missing.length) return;
+    const found = await this.searchFor(missing, null);
+    if (found) this.host.toast(`Found ${found} moved file${found === 1 ? "" : "s"}.`);
+    const still = this.project.media.filter((m) => m.missing);
+    if (still.length) this.askMissing();
+  }
+
+  /** Searches `folder` (or around the project) for missing files; returns how many were found. */
+  private async searchFor(missing: Media[], folder: string | null): Promise<number> {
+    const found = await editApi.relink({
+      project: this.file, folder,
+      missing: missing.map((m) => ({ id: m.id, name: basename(m.path), bytes: m.bytes ?? null })),
+      oldPaths: missing.map((m) => m.path),
+    }).catch(() => []);
+    if (found.length) this.relinked(found);
+    return found.length;
+  }
+
+  private relinked(found: { id: string; path: string }[]) {
+    this.change((p) => {
+      for (const f of found) {
+        const m = mediaOf(p, f.id);
+        if (!m) continue;
+        m.path = f.path;
+        m.name = basename(f.path);
+        delete m.missing;
+      }
+    });
+    for (const f of found) {
+      this.store.forget(f.id);
+      this.engine.forgetMedia(f.id);
+    }
+    this.panel.refresh();
+  }
+
+  private askMissing() {
+    const list = h("div", { class: "ve-missing-list" });
+    const draw = () => {
+      const still = this.project.media.filter((m) => m.missing);
+      if (!still.length) return dialog.close();
+      list.replaceChildren(...still.map((m) => h("div", { class: "ve-missing-row" },
+        icon(m.kind === "audio" ? "music" : m.kind === "image" ? "image" : "video", 15),
+        h("div", { class: "ve-missing-text" }, h("div", null, basename(m.path)), h("div", { class: "ve-missing-path" }, dirname(m.path).replace(/^\/home\/[^/]+/, "~"))),
+        h("button", { class: "btn small", type: "button", onclick: () => void locate(m) }, "Locate…"))));
+    };
+    const locate = async (m: Media) => {
+      const ext = m.path.slice(m.path.lastIndexOf(".") + 1);
+      const picked = await open({ title: `Find ${basename(m.path)}`, filters: [{ name: basename(m.path), extensions: [ext] }, { name: "All files", extensions: ["*"] }] }).catch(() => null);
+      if (!picked) return;
+      this.relinked([{ id: m.id, path: picked }]);
+      // The others are often in the same folder.
+      const rest = this.project.media.filter((x) => x.missing);
+      if (rest.length) await this.searchFor(rest, dirname(picked));
+      draw();
+    };
+    const dialog = openDialog({
+      title: "Some files are missing",
+      subtitle: "They were moved, renamed or are on a drive that isn't connected.",
+      icon: "search",
+      tone: "work",
+      class: "ve-export-dialog tone-video",
+      body: [list],
+      foot: [
+        h("button", { class: "btn", type: "button", onclick: async () => {
+          const folder = await open({ title: "Search a Folder", directory: true }).catch(() => null);
+          if (!folder) return;
+          const n = await this.searchFor(this.project.media.filter((m) => m.missing), folder);
+          this.host.toast(n ? `Found ${n} file${n === 1 ? "" : "s"}.` : "Nothing with those names was found there.");
+          draw();
+        } }, "Search a folder…"),
+        h("span", { class: "spacer" }),
+        h("button", { class: "btn primary", type: "button", onclick: () => dialog.close() }, "Later"),
+      ],
+    });
+    draw();
+  }
+
+  /** Keeps a snapshot of unsaved changes for AutoRecover. */
+  private async keepSnapshot() {
+    if (!this.unsaved || this.exporting) return;
+    const text = JSON.stringify({ ...this.project, _file: this.file });
+    if (text === this.recoverText) return;
+    this.recoverText = text;
+    await editApi.recoverySave({ id: this.recoverId, title: this.title(), path: this.file }, text).catch(() => undefined);
+  }
+
+  private dropSnapshot() {
+    this.recoverText = "";
+    void editApi.recoveryDelete(this.recoverId).catch(() => undefined);
+  }
+
+  /** Opens an AutoRecover snapshot: the project as it was, still unsaved. */
+  async openRecovered(id: string) {
+    const raw = (await editApi.recoveryRead(id)) as { _file?: string | null };
+    this.project = normalizeProject(raw);
+    this.file = typeof raw._file === "string" ? raw._file : null;
+    this.recoverId = id;
+    this.unsaved = true;
+    this.host.changed();
+    this.refresh({ sound: false });
+    this.panel.refresh();
+    requestAnimationFrame(() => this.timeline.fit());
+    await this.relinkMissing();
+  }
+
+  // ---- Make a Video (from the Gallery)
+
+  /** Pictures become a reel in a slideshow theme's style, with its soundtrack on the beat. */
+  async makeVideo(paths: string[], themeId: string, music: string | null) {
+    const theme = THEMES.find((t) => t.id === themeId) ?? THEMES[0];
+    const media = await this.addFiles(paths);
+    const pictures = media.filter((m) => m.kind !== "audio");
+    if (!pictures.length) return;
+    // The slideshow's music: one of CorePro's soundtracks, the user's own file, or none.
+    let musicPath: string | null = null, bpm = 0;
+    if (music?.startsWith(BUILTIN_MUSIC)) {
+      const tracks = await api.builtinTracks().catch(() => []);
+      const track = tracks.find((t) => t.id === music.slice(BUILTIN_MUSIC.length)) ?? tracks.find((t) => t.id === theme.track);
+      musicPath = track?.path ?? null;
+      bpm = track?.bpm ?? 0;
+    } else if (music) musicPath = music;
+    const [song] = musicPath ? await this.addFiles([musicPath]) : [];
+    // Reels move faster than slideshows: about two thirds of the theme's time per picture, on the beat.
+    let seconds = Math.max(1.2, Math.min(4.5, theme.look.duration * 0.65));
+    if (bpm) {
+      const bar = (60 / bpm) * theme.beatsPerCut;
+      seconds = Math.max(bar, Math.round(seconds / bar) * bar);
+    }
+    const pool = theme.transitions.length ? theme.transitions : [["dissolve", 1] as const];
+    const total = pool.reduce((sum, [, w]) => sum + w, 0);
+    const pick = (i: number): TransitionKind => {
+      let r = ((Math.sin(i * 12.9898 + 4.1) * 43758.5453) % 1 + 1) % 1 * total;
+      for (const [kind, w] of pool) if ((r -= w) <= 0) return kind;
+      return pool[0][0];
+    };
+    this.change((p) => {
+      p.media.push(...media.filter((m) => !p.media.some((x) => x.id === m.id)));
+      if (song && !p.media.some((x) => x.id === song.id)) p.media.push(song);
+      pictures.forEach((m, i) => {
+        const clip = mediaClip(m, 0);
+        if (m.kind === "image") clip.duration = seconds;
+        clip.fx.look = theme.look.look;
+        clip.fx.vignette = theme.look.vignette * 0.6;
+        clip.fx.grain = theme.look.grain * 0.5;
+        if (i > 0) clip.transition = { kind: pick(i), duration: Math.min(theme.look.transitionTime * 0.6, seconds * 0.45) };
+        insertMain(p, clip);
+      });
+      if (song) {
+        const clip = mediaClip(song, 0);
+        clip.duration = Math.min(song.duration || Infinity, projectDuration(p));
+        clip.fadeOut = Math.min(2, clip.duration / 4);
+        placeFree(p, clip, "audio");
+      }
+    });
+    this.history = new History();
+    this.unsaved = true;
+    this.host.changed();
+    this.refresh({ sound: false });
+    this.panel.refresh();
+    requestAnimationFrame(() => this.timeline.fit());
+    this.host.toast(`Made a reel from ${pictures.length} picture${pictures.length === 1 ? "" : "s"} in the ${theme.label} style.`);
+  }
+
   // ---- saving, opening, exporting
 
   async save(as = false): Promise<boolean> {
@@ -694,6 +1098,7 @@ class VideoEditor implements StudioApp {
     }
     this.file = path;
     this.unsaved = false;
+    this.dropSnapshot();
     this.host.remember(path);
     this.host.changed();
     this.refresh({ sound: false });
@@ -708,9 +1113,8 @@ class VideoEditor implements StudioApp {
     this.unsaved = false;
     this.refresh({ sound: false });
     this.panel.refresh();
-    const missing = this.project.media.filter((m) => m.missing);
-    if (missing.length) this.host.toast(`${missing.length} file${missing.length === 1 ? " is" : "s are"} missing: ${missing.map((m) => m.name).slice(0, 3).join(", ")}`);
     requestAnimationFrame(() => this.timeline.fit());
+    void this.relinkMissing();
   }
 
   async startWith(paths: string[]) {
@@ -761,6 +1165,8 @@ class VideoEditor implements StudioApp {
 
   deactivate() {
     this.active = false;
+    if (this.recording) void this.stopRecording(true);
+    if (this.picking) this.endPicking();
     this.engine.pause();
   }
 
@@ -769,6 +1175,17 @@ class VideoEditor implements StudioApp {
     const mod = e.ctrlKey || e.metaKey;
     const key = e.key;
     const lower = key.toLowerCase();
+    if (this.recording) {
+      if (key === "Escape") void this.stopRecording(false);
+      else if (lower === "r" || key === " ") void this.stopRecording(true);
+      return true;
+    }
+    if (this.picking && key === "Escape") {
+      this.endPicking();
+      return true;
+    }
+    // A focused slider takes its own keys (arrows, Home, End, Page Up/Down).
+    if (e.target instanceof HTMLInputElement && e.target.type === "range" && /^(Arrow|Home$|End$|Page)/.test(key)) return false;
     if (mod && lower === "z") {
       if (e.shiftKey) this.redo();
       else this.undo();
@@ -833,6 +1250,9 @@ class VideoEditor implements StudioApp {
       case "n": case "N":
         this.timeline.toggleSnapKey();
         return true;
+      case "r": case "R":
+        void this.toggleRecording();
+        return true;
       case "+": case "=":
         this.timeline.zoomBy(1.5);
         return true;
@@ -849,6 +1269,10 @@ class VideoEditor implements StudioApp {
   }
 
   dispose() {
+    clearInterval(this.recoverTimer);
+    if (this.recording) void editApi.recordStop(this.recording.id, true).catch(() => undefined);
+    // Closed on purpose (saved, or "Don't Save"): nothing to recover.
+    this.dropSnapshot();
     this.observer.disconnect();
     this.timeline.dispose();
     this.engine.dispose();
@@ -858,13 +1282,22 @@ class VideoEditor implements StudioApp {
 
 export const createVideoApp: StudioFactory = async (host, start) => {
   const app = new VideoEditor(host, start.aspect ?? "9:16");
-  if (start.path) {
+  if (start.recover) {
+    try {
+      await app.openRecovered(start.recover);
+    } catch (err) {
+      app.dispose();
+      throw err;
+    }
+  } else if (start.path) {
     try {
       await app.openProject(start.path);
     } catch (err) {
       app.dispose();
       throw err;
     }
+  } else if (start.paths?.length && start.make) {
+    void app.makeVideo(start.paths, start.make.theme, start.make.music);
   } else if (start.paths?.length) {
     void app.startWith(start.paths);
   }

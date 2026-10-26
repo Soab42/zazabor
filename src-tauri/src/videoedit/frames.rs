@@ -6,7 +6,7 @@
 use super::media::{self, Want};
 use gst::prelude::*;
 use gstreamer as gst;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -16,6 +16,10 @@ const READ_AHEAD: f64 = 1.5;
 const MAX_DECODERS: usize = 10;
 /// How long a pull may wait for the decoder.
 const PULL_TIMEOUT: Duration = Duration::from_secs(4);
+/// Frames kept behind the newest one while reading forwards (asks a frame early don't seek).
+const KEEP_FORWARD: usize = 2;
+/// Memory for the stretch decoded ahead of a reversed clip.
+const REVERSE_BYTES: usize = 64 * 1024 * 1024;
 
 pub const HEADER_BYTES: usize = 32;
 pub const FLAG_SAME: u32 = 1;
@@ -33,6 +37,9 @@ struct Decoder {
     pipeline: gst::Pipeline,
     sink: gst::Element,
     last: Option<Frame>,
+    /// Frames decoded before `last`, oldest first (reading backwards serves them in turn).
+    history: VecDeque<Frame>,
+    keep: usize,
     ended: bool,
     frame_dur: f64,
 }
@@ -76,7 +83,9 @@ fn caps_for(size: (u32, u32), format: &str) -> String {
 /// A decoder of `path` producing `size` frames of `format`, prerolled in `state`.
 fn open(path: &str, size: (u32, u32), format: &str, state: gst::State) -> Result<(gst::Pipeline, gst::Element), String> {
     let chain = media::chain(&format!(
-        "queue max-size-buffers=8 max-size-bytes=0 max-size-time=0 ! videoflip video-direction=auto ! videoconvert ! videoscale add-borders=false ! {} ! appsink name=frames sync=false max-buffers=3 drop=false enable-last-sample=false",
+        // videoflip only takes 8-bit formats: 10-bit video (HDR phones, VP9 profile 2/3) is
+        // converted first.
+        "queue max-size-buffers=8 max-size-bytes=0 max-size-time=0 ! videoconvert ! videoflip video-direction=auto ! videoconvert ! videoscale add-borders=false ! {} ! appsink name=frames sync=false max-buffers=3 drop=false enable-last-sample=false",
         caps_for(size, format)
     ))?;
     let decoding = media::decoding(path, Want::Video, &chain)?;
@@ -90,6 +99,10 @@ fn open(path: &str, size: (u32, u32), format: &str, state: gst::State) -> Result
     Ok((decoding.pipeline, sink))
 }
 
+fn covers(f: &Frame, t: f64) -> bool {
+    t >= f.pts - 1e-4 && t < f.pts + f.dur - 1e-4
+}
+
 fn sample_frame(sample: &gst::Sample, frame_dur: f64) -> Option<Frame> {
     let buffer = sample.buffer()?;
     let pts = buffer.pts()?.nseconds() as f64 / 1e9;
@@ -101,7 +114,7 @@ fn sample_frame(sample: &gst::Sample, frame_dur: f64) -> Option<Frame> {
 impl Decoder {
     fn new(path: &str, size: (u32, u32)) -> Result<Decoder, String> {
         let (pipeline, sink) = open(path, size, "I420", gst::State::Playing)?;
-        let mut decoder = Decoder { path: path.into(), size, pipeline, sink, last: None, ended: false, frame_dur: 1.0 / 30.0 };
+        let mut decoder = Decoder { path: path.into(), size, pipeline, sink, last: None, history: VecDeque::new(), keep: KEEP_FORWARD, ended: false, frame_dur: 1.0 / 30.0 };
         decoder.pull_next()?;
         if let Some(caps) = decoder.last.is_some().then(|| decoder.sink.static_pad("sink").and_then(|p| p.current_caps())).flatten() {
             if let Some(f) = caps.structure(0).and_then(|s| s.get::<gst::Fraction>("framerate").ok()).filter(|f| f.numer() > 0) {
@@ -117,7 +130,14 @@ impl Decoder {
         let sample = self.sink.emit_by_name::<Option<gst::Sample>>("try-pull-sample", &[&timeout]);
         match sample.and_then(|s| sample_frame(&s, self.frame_dur)) {
             Some(frame) => {
-                self.last = Some(frame);
+                if let Some(previous) = self.last.replace(frame) {
+                    if self.keep > 0 {
+                        self.history.push_back(previous);
+                        while self.history.len() > self.keep {
+                            self.history.pop_front();
+                        }
+                    }
+                }
                 Ok(true)
             }
             None => {
@@ -131,7 +151,47 @@ impl Decoder {
     }
 
     fn holds(&self, t: f64) -> bool {
-        self.last.as_ref().is_some_and(|f| t >= f.pts - 1e-4 && t < f.pts + f.dur - 1e-4)
+        self.last.as_ref().is_some_and(|f| covers(f, t))
+    }
+
+    /// The frame showing at `t`: from the frames already decoded when it's among them, else by
+    /// reading on or seeking. Going backwards (a reversed clip) it decodes a stretch before `t`
+    /// and keeps it, so the frames before come without seeking each time.
+    fn frame_at(&mut self, t: f64) -> Result<&Frame, String> {
+        let t = t.max(0.0);
+        if let Some(i) = self.history.iter().position(|f| covers(f, t)) {
+            return Ok(&self.history[i]);
+        }
+        let behind = !self.holds(t) && self.last.as_ref().is_some_and(|f| t < f.pts - 1e-4);
+        if behind {
+            let bytes = self.last.as_ref().map_or(1, |f| f.data.len().max(1));
+            self.keep = (REVERSE_BYTES / bytes).clamp(8, 60);
+            self.history.clear();
+            let from = (t - (self.keep as f64 - 2.0) * self.frame_dur).max(0.0);
+            self.pipeline
+                .seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE, gst::ClockTime::from_nseconds((from * 1e9) as u64))
+                .map_err(|_| "The clip couldn't seek.".to_string())?;
+            self.ended = false;
+            self.last = None;
+            while self.pull_next()? {
+                let f = self.last.as_ref().expect("just pulled");
+                if t < f.pts + f.dur - 1e-4 {
+                    break;
+                }
+            }
+            if self.last.is_none() {
+                return Err("The clip has no picture there.".into());
+            }
+        } else {
+            if !self.holds(t) && self.keep != KEEP_FORWARD {
+                self.keep = KEEP_FORWARD;
+                while self.history.len() > self.keep {
+                    self.history.pop_front();
+                }
+            }
+            self.seek_to(t)?;
+        }
+        Ok(self.last.as_ref().expect("a frame is there"))
     }
 
     /// Makes `last` the frame showing at `t` (seconds in the source).
@@ -145,6 +205,7 @@ impl Decoder {
             return Ok(());
         }
         if !ahead {
+            self.history.clear();
             self.pipeline
                 .seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE, gst::ClockTime::from_nseconds((t * 1e9) as u64))
                 .map_err(|_| "The clip couldn't seek.".to_string())?;
@@ -196,22 +257,31 @@ pub fn frame(key: &str, path: &str, t: f64, source: (u32, u32), max: (u32, u32),
         *guard = Some(Decoder::new(path, size)?);
     }
     let decoder = guard.as_mut().expect("just opened");
-    if let Err(why) = decoder.seek_to(t) {
-        *guard = None;
-        return Err(why);
-    }
-    let frame = decoder.last.as_ref().expect("seek_to leaves a frame");
-    let same = have.is_some_and(|h| (h - frame.pts).abs() < 1e-6);
-    let flags = if same { FLAG_SAME } else { 0 } | if decoder.ended { FLAG_END } else { 0 };
-    let mut out = Vec::with_capacity(HEADER_BYTES + if same { 0 } else { frame.data.len() });
-    out.extend_from_slice(&size.0.to_le_bytes());
-    out.extend_from_slice(&size.1.to_le_bytes());
-    out.extend_from_slice(&frame.pts.to_le_bytes());
-    out.extend_from_slice(&frame.dur.to_le_bytes());
-    out.extend_from_slice(&flags.to_le_bytes());
-    out.extend_from_slice(&0u32.to_le_bytes());
-    if !same {
-        out.extend_from_slice(&frame.data);
+    let built = decoder.frame_at(t).map(|frame| {
+        let same = have.is_some_and(|h| (h - frame.pts).abs() < 1e-6);
+        let flags = if same { FLAG_SAME } else { 0 };
+        let mut out = Vec::with_capacity(HEADER_BYTES + if same { 0 } else { frame.data.len() });
+        out.extend_from_slice(&size.0.to_le_bytes());
+        out.extend_from_slice(&size.1.to_le_bytes());
+        out.extend_from_slice(&frame.pts.to_le_bytes());
+        out.extend_from_slice(&frame.dur.to_le_bytes());
+        out.extend_from_slice(&flags.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+        if !same {
+            out.extend_from_slice(&frame.data);
+        }
+        out
+    });
+    let mut out = match built {
+        Ok(out) => out,
+        Err(why) => {
+            *guard = None;
+            return Err(why);
+        }
+    };
+    let decoder = guard.as_ref().expect("still open");
+    if decoder.ended {
+        out[24] |= FLAG_END as u8;
     }
     Ok(out)
 }

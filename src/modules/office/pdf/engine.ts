@@ -153,6 +153,9 @@ export async function openPdf(engine: Engine, bytes: Uint8Array, ask: (wrong: bo
     useWorkerFetch: false,
     cMapPacked: true,
     enableXfa: false,
+    // WebKitGTK (2.50) draws the bitmaps pdf.js's worker makes with OffscreenCanvas blank when a
+    // picture is big (a 300 dpi scan): pages came out white at random. Without it they're fine.
+    isOffscreenCanvasSupported: false,
   } as Parameters<PdfLib["getDocument"]>[0]);
   let cancelled = false;
   task.onPassword = (update: (password: string) => void, reason: number) => {

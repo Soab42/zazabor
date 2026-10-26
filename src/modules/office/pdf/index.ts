@@ -1,15 +1,19 @@
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import { documentDir, join } from "@tauri-apps/api/path";
+import { documentDir, homeDir, join } from "@tauri-apps/api/path";
 import { open } from "../../../shared/dialog";
 import { basename, h, isTypingTarget } from "../../../ui/dom";
 import { icon, type IconName } from "../../../ui/icons";
 import { openMenu } from "../../../ui/menu";
 import { fsApi } from "../../files/api";
 import { errorText } from "../../time/api";
+import { confirmDialog } from "../../time/dialog";
 import { Cancelled, extensionOf, officeApi, pickSavePath, safeLink, stem } from "../api";
 import type { EditorFactory, OfficeEditor } from "../editor";
 import { Ribbon, titleBar } from "../ribbon";
 import { extractDialog, goToDialog, passwordDialog, propertiesDialog, splitDialog } from "./dialogs";
+import { addTextDialog, compressDialog, faceCss, headerFooterDialog, noteDialog, protectDialog, redactApplyDialog, redactFindDialog, sanitizeDialog, unprotectDialog, watermarkDialog, type TextChoice } from "./edit-dialogs";
+import { Markup, viewportRect, type MarkupTool, type OwnTool } from "./markup";
+import { ghostscript, hasGhostscript, pdfEdit, refOf, rgbOf, standardText, type Op } from "./tools";
 import { build, loadEngine, openError, openPdf, paper, type Engine, type Slot, type Source } from "./engine";
 import { finish } from "./bytes";
 import { Organizer } from "./organize";
@@ -165,8 +169,12 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
   let queued = false;
   let wasDirty = false;
   let disposed = false;
-  /** The page to show once a reloaded document's pages are laid out. */
-  let restore: { page: number; scale: string } | null = null;
+  /** The page to show once a reloaded document's pages are laid out (and where it was scrolled). */
+  let restore: { page: number; scale: string; scroll?: { top: number; left: number } } | null = null;
+  /** The scroll position to put back once the pages have their sizes. */
+  let scrollBack: { top: number; left: number } | null = null;
+  /** The file has a password or restrictions (from its properties). */
+  let encrypted = false;
   let attachments: Map<string, { filename: string; content?: Uint8Array | null }> | null = null;
   /** The file's size on disk (Properties). */
   let fileSize = bytes.length;
@@ -241,9 +249,17 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
   eventBus.on("pagesinit", () => {
     pdfViewer.currentScaleValue = restore?.scale ?? "auto";
     if (restore) pdfViewer.currentPageNumber = Math.min(restore.page, doc.numPages);
+    scrollBack = restore?.scroll ?? null;
+    if (scrollBack) Object.assign(scroller, { scrollTop: scrollBack.top, scrollLeft: scrollBack.left });
     restore = null;
     schedule();
   });
+  // A change through Rust reloads the file: the view stays where it was.
+  eventBus.on("pagesloaded", () => {
+    if (scrollBack) Object.assign(scroller, { scrollTop: scrollBack.top, scrollLeft: scrollBack.left });
+    scrollBack = null;
+  });
+  eventBus.on("pagerendered", ({ pageNumber }: { pageNumber: number }) => markup.drawMarks(pageNumber - 1));
   eventBus.on("pagechanging", () => {
     schedule();
     markThumb();
@@ -258,8 +274,8 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
     }
   });
 
-  function showDocument(page = 1, scale = "auto") {
-    restore = { page, scale };
+  function showDocument(page = 1, scale = "auto", scroll?: { top: number; left: number }) {
+    restore = { page, scale, scroll };
     // pdf.js clears its own flag whenever it writes the file (AutoRecover's copy, a page change),
     // so only a save here clears ours.
     const storage = doc.annotationStorage as unknown as { onSetModified: (() => void) | null };
@@ -273,6 +289,13 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
     void doc.getAttachments().then((a) => {
       attachments = a?.size ? a : null;
       drawNavStrip();
+      schedule();
+    }).catch(() => undefined);
+    const shown = doc;
+    encrypted = password !== null;
+    void doc.getMetadata().then((m) => {
+      if (shown !== doc) return;
+      encrypted = password !== null || !!(m.info as { EncryptFilterName?: string }).EncryptFilterName;
       schedule();
     }).catch(() => undefined);
     drawNav();
@@ -343,6 +366,24 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
 
   const main = h("div", { class: "pf-main" }, scroller, organizer.el, findbar, ghost, busyNote, readBar);
   organizer.el.hidden = true;
+
+  // CorePro's own tools: text markup, notes, shapes, redaction marks, content placed on pages.
+  let author = "";
+  void homeDir().then((d) => (author = basename(d.replace(/\/+$/, "")))).catch(() => undefined);
+  /** A picture chosen for Edit → Add Picture, waiting for its click. */
+  let contentPicture: { bytes: Uint8Array; width: number; height: number } | null = null;
+  const markup = new Markup({
+    scroller,
+    main,
+    pageView: (i) => pdfViewer.getPageView(i) as never,
+    apply: (what, ops, blobs) => applyTools(what, ops, blobs),
+    toast: host.toast,
+    changed: () => schedule(),
+    noteText: () => noteDialog(),
+    addText: (n, at, client) => addTextAt(n, at, client),
+    placePicture: (n, center) => placeContentPicture(n, center),
+    author: () => author,
+  });
 
   // ---- status bar
 
@@ -569,6 +610,7 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
 
   function setMode(next: number) {
     cancelPlacing();
+    if (next !== T.NONE && markup.tool) markup.setTool(null);
     if (mode() === next || !ui) return;
     if (organizing && next !== T.NONE) return;
     pdfViewer.annotationEditorMode = { mode: next };
@@ -605,6 +647,7 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
 
   async function arm(next: NonNullable<typeof placing>) {
     if (!ui) return;
+    markup.setTool(null);
     if (organizing) {
       ribbon.select("home");
       setOrganizing(false);
@@ -818,6 +861,7 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
       const result = await plan(source, doc.numPages, await rotations());
       if (!result) return;
       const next = await make(result.slots, password);
+      markup.reset();
       undoSteps.push({ bytes: base, password, page: page() });
       if (undoSteps.length > 30) undoSteps.shift();
       redoSteps = [];
@@ -829,11 +873,15 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
     }
   }
 
-  /** Shows another version of the file (after a page change, undo or redo). */
-  async function replace(next: Uint8Array, pass: string | null, showPage: number, select?: number[]) {
+  /**
+   * Shows another version of the file (after a page change, undo or redo, or a tool). `keepScroll`
+   * keeps the view where it was when the pages are the same.
+   */
+  async function replace(next: Uint8Array, pass: string | null, showPage: number, select?: number[], keepScroll = false) {
     const opened = await openPdf(engine, next, ask, pass);
     const old = doc;
     const scale = pdfViewer.currentScaleValue || "auto";
+    const scroll = keepScroll && opened.doc.numPages === old.numPages && !organizing ? { top: scroller.scrollTop, left: scroller.scrollLeft } : undefined;
     bytes = next;
     password = opened.password;
     doc = opened.doc;
@@ -841,7 +889,9 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
     version++;
     thumbs.dispose();
     thumbs = new Thumbs(doc);
-    showDocument(showPage, scale);
+    // Redaction marks belong to the pages as they were; a change of the pages drops them.
+    if (!scroll) markup.reset();
+    showDocument(showPage, scale, scroll);
     if (organizing) organizer.show(doc.numPages, thumbs, select);
     // Keep the keyboard here: the old pages it was on are gone.
     if (!root.contains(document.activeElement) || document.activeElement === document.body) (organizing ? organizer.el : scroller).focus({ preventScroll: true });
@@ -1028,6 +1078,300 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
     }
   }
 
+  // ---- tools that run in Rust (tools.ts): each is one Undo step
+
+  /**
+   * Runs `ops` on the file as it is now and shows the result. `nextPassword` is the password the
+   * new file opens with, when the job changes it.
+   */
+  async function applyTools(what: string, ops: Op[], blobs: Uint8Array[] = [], nextPassword?: string | null): Promise<boolean> {
+    if (busy) return false;
+    showBusy(`${what}…`);
+    try {
+      const base = await bake();
+      const out = await pdfEdit(base, password, ops, blobs);
+      await keep(base, out, nextPassword === undefined ? password : nextPassword);
+      return true;
+    } catch (err) {
+      if ((err as Error)?.name !== "Cancelled") host.toast(`${what} didn’t work: ${errorText(err)}`);
+      return false;
+    } finally {
+      showBusy(null);
+    }
+  }
+
+  /** Shows `out` in place of `base`, which Undo brings back. */
+  async function keep(base: Uint8Array, out: Uint8Array, pass: string | null) {
+    const before = { bytes: base, password, page: page() };
+    await replace(out, pass, page(), undefined, true);
+    undoSteps.push(before);
+    if (undoSteps.length > 30) undoSteps.shift();
+    redoSteps = [];
+  }
+
+  function setOwnTool(tool: OwnTool | null) {
+    if (tool) {
+      cancelPlacing();
+      if (organizing) {
+        ribbon.select("home");
+        setOrganizing(false);
+      }
+      if (mode() !== T.NONE) pdfViewer.annotationEditorMode = { mode: T.NONE };
+    }
+    markup.setTool(tool);
+    schedule();
+  }
+
+  async function markText(kind: MarkupTool) {
+    if (markup.tool === kind) return setOwnTool(null);
+    if (await markup.markSelection(kind)) return;
+    setOwnTool(kind);
+    host.toast("Select the text to mark (Esc to stop)");
+  }
+
+  /** A picture of text the standard PDF fonts can't show: PNG bytes and its size in points. */
+  async function textPicture(c: TextChoice): Promise<{ bytes: Uint8Array; width: number; height: number }> {
+    const { family, bold } = faceCss(c.face);
+    const scale = 4;
+    const font = `${bold ? "bold " : ""}${c.size * scale}px ${family}, "Noto Sans Bengali", "Noto Sans", sans-serif`;
+    const probe = h("canvas").getContext("2d")!;
+    probe.font = font;
+    const lines = c.text.split("\n");
+    const lineHeight = c.size * 1.25 * scale;
+    const width = Math.max(1, ...lines.map((l) => probe.measureText(l).width)) + 2 * scale;
+    const height = lineHeight * lines.length;
+    const canvas = h("canvas", { width: Math.ceil(width), height: Math.ceil(height) });
+    const g = canvas.getContext("2d")!;
+    g.font = font;
+    g.fillStyle = c.color;
+    g.textBaseline = "top";
+    lines.forEach((l, i) => g.fillText(l, scale, i * lineHeight + c.size * 0.1 * scale));
+    const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("The text couldn’t be drawn."))), "image/png"));
+    return { bytes: new Uint8Array(await blob.arrayBuffer()), width: width / scale, height: height / scale };
+  }
+
+  async function addTextAt(n: number, at: [number, number], client: { x: number; y: number }) {
+    const choice = await addTextDialog();
+    if (!choice) return;
+    if (standardText(choice.text)) {
+      await applyTools("Adding text", [{ op: "addText", page: n, x: at[0], y: at[1], text: choice.text, size: choice.size, face: choice.face, color: rgbOf(choice.color) }]);
+    } else {
+      // Placed as a picture: its top left where the click was.
+      const pic = await textPicture(choice);
+      const view = pdfViewer.getPageView(n - 1) as { viewport: { scale: number; convertToPdfPoint(x: number, y: number): number[] }; div: HTMLElement };
+      const box = (view.div.querySelector(".canvasWrapper") ?? view.div).getBoundingClientRect();
+      const s = view.viewport.scale;
+      const [x, y] = view.viewport.convertToPdfPoint(client.x + (pic.width * s) / 2 - box.left, client.y + (pic.height * s) / 2 - box.top);
+      await applyTools("Adding text", [{ op: "addImage", page: n, x, y, width: pic.width, height: pic.height, blob: 1 }], [pic.bytes]);
+    }
+    setOwnTool(null);
+  }
+
+  async function chooseContentPicture() {
+    const picked = await open({ title: "Add a Picture to the Page", multiple: false, filters: [{ name: "Pictures", extensions: PICTURES }] }).catch(() => null);
+    if (!picked) return;
+    try {
+      const raw = await officeApi.read(picked);
+      const bitmap = await createImageBitmap(blobOf(raw, picked));
+      const pageWidth = (await doc.getPage(page())).view[2];
+      const width = Math.min(bitmap.width * 0.75, pageWidth / 2);
+      const height = (width * bitmap.height) / bitmap.width;
+      bitmap.close();
+      contentPicture = { bytes: raw, width, height };
+      setOwnTool("picture");
+      host.toast("Click on the page where the picture goes (Esc to cancel)");
+    } catch (err) {
+      host.toast(`Couldn’t add ${basename(picked)}: ${errorText(err)}`);
+    }
+  }
+
+  async function placeContentPicture(n: number, center: [number, number]) {
+    const pic = contentPicture;
+    if (!pic) return;
+    contentPicture = null;
+    setOwnTool(null);
+    await applyTools("Adding a picture", [{ op: "addImage", page: n, x: center[0], y: center[1], width: pic.width, height: pic.height, blob: 1 }], [pic.bytes]);
+  }
+
+  async function addWatermark() {
+    const choice = await watermarkDialog(doc.numPages, page() - 1, async () =>
+      (await open({ title: "Choose a Picture for the Watermark", multiple: false, filters: [{ name: "Pictures", extensions: PICTURES }] }).catch(() => null)) ?? null);
+    if (!choice) return;
+    let blobs: Uint8Array[] = [];
+    if (choice.picture) {
+      try {
+        blobs = [await officeApi.read(choice.picture)];
+      } catch (err) {
+        return host.toast(`Couldn’t read ${basename(choice.picture)}: ${errorText(err)}`);
+      }
+    }
+    await applyTools("Adding the watermark", [{
+      op: "watermark", pages: choice.pages, face: choice.face, size: choice.size, color: choice.color, opacity: choice.opacity,
+      rotation: choice.rotation, scale: choice.scale, behind: choice.behind,
+      ...(choice.picture ? { blob: 1 } : { text: choice.text ?? "" }),
+    }], blobs);
+  }
+
+  async function addHeaderFooter(bates: boolean) {
+    const choice = await headerFooterDialog(doc.numPages, page() - 1, bates);
+    if (!choice) return;
+    await applyTools(bates ? "Adding Bates numbers" : "Adding the header and footer", [{
+      op: "headerFooter", pages: choice.pages, slots: choice.slots, face: choice.face, size: choice.size, color: choice.color, margin: choice.margin,
+      ...(choice.bates ? { bates: choice.bates } : {}), date: new Date().toLocaleDateString(), file: title(),
+    }]);
+  }
+
+  async function flatten(comments: boolean, forms: boolean) {
+    const what = comments && forms ? "comments and form fields" : comments ? "comments" : "form fields";
+    const ok = await confirmDialog({
+      title: `Flatten ${comments && forms ? "Comments and Form Fields" : comments ? "Comments" : "Form Fields"}`,
+      text: `The ${what} become part of the pages: they look the same but can't be ${forms ? "filled in, " : ""}changed or deleted anymore.`,
+      confirm: "Flatten",
+      icon: "pfFlatten",
+      tone: "work",
+    });
+    if (ok) await applyTools(`Flattening ${what}`, [{ op: "flatten", comments, forms }]);
+  }
+
+  // ---- redaction
+
+  async function findToRedact() {
+    const patterns = await redactFindDialog();
+    if (!patterns) return;
+    showBusy("Finding text to redact…");
+    try {
+      const found = await markup.findMarks(doc, patterns);
+      host.toast(found ? `Marked ${found} match${found === 1 ? "" : "es"}. Check the red marks, then Apply Redactions.` : "Nothing matched.");
+    } catch (err) {
+      host.toast(`Couldn’t search the text: ${errorText(err)}`);
+    } finally {
+      showBusy(null);
+    }
+  }
+
+  async function applyRedactions() {
+    const pages = [...markup.marks].filter(([, list]) => list.length).map(([i]) => i).sort((a, b) => a - b);
+    if (!pages.length || busy) return;
+    const choice = await redactApplyDialog(pages, markup.markCount());
+    if (!choice) return;
+    showBusy("Applying redactions…");
+    let check: Awaited<ReturnType<typeof openPdf>> | null = null;
+    try {
+      const base = await bake();
+      // Each marked page drawn as it shows (comments and form values included), marks in black.
+      const shown = await openPdf(engine, base, ask, password);
+      const blobs: Uint8Array[] = [];
+      const parts: { page: number; blob: number; view: number[] }[] = [];
+      try {
+        for (const i of pages) {
+          const p = await shown.doc.getPage(i + 1);
+          const unit = p.getViewport({ scale: 1, rotation: 0 });
+          const scale = Math.min(choice.dpi / 72, Math.sqrt(40e6 / (unit.width * unit.height)));
+          const vp = p.getViewport({ scale, rotation: 0 });
+          const canvas = h("canvas", { width: Math.ceil(vp.width), height: Math.ceil(vp.height) });
+          const g = canvas.getContext("2d")!;
+          g.fillStyle = "#fff";
+          g.fillRect(0, 0, canvas.width, canvas.height);
+          await p.render({ canvas, viewport: vp, annotationMode: lib.AnnotationMode.ENABLE }).promise;
+          g.fillStyle = "#000";
+          for (const m of markup.marks.get(i) ?? []) {
+            const [x0, y0, x1, y1] = viewportRect(vp, m.box);
+            g.fillRect(Math.floor(Math.min(x0, x1)), Math.floor(Math.min(y0, y1)), Math.ceil(Math.abs(x1 - x0)) + 1, Math.ceil(Math.abs(y1 - y0)) + 1);
+          }
+          const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("The page couldn’t be drawn."))), "image/jpeg", 0.92));
+          blobs.push(new Uint8Array(await blob.arrayBuffer()));
+          parts.push({ page: i + 1, blob: blobs.length, view: [...p.view] });
+          p.cleanup();
+        }
+      } finally {
+        void shown.doc.loadingTask.destroy();
+      }
+      const ops: Op[] = [{ op: "redact", pages: parts }];
+      if (choice.cleanup) ops.push({ op: "sanitize", metadata: true, attachments: true, scripts: true, comments: false });
+      const out = await pdfEdit(base, password, ops, blobs);
+      // The check: the redacted pages hold no text at all now, and where the found text still
+      // appears (pages without marks) is said.
+      check = await openPdf(engine, out, ask, password);
+      for (const i of pages) {
+        const text = await (await check.doc.getPage(i + 1)).getTextContent();
+        if (text.items.some((it) => "str" in it && it.str.trim())) throw new Error(`page ${i + 1} still has text, so nothing was changed`);
+      }
+      const terms = [...new Set([...markup.marks.values()].flat().map((m) => m.term?.toLowerCase()).filter((t): t is string => !!t))];
+      const left: number[] = [];
+      if (terms.length) {
+        for (let n = 1; n <= check.doc.numPages; n++) {
+          const text = (await (await check.doc.getPage(n)).getTextContent()).items.map((it) => ("str" in it ? it.str : "")).join(" ").toLowerCase();
+          if (terms.some((t) => text.includes(t))) left.push(n);
+        }
+      }
+      await keep(base, out, password);
+      markup.reset();
+      setOwnTool(null);
+      host.toast(left.length
+        ? `Redacted and checked ${pages.length} page${pages.length === 1 ? "" : "s"}. The found text still appears on page${left.length === 1 ? "" : "s"} ${left.join(", ")}, which had no marks.`
+        : `Redaction applied and checked: ${pages.length} page${pages.length === 1 ? "" : "s"} replaced with pictures. Save to keep it.`);
+    } catch (err) {
+      host.toast(`Couldn’t apply the redactions: ${errorText(err)}`);
+    } finally {
+      if (check) void check.doc.loadingTask.destroy();
+      showBusy(null);
+    }
+  }
+
+  // ---- security, clean-up and size
+
+  async function protect() {
+    const choice = await protectDialog();
+    if (!choice) return;
+    if (await applyTools("Protecting the file", [{ op: "protect", ...choice }], [], choice.open || null)) host.toast("Protected with a password. Save to keep it.");
+  }
+
+  async function unprotect() {
+    const perms = await doc.getPermissions().catch(() => null);
+    const owner = await unprotectDialog(perms !== null);
+    if (owner == null) return;
+    if (await applyTools("Removing security", [{ op: "unprotect", ...(owner ? { owner } : {}) }], [], null)) host.toast("The password and restrictions are gone. Save to keep it.");
+  }
+
+  async function sanitize() {
+    const choice = await sanitizeDialog();
+    if (!choice) return;
+    if (await applyTools("Removing hidden information", [{ op: "sanitize", ...choice }])) host.toast("Hidden information removed. Save to keep it.");
+  }
+
+  let gsKnown: boolean | null = null;
+  async function compress() {
+    if (busy) return;
+    const base = await bake();
+    gsKnown ??= await hasGhostscript();
+    const preset = await compressDialog(base.length, !gsKnown ? "no" : encrypted ? "encrypted" : "yes");
+    if (!preset) return;
+    showBusy("Reducing the file size…");
+    try {
+      const now = await bake();
+      const out = preset.startsWith("gs-")
+        ? await ghostscript(now, preset === "gs-screen" ? "screen" : "ebook")
+        : await pdfEdit(now, password, [{ op: "compress", dpi: preset === "high" ? 150 : preset === "medium" ? 120 : 96, quality: preset === "high" ? 80 : preset === "medium" ? 72 : 60 }]);
+      const size = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+      if (out.length >= now.length * 0.98) return host.toast(`It's already about as small as it gets (${size(now.length)}).`);
+      await keep(now, out, password);
+      host.toast(`${Math.round((1 - out.length / now.length) * 100)}% smaller: ${size(now.length)} → ${size(out.length)}. Save to keep it.`);
+    } catch (err) {
+      host.toast(`Couldn’t reduce the size: ${errorText(err)}`);
+    } finally {
+      showBusy(null);
+    }
+  }
+
+  // Right-click a comment in the page (any kind, from any app) to delete it.
+  viewerEl.addEventListener("contextmenu", (e) => {
+    const section = (e.target as HTMLElement).closest<HTMLElement>(".annotationLayer [data-annotation-id]");
+    const ref = section ? refOf(section.dataset.annotationId ?? "") : null;
+    if (!section || !ref || /Widget|linkAnnotation/.test(section.className)) return;
+    e.preventDefault();
+    openMenu(e.clientX, e.clientY, [{ label: "Delete Comment", icon: "trash", danger: true, action: () => void applyTools("Deleting the comment", [{ op: "removeAnnots", refs: [ref] }]) }]);
+  });
+
   function setOrganizing(on: boolean) {
     if (on === organizing) return;
     organizing = on;
@@ -1036,6 +1380,7 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
     scroller.hidden = on;
     if (on) {
       setMode(T.NONE);
+      markup.setTool(null);
       hideFind();
       organizer.show(doc.numPages, thumbs, [page() - 1]);
       organizer.el.focus({ preventScroll: true });
@@ -1174,7 +1519,7 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
 
   async function drawComments() {
     if (nav !== "comments") return;
-    const rows: { page: number; type: string; text: string; author: string; when: string; top: number }[] = [];
+    const rows: { page: number; type: string; text: string; author: string; when: string; top: number; id?: string }[] = [];
     const replaced = new Set<string>();
     // Comments added or changed since the file was opened (pdf.js's editors), then those in the file.
     const edits = doc.annotationStorage.size ? (doc.annotationStorage.serializable.map as Map<string, Record<string, unknown>> | null) : null;
@@ -1189,7 +1534,7 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
       const annots = (await (await doc.getPage(i)).getAnnotations().catch(() => [])) as { id: string; subtype: string; contentsObj?: { str?: string }; titleObj?: { str?: string }; modificationDate?: string; rect: number[] }[];
       for (const a of annots) {
         if (!COMMENT_TYPES[a.subtype] || replaced.has(a.id)) continue;
-        rows.push({ page: i - 1, type: a.subtype, text: a.contentsObj?.str ?? "", author: a.titleObj?.str ?? "", when: a.modificationDate ? pdfDateShort(a.modificationDate) : "", top: a.rect[3] });
+        rows.push({ page: i - 1, type: a.subtype, text: a.contentsObj?.str ?? "", author: a.titleObj?.str ?? "", when: a.modificationDate ? pdfDateShort(a.modificationDate) : "", top: a.rect[3], id: a.id });
       }
       if (nav !== "comments") return;
     }
@@ -1203,19 +1548,30 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
         list.append(h("div", { class: "pf-comments-page" }, `Page ${r.page + 1}`));
       }
       const t = COMMENT_TYPES[r.type];
-      list.append(h("button", { class: "pf-comment", type: "button", onclick: () => go(r.page + 1) },
-        h("span", { class: "pf-comment-icon" }, icon(t.icon, 14)),
-        h("span", { class: "pf-comment-main" },
-          h("span", { class: "pf-comment-head" }, h("b", null, r.author || t.label), r.when ? h("span", null, r.when) : null),
-          r.text ? h("span", { class: "pf-comment-text" }, r.text) : null)));
+      const ref = r.id ? refOf(r.id) : null;
+      list.append(h("div", { class: "pf-comment-row" },
+        h("button", { class: "pf-comment", type: "button", onclick: () => go(r.page + 1) },
+          h("span", { class: "pf-comment-icon" }, icon(t.icon, 14)),
+          h("span", { class: "pf-comment-main" },
+            h("span", { class: "pf-comment-head" }, h("b", null, r.author || t.label), r.when ? h("span", null, r.when) : null),
+            r.text ? h("span", { class: "pf-comment-text" }, r.text) : null)),
+        ref ? h("button", {
+          class: "icon-btn small pf-comment-delete", type: "button", title: "Delete this comment", "aria-label": "Delete this comment",
+          onclick: () => void applyTools("Deleting the comment", [{ op: "removeAnnots", refs: [ref] }]),
+        }, icon("trash", 13)) : null));
     }
     panelBody.replaceChildren(list);
   }
 
   function pdfDateShort(value: string): string {
-    const m = value.match(/^(?:D:)?(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?/);
+    const m = value.match(/^(?:D:)?(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?(\d{2})?([Z+-])?(\d{2})?'?(\d{2})?/);
     if (!m) return "";
-    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4] ?? 0), Number(m[5] ?? 0)).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    const [y, mo, d, hh, mi, ss] = [m[1], m[2], m[3], m[4] ?? "0", m[5] ?? "0", m[6] ?? "0"].map(Number);
+    // With a time zone (Z, +06'00') the time is shown in the computer's own zone.
+    const date = m[7]
+      ? new Date(Date.UTC(y, mo - 1, d, hh, mi, ss) - (m[7] === "Z" ? 0 : (m[7] === "-" ? -1 : 1) * (Number(m[8] ?? 0) * 60 + Number(m[9] ?? 0)) * 60000))
+      : new Date(y, mo - 1, d, hh, mi, ss);
+    return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
   }
 
   function drawAttachments() {
@@ -1350,12 +1706,14 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
     if (ribbon.handleKey(e)) return true;
     if (e.key === "Escape") {
       if (placing) return cancelPlacing(), true;
+      if (markup.escape()) return true;
       if (!findbar.hidden) return hideFind(), true;
       if (readMode) return setReadMode(false), true;
       if (mode() > 0 && !states.hasSelectedEditor) return setMode(T.NONE), true;
       if (organizing && organizer.selection().length) return organizer.selectWhere("none"), true;
       return false;
     }
+    if (e.key === "Enter" && markup.enter()) return true;
     if (mod && key === "f") return showFind(), true;
     if (mod && key === "p") return print(), true;
     if (mod && key === "d") return void propertiesDialog(doc, { name: title(), path, size: fileSize }), true;
@@ -1443,16 +1801,17 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
     mode,
     setMode,
     color: () => {
+      if (markup.tool) return markup.style.color;
       const value = paramFor("color") == null ? undefined : params.get(paramFor("color")!);
       return typeof value === "string" ? value : "#000000";
     },
-    setColor: (c) => setParam("color", c),
+    setColor: (c) => (markup.tool ? ((markup.style.color = c), schedule()) : setParam("color", c)),
     fontSize: () => readParam("size", 10),
     setFontSize: (n) => setParam("size", n),
-    thickness: () => readParam("thickness", 1),
-    setThickness: (n) => setParam("thickness", n),
-    opacity: () => readParam("opacity", 1),
-    setOpacity: (n) => setParam("opacity", n),
+    thickness: () => (markup.tool ? markup.style.width : readParam("thickness", 1)),
+    setThickness: (n) => (markup.tool ? ((markup.style.width = n), schedule()) : setParam("thickness", n)),
+    opacity: () => (markup.tool ? markup.style.opacity : readParam("opacity", 1)),
+    setOpacity: (n) => (markup.tool ? ((markup.style.opacity = n), schedule()) : setParam("opacity", n)),
     hasSelection: () => mode() > 0 && !!states.hasSelectedEditor,
     deleteSelected: () => ui?.delete(),
     addPicture: () => void addPicture(),
@@ -1464,6 +1823,23 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
     sign,
     mark: (kind) => void placeInk({ image: markImage(kind), name: kind === "check" ? "Check mark" : kind === "cross" ? "Cross" : "Dot" }, "mark"),
     addDate: () => void arm({ kind: "date", text: new Date().toLocaleDateString(), size: 12 }),
+    ownTool: () => markup.tool,
+    setOwnTool,
+    markText: (kind) => void markText(kind),
+    addText: () => setOwnTool(markup.tool === "text" ? null : "text"),
+    addContentPicture: () => (markup.tool === "picture" ? setOwnTool(null) : void chooseContentPicture()),
+    watermark: () => void addWatermark(),
+    headerFooter: (bates) => void addHeaderFooter(bates),
+    flatten: (comments, forms) => void flatten(comments, forms),
+    redactFind: () => void findToRedact(),
+    redactApply: () => void applyRedactions(),
+    redactClear: () => markup.clearMarks(),
+    redactMarks: () => markup.markCount(),
+    protect: () => void protect(),
+    unprotect: () => void unprotect(),
+    encrypted: () => encrypted,
+    sanitize: () => void sanitize(),
+    compress: () => void compress(),
     orgSelection: () => (organizing ? organizer.selection() : [page() - 1]),
     rotatePages: (delta) => rotatePages(organizing ? organizer.selection() : [page() - 1], delta),
     deletePages: () => deletePages(organizing ? organizer.selection() : [page() - 1]),

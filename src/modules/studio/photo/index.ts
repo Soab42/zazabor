@@ -33,6 +33,11 @@ export const createPhotoApp: StudioFactory = async (host, start) => {
     opening = { kind: "new", canvas };
   } else if (extensionOf(path) === "coreimage") {
     opening = { kind: "project", path, project: loadProject(await photoApi.openProject(path), gpu.maxTexture) };
+  } else if (extensionOf(path) === "psd") {
+    const { readPsdFile } = await import("./psd");
+    const { project, skipped } = await readPsdFile(await photoApi.readFile(path), gpu.maxTexture);
+    if (skipped.length) host.toast(`Left out ${skipped.length} adjustment layer${skipped.length > 1 ? "s" : ""} Photo doesn't have: ${skipped.slice(0, 3).join(", ")}${skipped.length > 3 ? "…" : ""}.`);
+    opening = { kind: "project", path, project };
   } else {
     if (!canEdit(path)) throw new Error(`Photo can't open .${extensionOf(path)} pictures yet.`);
     opening = { kind: "picture", path, decoded: await photoApi.decode(path, gpu.maxTexture), quick: takeForPhoto(path) };

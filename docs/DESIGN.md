@@ -28,6 +28,14 @@ tight spacing, nothing loud. Every screen in every module follows these rules.
   `--muted` and `--faint` are tuned to stay legible on glass in both themes; use `--faint` only
   for labels and decoration.
 - `.card` is a soft tint plus hairline (no blur) for sections inside a panel.
+- **Liquid Glass** (the video player's floating controls, `.vp.liquid` in `video.css`): capsules
+  over the picture, as in macOS 26. The refraction can't be CSS (WebKit has no SVG filters in
+  `backdrop-filter`): the player's WebGL surface draws it (`SurfaceGlass` in
+  `src/modules/video/surface.ts`) under each tracked element's rounded box, reading `--lg-rim`
+  (lens width, px) and `--lg-blur` (mip level) from its style. CSS adds the rest: a faint light
+  gradient, the rim as a masked `::before` brightest at the top left and bottom right, inner
+  light along the bottom, a radial glow at `--lx`/`--ly` under the pointer, springy presses
+  (scale up, not down). Over video the glass is always the dark kind with white symbols.
 
 ## Tokens
 

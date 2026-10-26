@@ -2,7 +2,8 @@
 
 *Researched 2026-10-26. Licences, versions and release dates were read from each project's
 repository, crates.io and the npm registry on that day. Target: Tauri 2 + plain TypeScript on
-Linux (WebKitGTK 2.50.4 and Pop!_OS 22.04 on this machine). Status: **P0–P2 built (see What's built).**
+Linux (WebKitGTK 2.50.4 and Pop!_OS 22.04 on this machine). Status: **P0–P2 built, P3–P4 built
+without PDFium (see What's built).**
 Section 11 lists the decisions only the user can make.*
 
 ## What's built (2026-10-26)
@@ -39,10 +40,81 @@ Checked by hand in the app on a nested display, and the saved files with Poppler
   incremental update afterwards (also naming CorePro as the producer).
 
 **Not done yet, by milestone:** P0's range loading (files are read whole; Office's reader stops at
-256 MB); underline, strikethrough, sticky notes and shapes (P3, PDFium); replies to comments;
-Replace Pages; a print preview; picture pages are Letter or A4 by the system's region rather
-than the picture's own size (pdf.js decides). Release builds (the app's Content Security Policy)
-weren't tested, only `tauri dev`-style builds.
+256 MB); replies to comments; Replace Pages; a print preview; picture pages are Letter or A4 by
+the system's region rather than the picture's own size (pdf.js decides).
+
+### Round 2 (2026-10-27): P3 and P4 on lopdf, without PDFium
+
+A permission check refused shipping a prebuilt PDFium library, so this round uses pdf.js and
+the `lopdf` crate (0.46.0, MIT, built from source, `default-features = false`) only. The Rust
+side is `src-tauri/src/office/pdf_tools/` (one command, `pdf_edit`: the page sends the file as it
+is now, with pdf.js's own comments and form values written in, plus a list of operations; Rust
+answers with the whole new file, which the page opens in place of the old one, keeping the page
+and scroll position; each change is one Undo step). Every change is a full rewrite with
+unreferenced objects dropped, so nothing removed survives in an earlier revision. An encrypted
+file is decrypted with its password, changed and encrypted again with the same passwords; its
+owner's restrictions are respected (comments need "comments allowed", page changes need "changes
+allowed") unless the owner's password opened it.
+
+- **Comment (P3 annotations):** underline, strikethrough and squiggly on selected text (select,
+  then the button; or the button, then select), notes with a popup, rectangle, oval, line,
+  arrow and polygon (Shift keeps them even; double-click or Enter ends a polygon), with colour,
+  thickness and opacity. They're standard annotations with appearance streams, so other
+  viewers draw them the same (checked with Poppler's `pdftoppm`). Any comment, from any app, can
+  be deleted from its right-click menu on the page or the trash button in the Comments list.
+- **Edit tab (P3 page content):** Add Text written into the page with the standard fonts
+  (Helvetica, Times, Courier, bold; widths from the metric-compatible Liberation fonts);
+  text they can't show (Bangla…) goes on as a picture of the text. Add Picture (JPEG as it is,
+  others as RGB with an alpha mask). Watermark (text or picture, opacity, rotation, over or under
+  the page, which pages; marked as an artifact). Header & Footer and Bates Numbering ({page},
+  {pages}, {date}, {file}, {bates}; left, centre and right). Flatten comments and/or form fields
+  (each annotation's appearance drawn into the page, the form removed when no fields are left).
+  Everything is placed as the page shows, its /Rotate applied.
+- **Protect tab (P4):** Protect with AES-256 (PDF 2.0 revision 6): a password to open, and/or
+  restrictions with a permissions password; Remove Security, which asks for the permissions
+  password when the file restricts anything. lopdf leaves the key lengths out of the encryption
+  dictionary, and Poppler then decrypts garbage, so `/Length 256` and the crypt filter's
+  `/Length 32` are added as Acrobat writes them. Remove Hidden Information: metadata and the
+  document properties, attachments, scripts and actions (JavaScript, launch, submit; /AA, XFA),
+  comments.
+- **Redaction, the honest version (§11 decision 7's rasterising option):** Mark Area (drag; click
+  a mark to remove it) and Find & Mark (typed text, phone numbers, email addresses, national ID
+  numbers). Marks cover the whole words a match touches, measured with the PDF's own fonts
+  (pdf.js's loaded font faces) with a margin: an earlier version measured with a generic font
+  and left letters uncovered. Apply draws each marked page with pdf.js at 150–300 dpi
+  (comments and form values included), paints the marks black, and replaces the page's content
+  with that picture: its text, drawings, annotations and form fields go, and the structure tree
+  (which can carry alternate text) is dropped. Optionally the hidden information goes too. The
+  check afterwards: the redacted pages hold no text at all, and pages where the found text still
+  appears (without marks) are named. True object-level redaction (keeping the rest of the page
+  as text) needs PDFium.
+- **Reduce File Size (P4):** pictures downsampled to the resolution they're shown at (found by
+  following each page's content and the forms it draws), photos re-encoded as JPEG and line art
+  as Flate, unused objects dropped, streams compressed, object streams; nothing changes when it
+  can't get smaller. Ghostscript's pdfwrite is offered as "Maximum" when it's installed (a
+  separate program, never linked).
+- **Fixes:** pdf.js's OffscreenCanvas path drew big pictures blank in WebKitGTK 2.50 (scanned
+  pages came out white at random), so documents open with `isOffscreenCanvasSupported: false`;
+  form check boxes are tinted like text fields.
+
+Checked: 11 Rust tests (annotations and their appearances, removing with popups, watermark text
+and picture round trips, headers/footers/Bates, text and pictures, flatten, passwords open and
+refuse and keep restrictions, redaction leaves no trace of the text in any decoded stream or
+string, hidden information goes, compression downsamples, rotated pages). In the app on a nested
+display, with each saved file checked in Poppler (`pdftoppm`, `pdftotext`, `pdfinfo`,
+`pdfimages`) and Ghostscript: underline, strikethrough, a note, rectangle, arrow and polygon;
+a watermark on all pages; Bates numbers ACME-000001 on with a footer; Latin and Bangla text; a
+picture; Reduce Size (2.7 MB → 356 KB, the photo at exactly 150 ppi; Ghostscript: a 300 dpi
+scan 2.6 MB → 276 KB); Find & Mark and Apply Redactions (none of the marked text, nor the
+title and author, anywhere in the file's bytes or inflated streams); flattened form fields;
+Protect (AES-256, Poppler opens it with the password and reports the restrictions) and Remove
+Security (a wrong permissions password refused); Remove Hidden Information and Undo.
+
+**Waiting for the user:** PDFium (editing existing text runs, true object-level redaction that
+keeps the rest of a page as text, reading a page's exact glyph positions); OCR (P5, model
+downloads); certificate signatures (P5, a certificate); conversions to Docs and Sheets (P6);
+Quick Look and the Files thumbnails open PDFs through their own pdf.js calls and probably need
+the same OffscreenCanvas switch for big scans (not changed here).
 
 ## 1. Summary
 

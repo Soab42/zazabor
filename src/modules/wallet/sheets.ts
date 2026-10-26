@@ -5,6 +5,9 @@ import { DateTimeField } from "../time/pickers";
 import { errorText, walletApi, type Account, type AccountKind, type Category, type Tx } from "./api";
 import { ACCOUNT_KIND_ICON, ACCOUNT_KIND_LABEL, CATEGORY_ICONS, COLORS, accountOf, categoryName, fmt, type Ctx, type NewTx } from "./ctx";
 import { dateKey, parseDate, plain, symbolOf, todayKey } from "./format";
+import { dropTarget } from "./drops";
+import { receiptStrip } from "./receipts";
+import { billSheet } from "./views/bills";
 
 /** A category's icon, or "more" for one the icon set doesn't have. */
 export function categoryGlyph(name: string | undefined): IconName {
@@ -94,6 +97,8 @@ export function txSheet(ctx: Ctx, tx: Tx | null, preset: Partial<NewTx> = {}) {
   const note = textArea({ placeholder: "Anything to remember", "aria-label": "Note", rows: 2 });
   note.value = tx?.note ?? preset.note ?? "";
 
+  const receipts = receiptStrip(ctx, tx && tx.kind !== "transfer" ? tx.id : null);
+  const receiptsField = field("Receipts", receipts.el, { optional: true });
   const fromField = field("From", account);
   const toField = field("To", toAccount);
   const receivedField = field("Arrives as", received.el);
@@ -103,6 +108,10 @@ export function txSheet(ctx: Ctx, tx: Tx | null, preset: Partial<NewTx> = {}) {
 
   const save = h("button", { class: "btn primary", type: "button", onclick: () => void submit() }, editing ? "Save" : "Add");
   const remove = editing ? h("button", { class: "btn tt-danger", type: "button", onclick: () => void del() }, icon("trash", 14), "Delete") : null;
+  const repeat = tx && tx.kind !== "transfer" && !tx.recurringId
+    ? h("button", { class: "btn ghost", type: "button", title: "Make a bill that repeats this", onclick: () => (dialog.close(), billSheet(ctx, null, tx)) }, icon("repeat", 14), "Repeat…")
+    : null;
+  let stopDrops = () => {};
   const dialog = openDialog({
     title: editing ? "Edit transaction" : "New transaction",
     subtitle: editing ? "Change any detail; balances follow." : "Spending, income, or money moved between your accounts.",
@@ -114,10 +123,14 @@ export function txSheet(ctx: Ctx, tx: Tx | null, preset: Partial<NewTx> = {}) {
       h("div", { class: "tt-pair" }, field("Amount", amount.el), field("Date", date.el)),
       fromField, toField, receivedField, feeField, categoryField, payeeField,
       field("Note", note, { optional: true }),
+      receiptsField,
     ],
-    foot: footer(() => dialog, save, [remove]),
+    foot: footer(() => dialog, save, [remove, repeat]),
     submit: () => void submit(),
+    onClose: () => stopDrops(),
   });
+  // Pictures and PDFs dropped on the sheet are its receipts.
+  stopDrops = dropTarget(dialog.card, (paths) => mode !== "transfer" && void receipts.add(paths));
 
   account.addEventListener("change", () => update());
   toAccount.addEventListener("change", () => update());
@@ -145,6 +158,7 @@ export function txSheet(ctx: Ctx, tx: Tx | null, preset: Partial<NewTx> = {}) {
     feeField.hidden = !transfer;
     categoryField.hidden = transfer;
     payeeField.hidden = transfer;
+    receiptsField.hidden = transfer;
     const from = accountOf(ctx, account.value);
     const to = accountOf(ctx, toAccount.value);
     amount.setCurrency(from?.currency ?? ctx.state().base);
@@ -189,6 +203,7 @@ export function txSheet(ctx: Ctx, tx: Tx | null, preset: Partial<NewTx> = {}) {
         date: dayOf(), categoryId: categoryValue, payee: payee.value, note: note.value,
       }));
       if (!saved) return;
+      if (!editing) await receipts.flush(saved.id);
       ctx.toast(`${editing ? "Saved" : "Added"} ${fmt(ctx, saved.amountMinor, saved.currency, { signed: true })} · ${categoryName(ctx, saved.categoryId)}`);
     }
     ctx.changed();
@@ -378,13 +393,16 @@ function categorySheet(ctx: Ctx, existing: Category | null, kind: "expense" | "i
   const color = swatches(existing?.color ?? ctx.state().categories.find((c) => c.id === parentId)?.color ?? "gray", () => undefined);
   const save = h("button", { class: "btn primary", type: "button", onclick: () => void submit() }, existing ? "Save" : "Add");
   const remove = existing ? h("button", { class: "btn tt-danger", type: "button", onclick: () => void del() }, icon("trash", 14), "Delete") : null;
+  const archive = existing
+    ? h("button", { class: "btn", type: "button", title: existing.archived ? "Use it again" : "Keep its history but leave it out of the pickers", onclick: () => void toggleArchive() }, icon("archive", 14), existing.archived ? "Unarchive" : "Archive")
+    : null;
   const dialog = openDialog({
     title: existing ? `Edit ${existing.name}` : parentId ? "New sub-category" : kind === "income" ? "New income category" : "New spending category",
     icon: "tag",
     tone: "others",
     class: "wl-dialog",
     body: [field("Name", name), field("Inside", parent), field("Icon", icons), field("Colour", color.el)],
-    foot: footer(() => dialog, save, [remove]),
+    foot: footer(() => dialog, save, [remove, archive]),
     submit: () => void submit(),
   });
 
@@ -393,6 +411,17 @@ function categorySheet(ctx: Ctx, existing: Category | null, kind: "expense" | "i
     if (!saved) return;
     ctx.changed();
     await waitForState(() => ctx.state().categories.some((c) => c.id === saved.id && c.name === saved.name));
+    done();
+    dialog.close();
+  }
+
+  async function toggleArchive() {
+    if (!existing) return;
+    const done2 = await attempt(dialog, () => walletApi.archiveCategory(existing.id, !existing.archived).then(() => true));
+    if (!done2) return;
+    ctx.toast(existing.archived ? `${existing.name} is back in the pickers` : `Archived ${existing.name}${hasChildren ? " and its sub-categories" : ""}: its history stays`);
+    ctx.changed();
+    await waitForState(() => ctx.state().categories.some((c) => c.id === existing.id && c.archived !== existing.archived));
     done();
     dialog.close();
   }

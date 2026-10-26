@@ -28,6 +28,8 @@ export interface Media {
   missing?: boolean;
   /** Why it can't be used fully ("No decoder for the sound"). */
   note?: string;
+  /** The file's size when it was added (finding it again after it moved). */
+  bytes?: number;
 }
 
 export interface Placement {
@@ -41,12 +43,92 @@ export interface Placement {
   opacity: number;
 }
 
+/** CapCut-style effects on a clip; `Fx.amount` sets how strong. */
+export type EffectId = "none" | "shake" | "pulse" | "glitch" | "rgb" | "vhs" | "mirror" | "flash" | "blurin";
+
+export interface ChromaKey {
+  /** The colour taken out (#rrggbb). */
+  color: string;
+  /** 0…1: how far from the colour still goes. */
+  tolerance: number;
+  /** 0…1: the soft edge. */
+  softness: number;
+  /** 0…1: takes the colour's cast off what's left. */
+  spill: number;
+}
+
+export interface Lut {
+  /** A .cube file. */
+  path: string;
+  name: string;
+  /** 0…1. */
+  strength: number;
+}
+
 export interface Fx {
   look: LookId | "none";
   /** −1…1, 0 = unchanged. */
   brightness: number;
   contrast: number;
   saturation: number;
+  /** 0…1 each. */
+  blur: number;
+  sharpen: number;
+  vignette: number;
+  grain: number;
+  effect: EffectId;
+  amount: number;
+  lut: Lut | null;
+  key: ChromaKey | null;
+}
+
+/** A shape that shows part of a clip, in the clip's own picture (0…1 across and down). */
+export interface Mask {
+  shape: "circle" | "rect";
+  x: number;
+  y: number;
+  /** Width and height, as fractions of the picture's shorter side (equal: a circle or a square). */
+  w: number;
+  h: number;
+  /** Soft edge, as a fraction of the picture's shorter side. */
+  feather: number;
+  invert: boolean;
+}
+
+/** Picture in picture: rounded corners, a border and a shadow around an overlay. */
+export interface Frame {
+  /** Corner radius as a fraction of the shorter side (0…0.5). */
+  radius: number;
+  /** Border width in thousandths of the canvas height. */
+  border: number;
+  color: string;
+  /** 0…1. */
+  shadow: number;
+}
+
+/** What can be animated with keyframes. */
+export type KeyProp = "x" | "y" | "scale" | "rotation" | "opacity" | "volume";
+export const KEY_PROPS: readonly KeyProp[] = ["x", "y", "scale", "rotation", "opacity", "volume"];
+
+/** How a keyframe moves on to the next one. */
+export type Ease = "linear" | "smooth" | "in" | "out" | "hold";
+
+export interface Keyframe {
+  /** Seconds from the clip's start. */
+  t: number;
+  v: number;
+  ease: Ease;
+}
+
+export type Keys = Partial<Record<KeyProp, Keyframe[]>>;
+
+/** CapCut's curve speeds: the clip's speed changes over its length. */
+export type CurvePreset = "montage" | "hero" | "bullet" | "jumpcut" | "flashin" | "flashout";
+
+export interface SpeedCurve {
+  preset: CurvePreset;
+  /** Speed factors at evenly spaced points over the clip (on top of `speed`). */
+  points: number[];
 }
 
 export interface Transition {
@@ -76,6 +158,20 @@ export interface MediaClip {
   motion: boolean;
   /** Into this clip from the one before (main track). */
   transition?: Transition;
+  keys?: Keys;
+  mask?: Mask | null;
+  frame?: Frame | null;
+  /** Plays backwards. */
+  reverse?: boolean;
+  /** A freeze frame: this moment of the file (seconds) stays on screen, without sound. */
+  freeze?: number;
+  curve?: SpeedCurve | null;
+  /** Music: how far it goes down under voice-overs (0 = not at all, 1 = silent). */
+  duck?: number;
+  /** A voice-over recorded in the editor. */
+  role?: "voice";
+  /** Beats in the file (seconds), marked from its sound. */
+  beats?: number[];
 }
 
 export type TextAnim = "none" | "fade" | "pop" | "slide" | "typewriter" | "bounce";
@@ -106,6 +202,7 @@ export interface TextClip {
   place: Placement;
   animIn: TextAnim;
   animOut: TextAnim;
+  keys?: Keys;
 }
 
 export type Clip = MediaClip | TextClip;
@@ -161,7 +258,11 @@ export function newProject(aspect: Aspect): Project {
 }
 
 export const defaultPlace = (): Placement => ({ x: 0.5, y: 0.5, scale: 1, rotation: 0, opacity: 1 });
-export const defaultFx = (): Fx => ({ look: "none", brightness: 0, contrast: 0, saturation: 0 });
+export const defaultFx = (): Fx => ({
+  look: "none", brightness: 0, contrast: 0, saturation: 0, blur: 0, sharpen: 0, vignette: 0, grain: 0, effect: "none", amount: 0.6, lut: null, key: null,
+});
+export const defaultMask = (): Mask => ({ shape: "circle", x: 0.5, y: 0.5, w: 0.6, h: 0.6, feather: 0.04, invert: false });
+export const defaultFrame = (): Frame => ({ radius: 0.08, border: 6, color: "#ffffff", shadow: 0.5 });
 
 export function mediaClip(media: Media, start: number): MediaClip {
   return {
@@ -201,13 +302,181 @@ export function findClip(p: Project, id: string): { track: Track; clip: Clip; in
   return null;
 }
 
+// ---- speed curves
+
+export const CURVE_PRESETS: Record<CurvePreset, { label: string; points: number[] }> = {
+  montage: { label: "Montage", points: [1, 1.8, 0.4, 1.8, 0.4, 1.8, 1] },
+  hero: { label: "Hero", points: [1.5, 1.5, 0.22, 0.22, 1.5, 1.5] },
+  bullet: { label: "Bullet", points: [2.5, 2.5, 0.12, 2.5, 2.5] },
+  jumpcut: { label: "Jump cut", points: [0.6, 3, 0.6, 3, 0.6] },
+  flashin: { label: "Flash in", points: [5, 2, 1, 1, 1] },
+  flashout: { label: "Flash out", points: [1, 1, 1, 2, 5] },
+};
+
+/** The curve's factor at `u` (0…1 along the clip), straight lines between its points. */
+export function curveAt(points: number[], u: number): number {
+  if (points.length < 2) return points[0] ?? 1;
+  const x = Math.max(0, Math.min(1, u)) * (points.length - 1);
+  const i = Math.min(points.length - 2, Math.floor(x));
+  return points[i] + (points[i + 1] - points[i]) * (x - i);
+}
+
+/** ∫₀ᵘ of the curve: how far through its file a curved clip has got at `u` (in clip lengths). */
+export function curveIntegral(points: number[], u: number): number {
+  if (points.length < 2) return (points[0] ?? 1) * u;
+  const n = points.length - 1;
+  const x = Math.max(0, Math.min(1, u)) * n;
+  let sum = 0;
+  for (let i = 0; i < n && i < x; i++) {
+    const w = Math.min(1, x - i);
+    const a = points[i], b = a + (points[i + 1] - a) * w;
+    sum += ((a + b) / 2) * w;
+  }
+  return sum / n;
+}
+
+/** The average factor of a clip's speed curve (1 without one). */
+export const curveMean = (c: MediaClip) => (c.curve ? curveIntegral(c.curve.points, 1) : 1);
+
+/** Seconds of its file a clip plays. */
+export const sourceSpan = (c: MediaClip) => (c.freeze !== undefined ? 0 : c.duration * c.speed * curveMean(c));
+
+/** Seconds of the file played `local` seconds into the clip (counted from its in-point, forwards). */
+function sourceOffset(c: MediaClip, local: number): number {
+  if (c.curve) return c.speed * c.duration * curveIntegral(c.curve.points, local / Math.max(1e-6, c.duration));
+  return local * c.speed;
+}
+
+/** The speed the file plays at `local` seconds into the clip. */
+export const speedAt = (c: MediaClip, local: number) => c.speed * (c.curve ? curveAt(c.curve.points, local / Math.max(1e-6, c.duration)) : 1);
+
 /** Seconds into the clip's file at timeline time `t`. */
-export const sourceTime = (c: MediaClip, t: number) => c.in + (t - c.start) * c.speed;
+export function sourceTime(c: MediaClip, t: number): number {
+  if (c.freeze !== undefined) return c.freeze;
+  const o = sourceOffset(c, t - c.start);
+  return c.reverse ? c.in + sourceSpan(c) - o : c.in + o;
+}
 
 /** How long the clip may last from its in-point: the rest of its file at its speed. */
 export function maxDuration(c: MediaClip, m: Media | undefined): number {
-  if (!m || m.kind === "image") return Infinity;
-  return Math.max(MIN_CLIP, (m.duration - c.in) / c.speed);
+  if (!m || m.kind === "image" || c.freeze !== undefined) return Infinity;
+  return Math.max(MIN_CLIP, (m.duration - c.in) / (c.speed * curveMean(c)));
+}
+
+// ---- keyframes
+
+/** Two keyframes closer than this are at the same moment (half a frame at 30 fps). */
+export const KEY_EPS = 1 / 60;
+
+export function eased(e: Ease, u: number): number {
+  const x = Math.max(0, Math.min(1, u));
+  switch (e) {
+    case "hold": return 0;
+    case "in": return x * x * x;
+    case "out": return 1 - (1 - x) ** 3;
+    case "smooth": return x * x * (3 - 2 * x);
+    default: return x;
+  }
+}
+
+/** A keyed value at `local` seconds into a clip; `fallback` when there are no keyframes. */
+export function keyValue(keys: Keyframe[] | undefined, local: number, fallback: number): number {
+  if (!keys?.length) return fallback;
+  if (local <= keys[0].t) return keys[0].v;
+  const last = keys[keys.length - 1];
+  if (local >= last.t) return last.v;
+  let i = 0;
+  while (i < keys.length - 2 && keys[i + 1].t <= local) i++;
+  const a = keys[i], b = keys[i + 1];
+  return a.v + (b.v - a.v) * eased(a.ease, (local - a.t) / Math.max(1e-9, b.t - a.t));
+}
+
+/** The value a property has without keyframes. */
+export function baseValue(c: Clip, prop: KeyProp): number {
+  if (prop === "volume") return c.type === "media" ? c.volume : 1;
+  return c.place[prop];
+}
+
+export function propAt(c: Clip, prop: KeyProp, local: number): number {
+  return keyValue(c.keys?.[prop], local, baseValue(c, prop));
+}
+
+/** Where a clip is `local` seconds into it, keyframes applied. */
+export function placeAt(c: Clip, local: number): Placement {
+  if (!c.keys) return c.place;
+  return {
+    x: propAt(c, "x", local), y: propAt(c, "y", local), scale: propAt(c, "scale", local),
+    rotation: propAt(c, "rotation", local), opacity: propAt(c, "opacity", local),
+  };
+}
+
+export const hasKeys = (c: Clip, prop: KeyProp) => !!c.keys?.[prop]?.length;
+
+export function keyAt(c: Clip, prop: KeyProp, local: number): Keyframe | undefined {
+  return c.keys?.[prop]?.find((k) => Math.abs(k.t - local) <= KEY_EPS);
+}
+
+/** Adds a keyframe (or changes the one at that moment). */
+export function setKey(c: Clip, prop: KeyProp, local: number, v: number, ease?: Ease) {
+  const t = Math.max(0, Math.min(c.duration, local));
+  c.keys ??= {};
+  const list = (c.keys[prop] ??= []);
+  const have = list.find((k) => Math.abs(k.t - t) <= KEY_EPS);
+  if (have) {
+    have.v = v;
+    if (ease) have.ease = ease;
+  } else {
+    list.push({ t, v, ease: ease ?? "smooth" });
+    list.sort((a, b) => a.t - b.t);
+  }
+}
+
+export function removeKey(c: Clip, prop: KeyProp, local: number) {
+  const list = c.keys?.[prop];
+  if (!list) return;
+  const i = list.findIndex((k) => Math.abs(k.t - local) <= KEY_EPS);
+  if (i >= 0) list.splice(i, 1);
+  if (!list.length) delete c.keys![prop];
+  if (c.keys && !Object.keys(c.keys).length) delete c.keys;
+}
+
+/**
+ * Sets a property the way the inspector and the canvas do: with keyframes on it, the keyframe at
+ * `local` (made if needed); without, the plain value.
+ */
+export function setProp(c: Clip, prop: KeyProp, local: number, v: number) {
+  if (hasKeys(c, prop)) return setKey(c, prop, local, v);
+  if (prop === "volume") {
+    if (c.type === "media") c.volume = v;
+  } else c.place[prop] = v;
+}
+
+/** Every moment with a keyframe, in order. */
+export function keyTimes(c: Clip): number[] {
+  const out: number[] = [];
+  for (const list of Object.values(c.keys ?? {})) {
+    for (const k of list ?? []) if (!out.some((t) => Math.abs(t - k.t) <= KEY_EPS)) out.push(k.t);
+  }
+  return out.sort((a, b) => a - b);
+}
+
+/** Moves every keyframe by `dt` (the clip's start moved, its picture didn't). */
+export function shiftKeys(c: Clip, dt: number) {
+  for (const list of Object.values(c.keys ?? {})) for (const k of list ?? []) k.t += dt;
+}
+
+/** Keeps the keyframes inside a clip `duration` long (the last one outside stays at the edge). */
+function clipKeys(c: Clip, from: number, to: number) {
+  if (!c.keys) return;
+  for (const prop of Object.keys(c.keys) as KeyProp[]) {
+    const list = c.keys[prop]!;
+    const inside = list.filter((k) => k.t >= from - KEY_EPS && k.t <= to + KEY_EPS);
+    // The values at the cut, so the motion carries on from where it was.
+    const at = (t: number) => ({ t, v: keyValue(list, t, 0), ease: "linear" as Ease });
+    if (list.some((k) => k.t < from - KEY_EPS) && !inside.some((k) => Math.abs(k.t - from) <= KEY_EPS)) inside.unshift(at(from));
+    if (list.some((k) => k.t > to + KEY_EPS) && !inside.some((k) => Math.abs(k.t - to) <= KEY_EPS)) inside.push(at(to));
+    c.keys[prop] = inside;
+  }
 }
 
 /** Main track: clips one after another from 0. */
@@ -256,6 +525,9 @@ function insertTrack(p: Project, kind: Exclude<TrackKind, "main">): Track {
   return track;
 }
 
+/** A new empty track of `kind`, where tracks of its kind go. */
+export const newTrack = (p: Project, kind: Exclude<TrackKind, "main">): Track => insertTrack(p, kind);
+
 /** Puts a clip on the first track of `kind` with room at its time, or on a new one. */
 export function placeFree(p: Project, clip: Clip, kind: Exclude<TrackKind, "main">, prefer?: string): Track {
   const candidates = p.tracks.filter((t) => t.kind === kind);
@@ -292,12 +564,33 @@ export function split(p: Project, id: string, t: number): Clip | null {
   right.id = uid();
   right.start = t;
   right.duration = clip.duration - left;
+  if (right.type === "media" && clip.type === "media" && clip.freeze === undefined) {
+    // A curve is flattened into two plain speeds that play the same parts of the file.
+    const total = sourceSpan(clip);
+    const done = sourceOffset(clip, left);
+    if (clip.curve) {
+      clip.speed = done / left;
+      right.speed = (total - done) / right.duration;
+      clip.curve = null;
+      right.curve = null;
+    }
+    if (clip.reverse) {
+      right.in = clip.in;
+      clip.in = clip.in + total - done;
+    } else {
+      right.in = clip.in + done;
+    }
+  }
   clip.duration = left;
   if (right.type === "media" && clip.type === "media") {
-    right.in = clip.in + left * clip.speed;
     delete right.transition;
     right.fadeIn = 0;
     clip.fadeOut = 0;
+  }
+  if (clip.keys) {
+    clipKeys(clip, 0, left);
+    clipKeys(right, left, left + right.duration);
+    shiftKeys(right, -left);
   }
   track.clips.splice(index + 1, 0, right);
   if (track.kind === "main") layoutMain(p);
@@ -330,16 +623,18 @@ export function trimStart(p: Project, id: string, t: number): number {
   const end = clipEnd(clip);
   let delta = t - clip.start;
   delta = Math.min(delta, clip.duration - MIN_CLIP);
-  if (clip.type === "media") {
+  if (clip.type === "media" && clip.freeze === undefined) {
     const m = mediaOf(p, clip.media);
-    if (m && m.kind !== "image") delta = Math.max(delta, -clip.in / clip.speed);
+    const rate = clip.speed * curveMean(clip);
+    if (m && m.kind !== "image") delta = Math.max(delta, clip.reverse ? -(m.duration - clip.in - sourceSpan(clip)) / rate : -clip.in / rate);
   }
   if (track.kind !== "main") {
     // Not into the clip before it.
     const before = track.clips[index - 1];
     delta = Math.max(delta, (before ? clipEnd(before) : 0) - clip.start);
   }
-  if (clip.type === "media") clip.in = Math.max(0, clip.in + delta * clip.speed);
+  if (clip.type === "media" && clip.freeze === undefined && !clip.reverse) clip.in = Math.max(0, clip.in + delta * clip.speed * curveMean(clip));
+  shiftKeys(clip, -delta);
   if (track.kind === "main") {
     clip.duration -= delta;
     layoutMain(p);
@@ -356,12 +651,21 @@ export function trimEnd(p: Project, id: string, t: number): number {
   if (!found) return t;
   const { track, clip, index } = found;
   let duration = Math.max(MIN_CLIP, t - clip.start);
-  if (clip.type === "media") duration = Math.min(duration, maxDuration(clip, mediaOf(p, clip.media)));
+  if (clip.type === "media" && !clip.reverse) duration = Math.min(duration, maxDuration(clip, mediaOf(p, clip.media)));
   if (track.kind !== "main") {
     const after = track.clips[index + 1];
     if (after) duration = Math.min(duration, after.start - clip.start);
   }
-  clip.duration = Math.max(MIN_CLIP, duration);
+  duration = Math.max(MIN_CLIP, duration);
+  if (clip.type === "media" && clip.reverse && clip.freeze === undefined) {
+    // Backwards, the clip's end is the file's in-point: keep the start where it was instead.
+    const before = sourceSpan(clip);
+    const m = mediaOf(p, clip.media);
+    const room = m && m.kind !== "image" ? (before + clip.in) / (clip.speed * curveMean(clip)) : Infinity;
+    duration = Math.min(duration, room);
+    clip.duration = duration;
+    clip.in = Math.max(0, clip.in + before - sourceSpan(clip));
+  } else clip.duration = duration;
   if (track.kind === "main") layoutMain(p);
   return clipEnd(clip);
 }
@@ -409,9 +713,25 @@ export function snap(p: Project, t: number, range: number, except: string[] = []
       if (except.includes(c.id)) continue;
       consider(c.start);
       consider(clipEnd(c));
+      for (const b of beatTimes(c)) consider(b);
     }
   }
   return best;
+}
+
+/** A clip's beat marks on the timeline. */
+export function beatTimes(c: Clip): number[] {
+  if (c.type !== "media" || !c.beats?.length || c.freeze !== undefined) return [];
+  const span = sourceSpan(c);
+  const out: number[] = [];
+  for (const b of c.beats) {
+    if (b < c.in - 1e-6 || b > c.in + span + 1e-6) continue;
+    // Plain speed only: curved clips don't show beats.
+    if (c.curve) continue;
+    const local = c.reverse ? (c.in + span - b) / c.speed : (b - c.in) / c.speed;
+    out.push(c.start + local);
+  }
+  return out;
 }
 
 /** The clip of a track showing at `t`. */
@@ -479,7 +799,7 @@ export function audibleClips(p: Project): MediaClip[] {
   for (const track of p.tracks) {
     if (track.muted || track.kind === "text") continue;
     for (const c of track.clips) {
-      if (c.type !== "media" || c.volume <= 0) continue;
+      if (c.type !== "media" || c.freeze !== undefined || (c.volume <= 0 && !c.keys?.volume)) continue;
       const m = mediaOf(p, c.media);
       if (m?.audio && !m.missing) out.push(c);
     }
@@ -492,6 +812,18 @@ export function unusedMedia(p: Project): Media[] {
   const used = new Set<string>();
   for (const t of p.tracks) for (const c of t.clips) if (c.type === "media") used.add(c.media);
   return p.media.filter((m) => !used.has(m.id));
+}
+
+function normalizeKeys(raw: unknown): Keys | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const out: Keys = {};
+  for (const prop of KEY_PROPS) {
+    const list = (raw as Keys)[prop];
+    if (!Array.isArray(list)) continue;
+    const ok = list.filter((k) => k && Number.isFinite(k.t) && Number.isFinite(k.v)).map((k) => ({ t: k.t, v: k.v, ease: (["linear", "smooth", "in", "out", "hold"] as Ease[]).includes(k.ease) ? k.ease : "smooth" as Ease }));
+    if (ok.length) out[prop] = ok.sort((a, b) => a.t - b.t);
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 /** Makes a parsed project file safe to use: missing fields get defaults. */
@@ -511,7 +843,14 @@ export function normalizeProject(raw: unknown, fallbackAspect: Aspect = "9:16"):
     t.clips = t.clips.filter((c) => c && (c.type === "text" || (c.type === "media" && p.media.some((m) => m.id === c.media))));
     for (const c of t.clips) {
       c.place = { ...defaultPlace(), ...(c.place ?? {}) };
-      if (c.type === "media") c.fx = { ...defaultFx(), ...(c.fx ?? {}) };
+      c.keys = normalizeKeys(c.keys);
+      if (!c.keys) delete c.keys;
+      if (c.type === "media") {
+        c.fx = { ...defaultFx(), ...(c.fx ?? {}) };
+        if (c.curve && (!Array.isArray(c.curve.points) || c.curve.points.length < 2 || !c.curve.points.every((v) => Number.isFinite(v) && v > 0))) c.curve = null;
+        if (c.freeze !== undefined && !Number.isFinite(c.freeze)) delete c.freeze;
+        if (c.beats && !Array.isArray(c.beats)) delete c.beats;
+      }
     }
     t.clips.sort((a, b) => a.start - b.start);
   }

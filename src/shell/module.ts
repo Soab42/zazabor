@@ -29,7 +29,7 @@ export type OpenRequest =
    * Studio: a picture (or a .coreimage) to edit in Photo, or clips and pictures to start a video
    * with in the Video Editor (a .corevideo project opens as it is).
    */
-  | { kind: "studio"; app: "photo" | "video"; path?: string; paths?: string[] };
+  | { kind: "studio"; app: "photo" | "video"; path?: string; paths?: string[]; make?: { theme: string; music: string | null } };
 
 /** The app-wide privacy lock, as seen by modules. */
 export interface ShellLock {

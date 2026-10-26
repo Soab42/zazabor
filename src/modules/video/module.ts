@@ -9,6 +9,7 @@ import { ControlBar, openPlayerMenu } from "./controls";
 import { openCustomize, type CustomizeHandle } from "./customize";
 import { featureSettings, type MenuPlace, type PanelTab, type VideoContext, type VideoFeature } from "./extensions";
 import { FEATURES } from "./features";
+import { mediaSettings, onMediaSettings } from "./features/profiles/settings";
 import { formatRate } from "./format";
 import { effectiveControls } from "./items";
 import { libraryService, type LibSection } from "./library-api";
@@ -16,7 +17,7 @@ import { Player } from "./player";
 import { quickHooks } from "./quick-api";
 import { Sections } from "./sections";
 import { VideoSidebar } from "./sidebar";
-import { createVideoSurface } from "./surface";
+import { createVideoSurface, glassOf } from "./surface";
 import { wheelStepper } from "./volume";
 
 const VIDEO_EXTENSIONS = ["mp4", "mkv", "webm", "avi", "mov", "m4v", "wmv", "flv", "mpg", "mpeg", "ts", "m2ts", "ogv", "3gp"];
@@ -24,6 +25,8 @@ const SUBTITLE_EXTENSIONS = ["srt", "ass", "ssa", "vtt", "sub"];
 const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 /** How long the chrome stays in fullscreen without mouse movement. */
 const IDLE_MS = 2500;
+/** Floating glass controls go this soon after the pointer leaves the player. */
+const LEAVE_MS = 600;
 
 const RAIL: { section: LibSection; icon: IconName; label: string }[] = [
   { section: "home", icon: "home", label: "Home" },
@@ -59,6 +62,12 @@ export class VideoModule implements AppModule {
   private readonly top = h("header", { class: "vp-top" });
   private readonly crumb = h("span", { class: "vp-top-crumb" });
   private readonly titleEl = h("div", { class: "vp-top-title" });
+  /** The top bar's two ends (with Liquid Glass, pills of their own beside the title's). */
+  private readonly topLead = h("div", { class: "vp-top-side" });
+  private readonly topEnd = h("div", { class: "vp-top-side end" });
+  private readonly unsubscribeLook: () => void;
+  private readonly untrackGlass: (() => void)[] = [];
+  private wasPlaying = false;
   /** A window for one video (see `showAlone`). */
   private alone = false;
   private alonePath = "";
@@ -132,6 +141,7 @@ export class VideoModule implements AppModule {
     );
     this.el.addEventListener("pointermove", () => this.wake());
     this.el.addEventListener("pointerdown", () => this.wake());
+    this.el.addEventListener("pointerleave", () => this.leave());
     // A focused button would otherwise also "click" on the Space that toggles playback.
     this.el.addEventListener("keyup", (e) => {
       if (e.key === " " && this.view === "player") e.preventDefault();
@@ -146,6 +156,38 @@ export class VideoModule implements AppModule {
     for (const create of FEATURES) this.features.push(create(context));
     this.tabs = this.features.flatMap((f) => f.panelTabs ?? []).sort((a, b) => a.order - b.order);
     this.renderPanelTabs();
+
+    // Liquid Glass: the surface bends the picture under these; they draw their own rim.
+    const glass = glassOf(this.surface);
+    for (const item of [this.bar.el, this.topLead, this.titleEl, this.topEnd, this.sidebar.el, this.panel]) {
+      if (glass) this.untrackGlass.push(glass.track(item));
+      item.addEventListener("pointermove", (e) => {
+        const r = item.getBoundingClientRect();
+        item.style.setProperty("--lx", `${e.clientX - r.left}px`);
+        item.style.setProperty("--ly", `${e.clientY - r.top}px`);
+      });
+      item.addEventListener("pointerleave", () => {
+        item.style.removeProperty("--lx");
+        item.style.removeProperty("--ly");
+      });
+    }
+    this.applyGlass();
+    this.unsubscribeLook = onMediaSettings((keys) => {
+      if (keys.includes("glassControls")) this.applyGlass();
+    });
+  }
+
+  /** Liquid Glass controls on or off (Settings → Video → Interface). */
+  private applyGlass() {
+    const on = mediaSettings(this.shell).glassControls;
+    this.el.classList.toggle("liquid", on);
+    glassOf(this.surface)?.setEnabled(on);
+    this.wake();
+  }
+
+  /** Floating glass controls hide while the video plays and the pointer rests, as QuickTime's do. */
+  private floatingIdle(): boolean {
+    return this.el.classList.contains("liquid") && this.view === "player" && this.player.state.playing && !this.customizer;
   }
 
   /** The feature-facing view of the module (see extensions.ts). */
@@ -220,12 +262,8 @@ export class VideoModule implements AppModule {
       openPlayerMenu(r.left, r.bottom + 6, this.playerMenu("top"));
     });
     this.sidebarToggle.addEventListener("click", () => this.toggleSidebar());
-    this.top.append(
-      h("div", { class: "vp-top-side" }, more, this.sidebarToggle, h("span", { class: "vp-top-sep" }),
-        icon("folder", 16), this.crumb),
-      this.titleEl,
-      h("div", { class: "vp-top-side end" }),
-    );
+    this.topLead.append(more, this.sidebarToggle, h("span", { class: "vp-top-sep" }), icon("folder", 16), this.crumb);
+    this.top.append(this.topLead, this.titleEl, this.topEnd);
   }
 
   /**
@@ -357,6 +395,7 @@ export class VideoModule implements AppModule {
     const current = this.player.current;
     this.titleEl.textContent = playing && current ? libraryService()?.label(current) ?? stripExtension(basename(current)) : "";
     this.titleEl.title = this.player.current ?? "";
+    glassOf(this.surface)?.invalidate(400);
   }
 
   /** Reacts to the player: bar, title, stage messages, and moving between the pages. */
@@ -386,6 +425,11 @@ export class VideoModule implements AppModule {
       if (this.alone && current) void getCurrentWindow().setTitle(this.titleEl.textContent || basename(current)).catch(() => undefined);
     }
     this.bar.update();
+    // Playing or pausing starts the idle timer or brings the floating controls back.
+    if (this.player.state.playing !== this.wasPlaying) {
+      this.wasPlaying = this.player.state.playing;
+      this.wake();
+    }
     const error = this.player.error;
     const loading = current !== null && !error && this.player.state.length <= 0;
     const key = error ? `e:${error}` : loading ? "l" : "";
@@ -489,16 +533,32 @@ export class VideoModule implements AppModule {
     this.wake();
   }
 
-  /** In fullscreen the bars fade out after a moment without mouse movement. */
+  /**
+   * In fullscreen the bars fade out after a moment without mouse movement; so do the floating
+   * glass controls while a video plays.
+   */
   private wake() {
+    if (this.el.classList.contains("idle")) glassOf(this.surface)?.invalidate(600);
     this.el.classList.remove("idle");
     clearTimeout(this.idleTimer);
-    if (!this.fullscreen && !this.uiHidden) return;
-    this.idleTimer = window.setTimeout(() => {
-      const busy = this.customizer || document.querySelector(".menu") || this.el.querySelector(".vp-top:hover, .vp-bar:hover, .vp-sidebar:hover, .vp-panel:hover");
-      if (busy) this.wake();
-      else this.el.classList.add("idle");
-    }, IDLE_MS);
+    if (!this.fullscreen && !this.uiHidden && !this.floatingIdle()) return;
+    this.idleTimer = window.setTimeout(() => this.rest(), IDLE_MS);
+  }
+
+  /** Hides the chrome unless something is in use (a menu, the pointer on a bar, Customise). */
+  private rest() {
+    if (!this.fullscreen && !this.uiHidden && !this.floatingIdle()) return;
+    const busy = this.customizer || document.querySelector(".menu") || this.el.querySelector(".vp-top:hover, .vp-bar:hover, .vp-sidebar:hover, .vp-panel:hover");
+    if (busy) return this.wake();
+    this.el.classList.add("idle");
+    glassOf(this.surface)?.invalidate(600);
+  }
+
+  /** The pointer left the player: floating controls go soon, like QuickTime's. */
+  private leave() {
+    if (this.fullscreen || this.uiHidden || !this.floatingIdle()) return;
+    clearTimeout(this.idleTimer);
+    this.idleTimer = window.setTimeout(() => this.rest(), LEAVE_MS);
   }
 
   /** Hides everything but the video (H, or the menu); H or Esc brings the interface back. */
@@ -676,6 +736,8 @@ export class VideoModule implements AppModule {
     clearTimeout(this.clickTimer);
     if (this.fullscreen) void getCurrentWindow().setFullscreen(false).catch(() => undefined);
     for (const feature of this.features) feature.dispose?.();
+    for (const untrack of this.untrackGlass) untrack();
+    this.unsubscribeLook();
     this.unsubscribe();
     this.player.dispose();
     this.surface.dispose();

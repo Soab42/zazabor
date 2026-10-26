@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 export interface Probe {
   duration: number;
+  bytes: number;
   video: { width: number; height: number; fps: number; codec: string | null; rotation: number; decodable: boolean } | null;
   audio: { rate: number; channels: number; codec: string | null; decodable: boolean } | null;
   missing: string[];
@@ -45,6 +46,16 @@ export interface Frame {
   data: Uint8Array | null;
 }
 
+/** An AutoRecover snapshot of an unsaved project. */
+export interface Snapshot {
+  id: string;
+  title: string;
+  path: string | null;
+  /** When it was taken (ms). */
+  saved: number;
+  pid: number;
+}
+
 const HEADER = 32;
 
 function parseFrame(buffer: ArrayBuffer): Frame {
@@ -80,5 +91,15 @@ export const editApi = {
   exportFinish: (job: number) => invoke<ExportDone>("videoedit_export_finish", { job }),
   exportCancel: (job: number) => invoke<void>("videoedit_export_cancel", { job }),
   saveProject: (path: string, text: string) => invoke<void>("videoedit_project_save", { path, text }),
+  relink: (o: { project: string | null; folder: string | null; missing: { id: string; name: string; bytes: number | null }[]; oldPaths: string[] }) =>
+    invoke<{ id: string; path: string }[]>("videoedit_relink", o),
+  recoverySave: (meta: Omit<Snapshot, "saved" | "pid">, text: string) => invoke<void>("videoedit_recovery_save", { meta: { ...meta, saved: 0, pid: 0 }, text }),
+  recoveryList: () => invoke<Snapshot[]>("videoedit_recovery_list"),
+  recoveryRead: async (id: string) => JSON.parse(await invoke<string>("videoedit_recovery_read", { id })) as unknown,
+  recoveryDelete: (id: string) => invoke<void>("videoedit_recovery_delete", { id }),
+  writeText: (path: string, text: string) => invoke<void>("videoedit_write_text", { path, text }),
+  recordStart: (folder: string | null) => invoke<{ id: number; path: string }>("videoedit_record_start", { folder }),
+  recordLevel: (id: number) => invoke<number>("videoedit_record_level", { id }),
+  recordStop: (id: number, keep: boolean) => invoke<{ path: string; seconds: number }>("videoedit_record_stop", { id, keep }),
   openProject: async (path: string) => JSON.parse(await invoke<string>("videoedit_project_open", { path })) as unknown,
 };

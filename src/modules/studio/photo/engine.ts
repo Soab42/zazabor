@@ -1,9 +1,13 @@
 import { ADJUST_GLSL, setAdjustUniforms, type Adjustments } from "./adjust";
-import { bytesPerPixel, dropTarget, makeProgram, makeQuad, makeTarget, makeTexture, probeGpu, QUAD_VERTEX, readInto, type GpuInfo, type Program, type Target, type TexFormat } from "./gl";
+import { bytesPerPixel, dropTarget, makeProgram, makeQuad, makeTarget, makeTexture, probeGpu, QUAD_VERTEX, readInto, unpackRaw, type GpuInfo, type Program, type Target, type TexFormat } from "./gl";
+import { lutFor, setSpecUniforms, SPEC_GLSL, type AdjSpec } from "./layeradjust";
+import { LUT_SIZE } from "./tone";
+import type { LayerSource } from "./vector";
 
 /**
- * Photo's GPU side: layers composited with blend modes into a 16-bit float buffer (8-bit when the
- * GPU can't render into floats), painting into a stroke buffer, and the view of the result.
+ * Photo's GPU side: layers composited with blend modes, masks, clipping masks and groups into a
+ * 16-bit float buffer (8-bit when the GPU can't render into floats), painting into a stroke buffer
+ * (limited to the selection), and the view of the result.
  *
  * Coordinates are document pixels, top-left first: a texture's row 0 is the picture's top row
  * and a framebuffer's row 0 is too, so only the on-screen view flips.
@@ -64,6 +68,22 @@ export const BLEND_MODES = BLEND_GROUPS.flat();
 const BLEND_INDEX = new Map(BLEND_MODES.map((m, i) => [m.id, i]));
 export const isBlendMode = (v: unknown): v is BlendMode => typeof v === "string" && BLEND_INDEX.has(v as BlendMode);
 
+/** Pixels that can be painted on: a pixel layer, or a layer's mask. */
+export interface Surface {
+  tex: WebGLTexture;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** A layer mask: grey in an RGBA texture (white shows the layer), placed like a pixel layer. */
+export interface LayerMask extends Surface {
+  /** What the mask is outside its rectangle: 0 hides, 1 shows. */
+  fill: number;
+  enabled: boolean;
+}
+
 interface LayerBase {
   id: number;
   name: string;
@@ -71,30 +91,44 @@ interface LayerBase {
   /** 0–1. */
   opacity: number;
   blend: BlendMode;
+  /** The group this layer is in (its id), or null at the top. */
+  parent: number | null;
+  /** Shown only where the layer below it (in the same group) has pixels: a clipping mask. */
+  clip: boolean;
+  mask: LayerMask | null;
 }
 
-/** Pixels: straight-alpha RGBA, placed at (x, y) in the document. */
-export interface PixelLayer extends LayerBase {
+/** Pixels: straight-alpha RGBA, placed at (x, y) in the document; text and shapes keep their source. */
+export interface PixelLayer extends LayerBase, Surface {
   kind: "pixel";
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  tex: WebGLTexture;
+  source: LayerSource | null;
 }
 
-/** Light and colour settings applied to everything below. */
+/** An adjustment applied to everything below: Light & Colour (`adjust`) or another kind (`spec`). */
 export interface AdjustLayer extends LayerBase {
   kind: "adjust";
   adjust: Adjustments;
+  spec: AdjSpec;
 }
 
-export type Layer = PixelLayer | AdjustLayer;
+/**
+ * A group. Its layers sit right below it in the list with `parent` set to its id. Pass Through
+ * groups mix their layers straight into what's below; others are composited on their own first
+ * and then blended like one layer.
+ */
+export interface GroupLayer extends LayerBase {
+  kind: "group";
+  passThrough: boolean;
+  /** Shown open in the Layers panel. */
+  open: boolean;
+}
+
+export type Layer = PixelLayer | AdjustLayer | GroupLayer;
 
 export interface Doc {
   width: number;
   height: number;
-  /** Bottom first. */
+  /** Bottom first; a group's layers come right before (below) the group. */
   layers: Layer[];
 }
 
@@ -105,13 +139,18 @@ export interface Rect {
   h: number;
 }
 
-/** What's being painted onto a layer right now, shown live and baked in when it ends. */
+/**
+ * What's being painted right now: onto a pixel layer, or onto a layer's mask with `mask` (any
+ * kind of layer can have one).
+ */
 export type Paint =
-  | { kind: "brush"; layer: PixelLayer; color: [number, number, number]; opacity: number }
-  | { kind: "erase"; layer: PixelLayer; opacity: number }
-  | { kind: "gradient"; layer: PixelLayer; from: [number, number]; to: [number, number]; a: [number, number, number, number]; b: [number, number, number, number]; radial: boolean; opacity: number };
+  | { kind: "brush"; layer: Layer; mask: boolean; color: [number, number, number]; opacity: number }
+  | { kind: "erase"; layer: Layer; mask: boolean; opacity: number }
+  | { kind: "gradient"; layer: Layer; mask: boolean; from: [number, number]; to: [number, number]; a: [number, number, number, number]; b: [number, number, number, number]; radial: boolean; opacity: number }
+  /** Clone stamp: the surface's own pixels from `offset` (surface pixels) away. */
+  | { kind: "clone"; layer: Layer; mask: boolean; offset: [number, number]; opacity: number };
 
-/** One brush dab: its centre in layer pixels, radius and strength (flow × pressure). */
+/** One brush dab: its centre in surface pixels, radius and strength (flow × pressure). */
 export interface Dab {
   x: number;
   y: number;
@@ -126,6 +165,17 @@ export interface View {
   x: number;
   y: number;
 }
+
+/** A 2D affine map as [a, b, c, d, e, f]: x' = a·x + c·y + e, y' = b·x + d·y + f. */
+export type Affine = [number, number, number, number, number, number];
+
+export function invertAffine(m: Affine): Affine {
+  const [a, b, c, d, e, f] = m;
+  const det = a * d - b * c || 1e-12;
+  return [d / det, -b / det, -c / det, a / det, (c * f - d * e) / det, (b * e - a * f) / det];
+}
+
+export const applyAffine = (m: Affine, x: number, y: number): [number, number] => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
 
 const blendGlsl = () => `
 float lum(vec3 c) { return dot(c, vec3(0.3, 0.59, 0.11)); }
@@ -170,19 +220,40 @@ ${BLEND_MODES.map((mode, i) => `  if (m == ${i}) return ${mode.glsl};`).join("\n
   return cs;
 }`;
 
+/** Texture units the compositing program reads. */
+const UNIT = { back: 0, layer: 1, paint: 2, mask: 3, clipLayer: 4, clipMask: 5, lut: 6, sel: 7 } as const;
+
 const COMPOSITE = () => `#version 300 es
 precision highp float;
 precision highp int;
 uniform sampler2D uBack;
 uniform sampler2D uLayer;
 uniform sampler2D uPaint;
+uniform sampler2D uMask;
+uniform sampler2D uClipLayer;
+uniform sampler2D uClipMask;
+uniform sampler2D uSel;
 uniform int uKind;
+uniform bool uSpec;
 uniform int uMode;
 uniform float uOpacity;
 uniform ivec2 uLayerPos;
 uniform ivec2 uLayerSize;
 uniform vec2 uDocSize;
+uniform bool uHasMask;
+uniform ivec2 uMaskPos;
+uniform ivec2 uMaskSize;
+uniform float uMaskFill;
+uniform bool uClip;
+uniform ivec2 uClipPos;
+uniform ivec2 uClipSize;
+uniform float uClipOpacity;
+uniform bool uClipHasMask;
+uniform ivec2 uClipMaskPos;
+uniform ivec2 uClipMaskSize;
+uniform float uClipMaskFill;
 uniform int uPaintMode;
+uniform bool uPaintOnMask;
 uniform vec3 uPaintColor;
 uniform float uPaintOpacity;
 uniform vec2 uGradFrom;
@@ -190,11 +261,17 @@ uniform vec2 uGradTo;
 uniform vec4 uGradA;
 uniform vec4 uGradB;
 uniform bool uGradRadial;
+uniform ivec2 uCloneOffset;
+uniform ivec2 uPaintOrigin;
+uniform bool uHasSel;
+uniform bool uXform;
+uniform mat3 uXformInv;
 uniform bool uBake;
 uniform ivec2 uBakeOffset;
 out vec4 outColor;
 ${ADJUST_GLSL}
 ${blendGlsl()}
+${SPEC_GLSL}
 
 float hash(vec2 p) {
   vec3 q = fract(vec3(p.xyx) * 0.1031);
@@ -209,44 +286,106 @@ vec4 over(vec4 dst, vec4 src) {
   return a > 0.0 ? vec4(c / a, a) : vec4(0.0);
 }
 
-vec4 painted(vec4 c, ivec2 q) {
+bool outside(ivec2 q, ivec2 size) { return q.x < 0 || q.y < 0 || q.x >= size.x || q.y >= size.y; }
+
+vec4 fetch(sampler2D s, ivec2 q, ivec2 size) { return outside(q, size) ? vec4(0.0) : texelFetch(s, q, 0); }
+
+float selAt(ivec2 d) {
+  if (!uHasSel) return 1.0;
+  return outside(d, ivec2(uDocSize)) ? 0.0 : texelFetch(uSel, d, 0).r;
+}
+
+// The paint going onto a surface (layer or mask) at its pixel q, over its colour c.
+vec4 painted(sampler2D surf, ivec2 size, vec4 c, ivec2 q) {
+  if (uPaintMode == 0) return c;
+  float sel = selAt(q + uPaintOrigin);
   if (uPaintMode == 1) {
-    float a = texelFetch(uPaint, q, 0).a * uPaintOpacity;
+    float a = texelFetch(uPaint, q, 0).a * uPaintOpacity * sel;
     return over(c, vec4(uPaintColor * a, a));
   }
-  if (uPaintMode == 2) return vec4(c.rgb, c.a * (1.0 - texelFetch(uPaint, q, 0).a * uPaintOpacity));
+  if (uPaintMode == 2) return vec4(c.rgb, c.a * (1.0 - texelFetch(uPaint, q, 0).a * uPaintOpacity * sel));
   if (uPaintMode == 3) {
     vec2 p = vec2(q) + 0.5;
     vec2 d = uGradTo - uGradFrom;
     float t = uGradRadial ? length(p - uGradFrom) / max(length(d), 1e-3) : dot(p - uGradFrom, d) / max(dot(d, d), 1e-6);
     t = clamp(t, 0.0, 1.0);
-    vec4 g = mix(vec4(uGradA.rgb * uGradA.a, uGradA.a), vec4(uGradB.rgb * uGradB.a, uGradB.a), t) * uPaintOpacity;
+    vec4 g = mix(vec4(uGradA.rgb * uGradA.a, uGradA.a), vec4(uGradB.rgb * uGradB.a, uGradB.a), t) * uPaintOpacity * sel;
     return over(c, g);
+  }
+  if (uPaintMode == 4) {
+    float a = texelFetch(uPaint, q, 0).a * uPaintOpacity * sel;
+    vec4 s = fetch(surf, q + uCloneOffset, size);
+    return over(c, vec4(s.rgb * s.a, s.a) * a);
   }
   return c;
 }
 
-vec4 layerTexel(ivec2 q) {
-  if (q.x < 0 || q.y < 0 || q.x >= uLayerSize.x || q.y >= uLayerSize.y) return vec4(0.0);
-  return painted(texelFetch(uLayer, q, 0), q);
+// Bilinear sample of straight-alpha texels at a continuous texel position (centres at +0.5).
+vec4 bilinear(sampler2D s, vec2 at, ivec2 size) {
+  vec2 f = at - 0.5;
+  ivec2 i = ivec2(floor(f));
+  vec2 t = f - vec2(i);
+  vec4 a = fetch(s, i, size), b = fetch(s, i + ivec2(1, 0), size), c = fetch(s, i + ivec2(0, 1), size), d = fetch(s, i + ivec2(1, 1), size);
+  a.rgb *= a.a; b.rgb *= b.a; c.rgb *= c.a; d.rgb *= d.a;
+  vec4 m = mix(mix(a, b, t.x), mix(c, d, t.x), t.y);
+  return m.a > 1e-6 ? vec4(m.rgb / m.a, m.a) : vec4(0.0);
+}
+
+vec2 sourcePoint(ivec2 p) { return (uXformInv * vec3(vec2(p) + 0.5, 1.0)).xy; }
+
+vec4 layerAt(ivec2 p) {
+  if (uXform) return bilinear(uLayer, sourcePoint(p) - vec2(uLayerPos), uLayerSize);
+  ivec2 q = p - uLayerPos;
+  if (outside(q, uLayerSize)) return vec4(0.0);
+  vec4 c = texelFetch(uLayer, q, 0);
+  return uPaintOnMask ? c : painted(uLayer, uLayerSize, c, q);
+}
+
+float maskAt(ivec2 p) {
+  if (!uHasMask) return 1.0;
+  ivec2 q = uXform ? ivec2(floor(sourcePoint(p))) - uMaskPos : p - uMaskPos;
+  if (outside(q, uMaskSize)) return uMaskFill;
+  vec4 m = texelFetch(uMask, q, 0);
+  if (uPaintOnMask && !uXform) m = painted(uMask, uMaskSize, m, q);
+  return m.r;
+}
+
+float clipAt(ivec2 p) {
+  if (!uClip) return 1.0;
+  float a = fetch(uClipLayer, p - uClipPos, uClipSize).a;
+  if (uClipHasMask) {
+    ivec2 m = p - uClipMaskPos;
+    a *= outside(m, uClipMaskSize) ? uClipMaskFill : texelFetch(uClipMask, m, 0).r;
+  }
+  return a * uClipOpacity;
 }
 
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   if (uBake) {
-    outColor = layerTexel(p + uBakeOffset);
+    ivec2 q = p + uBakeOffset;
+    outColor = painted(uLayer, uLayerSize, texelFetch(uLayer, q, 0), q);
     return;
   }
   vec4 back = texelFetch(uBack, p, 0);
   float ab = back.a;
   vec3 cb = ab > 0.0 ? clamp(back.rgb / ab, 0.0, 1.0) : vec3(0.0);
+  float cover = uOpacity * maskAt(p) * clipAt(p);
   if (uKind == 1) {
-    vec3 cs = adjust(cb, (vec2(p) + 0.5) / uDocSize);
-    outColor = vec4(mix(cb, clamp(blend(uMode, cb, cs), 0.0, 1.0), uOpacity) * ab, ab);
+    vec3 cs = uSpec ? adjustSpec(cb) : adjust(cb, (vec2(p) + 0.5) / uDocSize);
+    outColor = vec4(mix(cb, clamp(blend(uMode, cb, cs), 0.0, 1.0), cover) * ab, ab);
     return;
   }
-  vec4 s = layerTexel(p - uLayerPos);
-  float as = s.a * uOpacity;
+  if (uKind == 3) {
+    outColor = mix(back, texelFetch(uLayer, p, 0), cover);
+    return;
+  }
+  vec4 s;
+  if (uKind == 2) {
+    vec4 g = texelFetch(uLayer, p, 0);
+    s = g.a > 0.0 ? vec4(clamp(g.rgb / g.a, 0.0, 1.0), g.a) : vec4(0.0);
+  } else s = layerAt(p);
+  float as = s.a * cover;
   if (uMode == 1) as = hash(vec2(p)) < as ? 1.0 : 0.0;
   vec3 mixed = (1.0 - ab) * s.rgb + ab * clamp(blend(uMode, cb, s.rgb), 0.0, 1.0);
   outColor = vec4(as * mixed + (1.0 - as) * back.rgb, as + ab * (1.0 - as));
@@ -364,6 +503,43 @@ void main() {
   outColor = uStraightOut ? (acc.a > 0.0 ? vec4(acc.rgb / acc.a, acc.a) : vec4(0.0)) : acc;
 }`;
 
+/**
+ * Free Transform's result: each output pixel (at `uOut` in the document) maps back through
+ * `uInv` to the source, sampled bilinearly in premultiplied alpha with `uTaps`² samples when the
+ * source shrinks. `uFill` is what lies outside the source (masks).
+ */
+const AFFINE = `#version 300 es
+precision highp float;
+precision highp int;
+uniform sampler2D uSrc;
+uniform ivec2 uSrcSize;
+uniform vec2 uSrcPos;
+uniform vec2 uOut;
+uniform mat3 uInv;
+uniform int uTaps;
+uniform vec4 uFill;
+out vec4 outColor;
+vec4 texel(ivec2 q) {
+  vec4 c = (q.x < 0 || q.y < 0 || q.x >= uSrcSize.x || q.y >= uSrcSize.y) ? uFill : texelFetch(uSrc, q, 0);
+  return vec4(c.rgb * c.a, c.a);
+}
+vec4 sampleAt(vec2 at) {
+  vec2 f = at - 0.5;
+  ivec2 i = ivec2(floor(f));
+  vec2 t = f - vec2(i);
+  return mix(mix(texel(i), texel(i + ivec2(1, 0)), t.x), mix(texel(i + ivec2(0, 1)), texel(i + ivec2(1, 1)), t.x), t.y);
+}
+void main() {
+  vec4 acc = vec4(0.0);
+  for (int j = 0; j < uTaps; j++)
+    for (int i = 0; i < uTaps; i++) {
+      vec2 d = uOut + gl_FragCoord.xy - 0.5 + (vec2(i, j) + 0.5) / float(uTaps);
+      acc += sampleAt((uInv * vec3(d, 1.0)).xy - uSrcPos);
+    }
+  acc /= float(uTaps * uTaps);
+  outColor = acc.a > 1e-6 ? vec4(acc.rgb / acc.a, acc.a) : vec4(0.0);
+}`;
+
 export type Transform = "rotateRight" | "rotate180" | "rotateLeft" | "flipH" | "flipV";
 const XFORM_OP: Record<Transform | "copy", number> = { copy: 0, rotateRight: 1, rotate180: 2, rotateLeft: 3, flipH: 4, flipV: 5 };
 
@@ -378,14 +554,29 @@ export const union = (a: Rect | null, b: Rect): Rect => {
   return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
 };
 
+/** Layers by group: each group's layers (and the top level's, under null) bottom first. */
+export function layerTree(layers: Layer[]): Map<number | null, Layer[]> {
+  const ids = new Set(layers.map((l) => l.id));
+  const tree = new Map<number | null, Layer[]>();
+  for (const layer of layers) {
+    // A layer whose group isn't in this list (a merge's sub-document) counts as top level.
+    const key = layer.parent !== null && ids.has(layer.parent) ? layer.parent : null;
+    let list = tree.get(key);
+    if (!list) tree.set(key, (list = []));
+    list.push(layer);
+  }
+  return tree;
+}
+
 /**
  * Live work on one layer (a stroke, a gradient, dragging it): the layers below are composited
  * once into `below`, and each frame redoes only the layers from this one up, inside the changed
- * area. Every pass reads only the pixel it writes, which is what makes that exact.
+ * area. Every pass reads only the pixel it writes, which is what makes that exact. Layers inside
+ * a group have no `below`: each frame recomposites the changed area from the bottom.
  */
 interface Live {
   index: number;
-  below: Target;
+  below: Target | null;
   region: Rect | null;
 }
 
@@ -399,7 +590,8 @@ export class Engine {
   private dab: Program;
   private xform: Program;
   private resample: Program;
-  private quad: WebGLVertexArrayObject;
+  private affine: Program;
+  readonly quad: WebGLVertexArrayObject;
   private dabVao: WebGLVertexArrayObject;
   private dabBuffer: WebGLBuffer;
   private linear: WebGLSampler;
@@ -407,16 +599,22 @@ export class Engine {
   private ping: Target | null = null;
   private pong: Target | null = null;
   private result: Target | null = null;
+  /** Buffers for groups, by nesting depth (1 and deeper), made when first needed. */
+  private groupBuffers: [Target, Target][] = [];
   private docW = 0;
   private docH = 0;
   private dirty = true;
   private live: Live | null = null;
   private paint: Paint | null = null;
   private paintTarget: Target | null = null;
-  /** The part of the layer being painted that the stroke touched, in layer pixels. */
+  /** The part of the surface being painted that the stroke touched, in surface pixels. */
   private paintRect: Rect | null = null;
   private hardness = 1;
   private empty: WebGLTexture;
+  private selection: WebGLTexture | null = null;
+  private luts = new Map<number, { key: string; tex: WebGLTexture }>();
+  /** Free Transform's preview: the layer drawn through `inv` (document → source document). */
+  private preview: { layerId: number; inv: Affine } | null = null;
 
   constructor(readonly canvas: HTMLCanvasElement) {
     const gl = canvas.getContext("webgl2", { alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: false, preserveDrawingBuffer: true });
@@ -431,6 +629,7 @@ export class Engine {
     this.dab = makeProgram(gl, DAB_VERTEX, DAB_FRAGMENT, "Brush");
     this.xform = makeProgram(gl, QUAD_VERTEX, XFORM, "Transform");
     this.resample = makeProgram(gl, QUAD_VERTEX, RESAMPLE, "Resample");
+    this.affine = makeProgram(gl, QUAD_VERTEX, AFFINE, "Free Transform");
     this.quad = makeQuad(gl);
     this.dabVao = gl.createVertexArray()!;
     this.dabBuffer = gl.createBuffer()!;
@@ -459,7 +658,7 @@ export class Engine {
   /** Bytes the compositing buffers hold (for the memory budget). */
   get bufferBytes() {
     const per = this.docW * this.docH * bytesPerPixel(this.accum);
-    return per * 3 + (this.live ? per : 0) + (this.paintTarget ? this.paintTarget.width * this.paintTarget.height * 4 : 0);
+    return per * (3 + this.groupBuffers.length * 2) + (this.live?.below ? per : 0) + (this.paintTarget ? this.paintTarget.width * this.paintTarget.height * 4 : 0) + (this.selection ? this.docW * this.docH : 0);
   }
 
   /** Bytes a document of this size needs for compositing. */
@@ -471,13 +670,23 @@ export class Engine {
     if (width === this.docW && height === this.docH && this.result) return;
     const gl = this.gl;
     for (const t of [this.ping, this.pong, this.result]) dropTarget(gl, t);
+    this.dropGroupBuffers();
     this.ping = this.pong = this.result = null;
     this.docW = width;
     this.docH = height;
     this.ping = makeTarget(gl, width, height, this.accum);
     this.pong = makeTarget(gl, width, height, this.accum);
     this.result = makeTarget(gl, width, height, this.accum, gl.LINEAR);
+    this.setSelection(null);
     this.dirty = true;
+  }
+
+  private dropGroupBuffers() {
+    for (const [a, b] of this.groupBuffers) {
+      dropTarget(this.gl, a);
+      dropTarget(this.gl, b);
+    }
+    this.groupBuffers = [];
   }
 
   /** Everything needs compositing again. */
@@ -514,7 +723,7 @@ export class Engine {
     this.gl.deleteTexture(tex);
   }
 
-  /** A rectangle of a layer's pixels (8-bit RGBA, top row first). */
+  /** A rectangle of a texture's pixels (8-bit RGBA, top row first). */
   readTexture(tex: WebGLTexture, rect: Rect): Uint8Array {
     const gl = this.gl;
     const out = new Uint8Array(rect.w * rect.h * 4);
@@ -563,6 +772,39 @@ export class Engine {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.dirty = true;
     return out;
+  }
+
+  /**
+   * A source surface drawn through an affine map (source document → document), into a new
+   * texture covering `out` (document pixels). `fill` is what lies outside the source.
+   */
+  affineTexture(src: Surface, map: Affine, out: Rect, fill: [number, number, number, number] = [0, 0, 0, 0]): WebGLTexture {
+    const gl = this.gl;
+    const tex = makeTexture(gl, out.w, out.h);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.scratchFbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    gl.useProgram(this.affine.program);
+    gl.bindVertexArray(this.quad);
+    gl.disable(gl.BLEND);
+    gl.disable(gl.SCISSOR_TEST);
+    gl.viewport(0, 0, out.w, out.h);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, src.tex);
+    const u = (n: string) => this.affine.u(n);
+    const inv = invertAffine(map);
+    gl.uniform1i(u("uSrc"), 0);
+    gl.uniform2i(u("uSrcSize"), src.width, src.height);
+    gl.uniform2f(u("uSrcPos"), src.x, src.y);
+    gl.uniform2f(u("uOut"), out.x, out.y);
+    gl.uniformMatrix3fv(u("uInv"), false, [inv[0], inv[1], 0, inv[2], inv[3], 0, inv[4], inv[5], 1]);
+    // Shrinking takes more samples per pixel so detail averages instead of aliasing.
+    const scale = Math.sqrt(Math.abs(map[0] * map[3] - map[1] * map[2]));
+    gl.uniform1i(u("uTaps"), scale < 0.5 ? Math.min(4, Math.ceil(1 / scale)) : 1);
+    gl.uniform4fv(u("uFill"), fill);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    this.dirty = true;
+    return tex;
   }
 
   /**
@@ -633,6 +875,31 @@ export class Engine {
     }
   }
 
+  // ---- selection
+
+  /** The selection the painting tools keep inside (a document-sized mask, 0–255), or none. */
+  setSelection(data: Uint8Array | null) {
+    const gl = this.gl;
+    if (this.selection) gl.deleteTexture(this.selection);
+    this.selection = null;
+    if (!data || data.length !== this.docW * this.docH) return;
+    const tex = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8, this.docW, this.docH);
+    unpackRaw(gl);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.docW, this.docH, gl.RED, gl.UNSIGNED_BYTE, data);
+    this.selection = tex;
+  }
+
+  /** The selection's texture (R8), for filters that mix by it. */
+  get selectionTexture(): WebGLTexture | null {
+    return this.selection;
+  }
+
   // ---- compositing
 
   private ensureComposite(doc: Doc) {
@@ -641,111 +908,229 @@ export class Engine {
       this.dirty = false;
       if (this.live) this.live.region = null;
     } else if (this.live?.region) {
-      this.compositeFrom(doc, this.live.index, this.live.below, this.live.region);
+      const area = intersect(this.live.region, { x: 0, y: 0, w: this.docW, h: this.docH });
+      if (area) {
+        if (this.live.below) this.compositeFrom(doc, this.live.index, this.live.below, area);
+        else this.compositeAll(doc, doc.layers.length, this.result!, area);
+      }
       this.live.region = null;
     }
   }
 
-  /** Every visible layer, bottom up, into `result` (or into `into` for the layers below `until`). */
-  private compositeAll(doc: Doc, until = doc.layers.length, into: Target = this.result!) {
-    const gl = this.gl;
-    const layers = doc.layers.slice(0, until).filter((l) => l.visible);
-    gl.disable(gl.SCISSOR_TEST);
-    if (!layers.length) {
-      gl.bindFramebuffer(gl.FRAMEBUFFER, into.fbo);
-      gl.clearColor(0, 0, 0, 0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      return;
+  private pair(depth: number): [Target, Target] {
+    if (depth === 0) return [this.ping!, this.pong!];
+    while (this.groupBuffers.length < depth) {
+      this.groupBuffers.push([makeTarget(this.gl, this.docW, this.docH, this.accum), makeTarget(this.gl, this.docW, this.docH, this.accum)]);
     }
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.ping!.fbo);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    let src = this.ping!;
-    layers.forEach((layer, i) => {
-      const dst = i === layers.length - 1 ? into : src === this.ping ? this.pong! : this.ping!;
-      this.pass(doc, layer, src.tex, dst, null);
-      src = dst;
-    });
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return this.groupBuffers[depth - 1];
   }
 
-  /** The layers from `index` up, over `below`, inside `region` only. */
-  private compositeFrom(doc: Doc, index: number, below: Target, region: Rect) {
-    const area = intersect(region, { x: 0, y: 0, w: this.docW, h: this.docH });
-    if (!area) return;
-    const layers = doc.layers.slice(index).filter((l) => l.visible);
+  private scissor(region: Rect | null) {
     const gl = this.gl;
-    if (!layers.length) return;
-    let src = below;
-    layers.forEach((layer, i) => {
-      const dst = i === layers.length - 1 ? this.result! : src === this.ping ? this.pong! : this.ping!;
-      this.pass(doc, layer, src.tex, dst, area);
-      src = dst;
-    });
-    gl.disable(gl.SCISSOR_TEST);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  }
-
-  private pass(doc: Doc, layer: Layer, back: WebGLTexture, dst: Target, region: Rect | null) {
-    const gl = this.gl;
-    const u = (n: string) => this.composite.u(n);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, dst.fbo);
-    gl.viewport(0, 0, this.docW, this.docH);
     if (region) {
       gl.enable(gl.SCISSOR_TEST);
       gl.scissor(region.x, region.y, region.w, region.h);
     } else gl.disable(gl.SCISSOR_TEST);
+  }
+
+  private clearTarget(target: Target, region: Rect | null) {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target.fbo);
+    gl.viewport(0, 0, this.docW, this.docH);
+    this.scissor(region);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  }
+
+  private copyTarget(from: Target, to: Target, region: Rect | null) {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, from.fbo);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, to.fbo);
+    this.scissor(region);
+    gl.blitFramebuffer(0, 0, this.docW, this.docH, 0, 0, this.docW, this.docH, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+  }
+
+  /**
+   * Top-level layers below array index `until`, bottom up, into `into` (only inside `region`
+   * when given; the rest of `into` is left as it was).
+   */
+  private compositeAll(doc: Doc, until = doc.layers.length, into: Target = this.result!, region: Rect | null = null) {
+    const tree = layerTree(doc.layers);
+    const roots = (tree.get(null) ?? []).filter((l) => doc.layers.indexOf(l) < until);
+    this.clearTarget(this.ping!, region);
+    const out = this.compositeList(doc, tree, roots, 0, this.ping!, region);
+    if (out !== into) this.copyTarget(out, into, region);
+    this.gl.disable(this.gl.SCISSOR_TEST);
+    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+  }
+
+  /** The top-level layers from array index `index` up, over `below`, inside `region` only. */
+  private compositeFrom(doc: Doc, index: number, below: Target, region: Rect) {
+    const tree = layerTree(doc.layers);
+    const roots = (tree.get(null) ?? []).filter((l) => doc.layers.indexOf(l) >= index);
+    const out = this.compositeList(doc, tree, roots, 0, below, region);
+    this.copyTarget(out, this.result!, region);
+    this.gl.disable(this.gl.SCISSOR_TEST);
+    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+  }
+
+  /** `list` (one group's layers, bottom first) over `start`; returns the buffer holding the result. */
+  private compositeList(doc: Doc, tree: Map<number | null, Layer[]>, list: Layer[], depth: number, start: Target, region: Rect | null): Target {
+    let cur = start;
+    const other = (t: Target) => {
+      const [a, b] = this.pair(depth);
+      return t === a ? b : a;
+    };
+    list.forEach((layer, k) => {
+      if (!layer.visible) return;
+      // A clipped layer shows only inside the nearest unclipped layer below it.
+      let base: Layer | null = null;
+      if (layer.clip) {
+        for (let j = k - 1; j >= 0; j--) {
+          if (!list[j].clip) {
+            base = list[j];
+            break;
+          }
+        }
+        if (base && !base.visible) return;
+        if (base && base.kind !== "pixel") base = null;
+      }
+      if (layer.kind === "group") {
+        const kids = tree.get(layer.id) ?? [];
+        const maskOn = !!layer.mask?.enabled;
+        if (layer.passThrough && layer.opacity >= 1 && !maskOn && !base) {
+          cur = this.compositeList(doc, tree, kids, depth, cur, region);
+          return;
+        }
+        const [ga] = this.pair(depth + 1);
+        if (layer.passThrough) this.copyTarget(cur, ga, region);
+        else this.clearTarget(ga, region);
+        const inner = this.compositeList(doc, tree, kids, depth + 1, ga, region);
+        const next = other(cur);
+        this.pass(doc, layer, cur.tex, next, region, base as PixelLayer | null, inner.tex);
+        cur = next;
+        return;
+      }
+      const next = other(cur);
+      this.pass(doc, layer, cur.tex, next, region, base as PixelLayer | null, null);
+      cur = next;
+    });
+    return cur;
+  }
+
+  /** Every sampler gets a harmless texture, so none is left on a texture being drawn into. */
+  private bindDefaults() {
+    const gl = this.gl;
+    for (let unit = 0; unit <= UNIT.sel; unit++) {
+      gl.activeTexture(gl.TEXTURE0 + unit);
+      gl.bindTexture(gl.TEXTURE_2D, this.empty);
+    }
+  }
+
+  private bindUnit(unit: number, name: string, tex: WebGLTexture) {
+    const gl = this.gl;
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.uniform1i(this.composite.u(name), unit);
+  }
+
+  private pass(doc: Doc, layer: Layer, back: WebGLTexture, dst: Target, region: Rect | null, clipBase: PixelLayer | null, groupTex: WebGLTexture | null) {
+    const gl = this.gl;
+    const u = (n: string) => this.composite.u(n);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, dst.fbo);
+    gl.viewport(0, 0, this.docW, this.docH);
+    this.scissor(region);
     gl.disable(gl.BLEND);
     gl.useProgram(this.composite.program);
     gl.bindVertexArray(this.quad);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, back);
-    gl.uniform1i(u("uBack"), 0);
+    this.bindDefaults();
+    this.bindUnit(UNIT.back, "uBack", back);
     gl.uniform1i(u("uBake"), 0);
     gl.uniform2f(u("uDocSize"), doc.width, doc.height);
     gl.uniform1i(u("uMode"), BLEND_INDEX.get(layer.blend) ?? 0);
     gl.uniform1f(u("uOpacity"), layer.opacity);
+    gl.uniform1i(u("uXform"), 0);
+    gl.uniform1i(u("uPaintMode"), 0);
+    gl.uniform1i(u("uPaintOnMask"), 0);
+    this.bindUnit(UNIT.paint, "uPaint", this.empty);
+    this.bindUnit(UNIT.lut, "uLut", this.empty);
+    this.bindSelection();
+    // The mask, with paint going onto it.
+    const mask = layer.mask?.enabled ? layer.mask : null;
+    gl.uniform1i(u("uHasMask"), mask ? 1 : 0);
+    this.bindUnit(UNIT.mask, "uMask", mask ? mask.tex : this.empty);
+    if (mask) {
+      gl.uniform2i(u("uMaskPos"), mask.x, mask.y);
+      gl.uniform2i(u("uMaskSize"), mask.width, mask.height);
+      gl.uniform1f(u("uMaskFill"), mask.fill);
+    }
+    // The clipping base: its pixels' coverage, mask and opacity.
+    gl.uniform1i(u("uClip"), clipBase ? 1 : 0);
+    this.bindUnit(UNIT.clipLayer, "uClipLayer", clipBase ? clipBase.tex : this.empty);
+    const baseMask = clipBase?.mask?.enabled ? clipBase.mask : null;
+    this.bindUnit(UNIT.clipMask, "uClipMask", baseMask ? baseMask.tex : this.empty);
+    gl.uniform1i(u("uClipHasMask"), baseMask ? 1 : 0);
+    if (clipBase) {
+      gl.uniform2i(u("uClipPos"), clipBase.x, clipBase.y);
+      gl.uniform2i(u("uClipSize"), clipBase.width, clipBase.height);
+      gl.uniform1f(u("uClipOpacity"), clipBase.opacity);
+    }
+    if (baseMask) {
+      gl.uniform2i(u("uClipMaskPos"), baseMask.x, baseMask.y);
+      gl.uniform2i(u("uClipMaskSize"), baseMask.width, baseMask.height);
+      gl.uniform1f(u("uClipMaskFill"), baseMask.fill);
+    }
     if (layer.kind === "adjust") {
       gl.uniform1i(u("uKind"), 1);
-      gl.uniform1i(u("uPaintMode"), 0);
-      setAdjustUniforms(gl, u, layer.adjust, doc.width / doc.height);
-      gl.activeTexture(gl.TEXTURE1);
-      gl.bindTexture(gl.TEXTURE_2D, this.empty);
-      gl.uniform1i(u("uLayer"), 1);
-      gl.activeTexture(gl.TEXTURE2);
-      gl.bindTexture(gl.TEXTURE_2D, this.empty);
-      gl.uniform1i(u("uPaint"), 2);
+      const spec = layer.spec.type !== "basic";
+      gl.uniform1i(u("uSpec"), spec ? 1 : 0);
+      if (spec) {
+        this.bindUnit(UNIT.lut, "uLut", this.lutTexture(layer));
+        setSpecUniforms(gl, u, layer.spec, UNIT.lut, LUT_SIZE);
+      } else setAdjustUniforms(gl, u, layer.adjust, doc.width / doc.height);
+    } else if (layer.kind === "group") {
+      gl.uniform1i(u("uKind"), layer.passThrough ? 3 : 2);
+      this.bindUnit(UNIT.layer, "uLayer", groupTex ?? this.empty);
     } else {
       gl.uniform1i(u("uKind"), 0);
-      this.bindLayer(layer);
+      this.bindUnit(UNIT.layer, "uLayer", layer.tex);
       gl.uniform2i(u("uLayerPos"), layer.x, layer.y);
+      gl.uniform2i(u("uLayerSize"), layer.width, layer.height);
+      if (this.preview?.layerId === layer.id) {
+        const inv = this.preview.inv;
+        gl.uniform1i(u("uXform"), 1);
+        gl.uniformMatrix3fv(u("uXformInv"), false, [inv[0], inv[1], 0, inv[2], inv[3], 0, inv[4], inv[5], 1]);
+      }
     }
+    if (this.paint && this.paint.layer === layer && this.preview?.layerId !== layer.id && (this.paint.mask ? !!mask : layer.kind === "pixel")) this.bindPaint(this.paint);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
-  /** The layer's pixels, and the paint going onto it, for the composite program in use. */
-  private bindLayer(layer: PixelLayer) {
+  private bindSelection() {
+    const gl = this.gl;
+    gl.uniform1i(this.composite.u("uHasSel"), this.selection ? 1 : 0);
+    this.bindUnit(UNIT.sel, "uSel", this.selection ?? this.empty);
+  }
+
+  /** The paint going onto its layer or mask, for the composite program in use. */
+  private bindPaint(paint: Paint) {
     const gl = this.gl;
     const u = (n: string) => this.composite.u(n);
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, layer.tex);
-    gl.uniform1i(u("uLayer"), 1);
-    gl.uniform2i(u("uLayerSize"), layer.width, layer.height);
-    const paint = this.paint && this.paint.layer === layer ? this.paint : null;
-    gl.activeTexture(gl.TEXTURE2);
-    gl.bindTexture(gl.TEXTURE_2D, paint && paint.kind !== "gradient" && this.paintTarget ? this.paintTarget.tex : this.empty);
-    gl.uniform1i(u("uPaint"), 2);
-    if (!paint) {
-      gl.uniform1i(u("uPaintMode"), 0);
-      return;
-    }
+    const surface = this.surfaceOf(paint);
+    gl.uniform1i(u("uPaintOnMask"), paint.mask ? 1 : 0);
+    gl.uniform2i(u("uPaintOrigin"), surface.x, surface.y);
+    this.bindUnit(UNIT.paint, "uPaint", paint.kind !== "gradient" && this.paintTarget ? this.paintTarget.tex : this.empty);
     gl.uniform1f(u("uPaintOpacity"), paint.opacity);
     if (paint.kind === "brush") {
       gl.uniform1i(u("uPaintMode"), 1);
       gl.uniform3fv(u("uPaintColor"), paint.color);
     } else if (paint.kind === "erase") {
       gl.uniform1i(u("uPaintMode"), 2);
+    } else if (paint.kind === "clone") {
+      gl.uniform1i(u("uPaintMode"), 4);
+      gl.uniform2i(u("uCloneOffset"), Math.round(paint.offset[0]), Math.round(paint.offset[1]));
     } else {
       gl.uniform1i(u("uPaintMode"), 3);
       gl.uniform2f(u("uGradFrom"), paint.from[0], paint.from[1]);
@@ -756,12 +1141,52 @@ export class Engine {
     }
   }
 
+  private surfaceOf(paint: Paint): Surface {
+    if (paint.mask && paint.layer.mask) return paint.layer.mask;
+    if (paint.layer.kind !== "pixel") throw new Error("Only pixel layers and masks can be painted on.");
+    return paint.layer;
+  }
+
+  /** An adjustment layer's lookup table, made again when its settings change. */
+  private lutTexture(layer: AdjustLayer): WebGLTexture {
+    const gl = this.gl;
+    const key = JSON.stringify(layer.spec);
+    const cached = this.luts.get(layer.id);
+    if (cached?.key === key) return cached.tex;
+    const data = lutFor(layer.spec);
+    if (!data) return this.empty;
+    if (cached) gl.deleteTexture(cached.tex);
+    const tex = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, LUT_SIZE, 1);
+    unpackRaw(gl);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, LUT_SIZE, 1, gl.RGBA, gl.FLOAT, data);
+    this.luts.set(layer.id, { key, tex });
+    return tex;
+  }
+
+  /** Frees lookup tables of layers that are gone (they're made again if one comes back). */
+  pruneLuts(doc: Doc) {
+    const ids = new Set(doc.layers.map((l) => l.id));
+    for (const [id, entry] of this.luts) {
+      if (ids.has(id)) continue;
+      this.gl.deleteTexture(entry.tex);
+      this.luts.delete(id);
+    }
+  }
+
   /** Starts live work on the layer at `index`: the layers below it are composited once. */
   beginLive(doc: Doc, index: number) {
     this.endLive();
     this.ensureComposite(doc);
-    const below = makeTarget(this.gl, this.docW, this.docH, this.accum);
-    this.compositeAll(doc, index, below);
+    const layer = doc.layers[index];
+    let below: Target | null = null;
+    if (layer && layer.parent === null) {
+      below = makeTarget(this.gl, this.docW, this.docH, this.accum);
+      this.compositeAll(doc, index, below);
+    }
     this.live = { index, below, region: null };
   }
 
@@ -780,18 +1205,27 @@ export class Engine {
     this.live = null;
   }
 
+  // ---- Free Transform
+
+  /** Shows a layer drawn through `map` (source → document), or stops showing it. */
+  setPreview(layer: PixelLayer | null, map: Affine | null) {
+    this.preview = layer && map ? { layerId: layer.id, inv: invertAffine(map) } : null;
+    this.dirty = true;
+  }
+
   // ---- painting
 
-  /** Starts painting onto a layer (brush, eraser or gradient), shown live. */
+  /** Starts painting onto a layer or its mask (brush, eraser, gradient, clone), shown live. */
   beginPaint(doc: Doc, paint: Paint, hardness = 1) {
     const index = doc.layers.indexOf(paint.layer);
     this.beginLive(doc, index);
     this.paint = paint;
     this.hardness = hardness;
     this.paintRect = null;
+    const surface = this.surfaceOf(paint);
     if (paint.kind !== "gradient") {
       const gl = this.gl;
-      const { width, height } = paint.layer;
+      const { width, height } = surface;
       if (!this.paintTarget || this.paintTarget.width !== width || this.paintTarget.height !== height) {
         dropTarget(gl, this.paintTarget);
         this.paintTarget = makeTarget(gl, width, height);
@@ -802,18 +1236,18 @@ export class Engine {
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     } else {
-      this.paintRect = { x: 0, y: 0, w: paint.layer.width, h: paint.layer.height };
-      this.touch(this.layerRect(paint.layer));
+      this.paintRect = { x: 0, y: 0, w: surface.width, h: surface.height };
+      this.touch(this.surfaceRect(surface));
     }
   }
 
-  /** Moves the gradient (layer pixels). */
+  /** Moves the gradient (surface pixels). */
   updateGradient(from: [number, number], to: [number, number]) {
     const paint = this.paint;
     if (paint?.kind !== "gradient") return;
     paint.from = from;
     paint.to = to;
-    this.touch(this.layerRect(paint.layer));
+    this.touch(this.surfaceRect(this.surfaceOf(paint)));
   }
 
   /** Stamps dabs into the stroke buffer. */
@@ -821,6 +1255,7 @@ export class Engine {
     const paint = this.paint;
     if (!paint || paint.kind === "gradient" || !this.paintTarget || !dabs.length) return;
     const gl = this.gl;
+    const surface = this.surfaceOf(paint);
     const data = new Float32Array(dabs.length * 36);
     let at = 0;
     let rect: Rect | null = null;
@@ -851,15 +1286,26 @@ export class Engine {
     gl.disable(gl.BLEND);
     gl.bindVertexArray(null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    const inLayer = intersect(rect!, { x: 0, y: 0, w: paint.layer.width, h: paint.layer.height });
-    if (!inLayer) return;
-    this.paintRect = union(this.paintRect, inLayer);
-    this.touch({ x: inLayer.x + paint.layer.x, y: inLayer.y + paint.layer.y, w: inLayer.w, h: inLayer.h });
+    const inSurface = intersect(rect!, { x: 0, y: 0, w: surface.width, h: surface.height });
+    if (!inSurface) return;
+    this.paintRect = union(this.paintRect, inSurface);
+    // A mask's paint shows wherever the layer does; a layer's where the stroke is.
+    this.touch({ x: inSurface.x + surface.x, y: inSurface.y + surface.y, w: inSurface.w, h: inSurface.h });
+  }
+
+  /** The stroke so far: its rectangle (surface pixels) and coverage there (0–255 per pixel). */
+  strokeCoverage(): { rect: Rect; alpha: Uint8Array } | null {
+    if (!this.paintTarget || !this.paintRect) return null;
+    const rect = this.paintRect;
+    const rgba = this.readTexture(this.paintTarget.tex, rect);
+    const alpha = new Uint8Array(rect.w * rect.h);
+    for (let i = 0; i < alpha.length; i++) alpha[i] = rgba[i * 4 + 3];
+    return { rect: { ...rect }, alpha };
   }
 
   /**
-   * Ends painting: bakes it into the layer (or drops it). Returns the changed rectangle (layer
-   * pixels) and its pixels from before, for the history.
+   * Ends painting: bakes it into the surface (or drops it). Returns the changed rectangle
+   * (surface pixels) and its pixels from before, for the history.
    */
   endPaint(keep: boolean): { rect: Rect; before: Uint8Array } | null {
     const paint = this.paint;
@@ -867,7 +1313,8 @@ export class Engine {
     let out: { rect: Rect; before: Uint8Array } | null = null;
     if (paint && keep && rect) {
       const gl = this.gl;
-      const before = this.readTexture(paint.layer.tex, rect);
+      const surface = this.surfaceOf(paint);
+      const before = this.readTexture(surface.tex, rect);
       const scratch = makeTarget(gl, rect.w, rect.h);
       gl.bindFramebuffer(gl.FRAMEBUFFER, scratch.fbo);
       gl.viewport(0, 0, rect.w, rect.h);
@@ -876,18 +1323,20 @@ export class Engine {
       gl.useProgram(this.composite.program);
       gl.bindVertexArray(this.quad);
       const u = (n: string) => this.composite.u(n);
+      this.bindDefaults();
       gl.uniform1i(u("uBake"), 1);
       gl.uniform2i(u("uBakeOffset"), rect.x, rect.y);
-      // Every sampler needs a texture other than the one being drawn into, even unused ones:
-      // creating `scratch` bound it to the active unit.
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, this.empty);
-      gl.uniform1i(u("uBack"), 0);
-      this.bindLayer(paint.layer);
+      gl.uniform2f(u("uDocSize"), this.docW, this.docH);
+      this.bindUnit(UNIT.layer, "uLayer", surface.tex);
+      gl.uniform2i(u("uLayerSize"), surface.width, surface.height);
+      this.bindSelection();
+      this.bindPaint(paint);
+      // Baking treats the surface as the layer, whichever it is.
+      gl.uniform1i(u("uPaintOnMask"), 0);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-      // Copy the baked rectangle into the layer.
-      gl.activeTexture(gl.TEXTURE1);
-      gl.bindTexture(gl.TEXTURE_2D, paint.layer.tex);
+      // Copy the baked rectangle into the surface.
+      gl.activeTexture(gl.TEXTURE0 + UNIT.layer);
+      gl.bindTexture(gl.TEXTURE_2D, surface.tex);
       gl.copyTexSubImage2D(gl.TEXTURE_2D, 0, rect.x, rect.y, 0, 0, rect.w, rect.h);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       dropTarget(gl, scratch);
@@ -900,8 +1349,8 @@ export class Engine {
     return out;
   }
 
-  private layerRect(layer: PixelLayer): Rect {
-    return { x: layer.x, y: layer.y, w: layer.width, h: layer.height };
+  private surfaceRect(s: Surface): Rect {
+    return { x: s.x, y: s.y, w: s.width, h: s.height };
   }
 
   /** Frees the stroke buffer (it's kept between strokes on the same layer). */
@@ -982,7 +1431,7 @@ export class Engine {
     const gl = this.gl;
     this.endLive();
     for (const t of [this.ping, this.pong, this.result, this.paintTarget]) dropTarget(gl, t);
+    this.dropGroupBuffers();
     gl.getExtension("WEBGL_lose_context")?.loseContext();
   }
 }
-

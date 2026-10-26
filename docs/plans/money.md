@@ -1,8 +1,8 @@
 # Wallet: personal cost management
 
-*Written 2026-10-26. Status: **F1 (ledger) and F2 (budgets, Overview, Reports, backups) built**
-(`src/modules/wallet`, `src-tauri/src/wallet`); F3–F6 are still plans. Section 11 records the
-decisions. Wallet is the second "self management" section, after Time (`src-tauri/src/time/`).*
+*Written 2026-10-26. Status: **F1–F5 built** (`src/modules/wallet`, `src-tauri/src/wallet`); F6
+(sync) waits, as decided. Section 11 records the decisions. Wallet is the second "self
+management" section, after Time (`src-tauri/src/time/`).*
 
 ## 0. What's built (2026-10-26)
 
@@ -28,8 +28,67 @@ decisions. Wallet is the second "self management" section, after Time (`src-taur
   Every `wallet_*` command refuses while CorePro is locked, and locking clears the section.
 - **Backups**: a copy each day (`VACUUM INTO wallet/backups/YYYY-MM-DD.db`, the last 14 kept),
   and a "before-restore" copy before any restore.
-- Not built yet from F1/F2: budget roll-over, archiving categories from the UI, and a Settings →
-  Wallet page (the backups live on the Accounts view for now).
+- **Roll-over and archiving** (2026-10-27): a budget can roll over (what's left of last month's,
+  never below zero, follows back through months that roll over too); categories archive from
+  their sheet (a top category takes its sub-categories) and leave the pickers but keep their
+  history. **Settings → Wallet**: hide amounts by default, the base currency, hourly rates for
+  Time projects, backups with Restore.
+
+### Added 2026-10-27 (F3–F5)
+
+Migration 2 adds `recurring`, `receipts`, `rules`, `import_profiles`, `import_batches` and
+`project_rates`, plus `rollover` on budgets and `recurring_id`, `import_batch`, `import_hash`,
+`time_project` and `time_month` on transactions (a unique index makes a project's month post once).
+
+- **Bills (F3)**, `bills.rs` and the Bills view: daily, weekly, monthly (a day, or the last day;
+  the 31st falls on the month's last day without drifting) and yearly rules, every N periods, a
+  first date and an optional end. A bill either **posts by itself**: on the day, and for every
+  date it missed while CorePro was closed, each date in one SQLite transaction with moving the
+  rule on, so a second run or a crash never posts twice (checked at start, each hour while
+  unlocked, and whenever bills are listed). Or it **reminds**: it stays due, once, with the count
+  of missed dates ("2 unpaid · since 10 Sep"), until Mark Paid posts the next date or Skip passes
+  it. Pause, Delete (what it posted stays), Subscriptions and Income filters, the cost per year,
+  "Repeat…" on any transaction, and a Coming up card on Overview with Mark Paid.
+- **Receipts (F3)**, `receipts.rs`: pictures and PDFs (40 MB at most) are copied into
+  `wallet/receipts/<xxh3-128>.<ext>`, so the original can move or go; the same file is stored
+  once. Attach from the transaction sheet (CorePro's own picker), by dropping files on the sheet
+  or on a row (`drops.ts` claims the drop so the shell doesn't open the file), from Files'
+  context menu ("Attach to Wallet Transaction…", in any window), or on a new transaction before
+  it's added. Thumbnails open in a viewer window; rows show a paperclip. A file no receipt points
+  to is deleted after 15 days, so restoring a backup (14 kept) still finds its receipts.
+- **Import (F4)**, `import.rs` and Import & Export: CSV/TSV/TXT (UTF-8, or Windows-1252 from
+  old exports; the separator sniffed) and `.xlsx` through the `ironcalc` crate already used by
+  Sheets (`.xls`/`.ods` are asked to be saved as `.xlsx` first, so no `calamine`). The mapping is
+  guessed (header row, date, description, one amount or money out/in, a category column, date
+  order, decimal comma, "Dr"/"Cr", brackets) and can be changed or saved as a profile; a profile
+  saved for the account is used first. The preview shows every row with its category (a rule,
+  then a category column, then quick add's guess: payees seen before and words like "foodpanda"
+  or "desco"), duplicates and rows that aren't transactions (opening balances, totals); rows can
+  be left out or recategorised. Commit re-reads the file with the same mapping (the page sends
+  only its choices) and adds one batch; the duplicate key is the account, date, amount,
+  description and how many identical rows came before it in the file. Undo removes a batch.
+  Rules (words → category and a cleaner payee) are managed on the same view.
+- **Export (F4)**, `export.rs`: CSV (UTF-8 with BOM, as Excel opens it) and `.xlsx` with a sheet
+  per month (text that looks like a formula stays text) of the transactions the filters show,
+  and a JSON copy of every table.
+- **Earnings (F5)**, `earnings.rs` and `time_project_hours` in Time: minutes of work per task
+  project in local month bounds, hourly rates per project in any currency, an Earnings card on
+  Overview (hours × rate, base-currency total), and "Record as income": one income transaction
+  per project into an account of the rate's currency, dated today in the current month or the
+  month's last day; a project's month is refused the second time.
+
+Checked: 25 Wallet tests (bills catch-up and reminders, schedules, receipts surviving the
+original, imports twice and undo, money cells and statement dates, exports read back, earnings
+refused twice) and one in Time; in the app on a nested display, a monthly bill started 5 August
+posted August–October at once, a reminder showed "2 unpaid" and Mark Paid moved it on, a bank CSV
+imported with the right categories, re-importing found only the row left out, Undo restored the
+balance, a receipt attached from the sheet and from Files, roll-over carried ৳1,000, earnings
+recorded once, and Excel export read back. Dropping files from the desktop wasn't tried (the
+test display has no app to drag from).
+
+Not done: bank- and wallet-specific profiles (they need sample statements, section 11),
+reading PDF statements, "Cost in hours" next to expenses, receipts from the Gallery (the viewer
+has no menu for it yet), "Send to Notes", reminders as desktop notifications, and F6 sync.
 
 
 ## 1. Goals
@@ -267,9 +326,9 @@ no Zakat helper or lending yet. These can still change:
 |---|---|---|
 | F1 ✓ | **Ledger**: SQLite store with migrations, accounts, categories, transactions, transfers with fees, quick add, Transactions view, hide amounts, lock refusal | A month of entries across cash, bank and bKash gives the right balances. Rust tests cover transfer legs, signed sums and minor-unit formatting for 0-, 2- and 3-decimal currencies. |
 | F2 ✓ | **Plans**: budgets, Overview, Reports (SVG charts from tokens), daily backups | Budget bars match the hand-calculated figures. Charts read in light and dark themes. Restoring a backup works. |
-| F3 | **Bills and receipts**: recurring rules with catch-up, Bills view, receipt attach from the dialog, drag and drop, Files and Gallery | A monthly bill posts once after CorePro was closed for 40 days (one post per missed month, or a single reminder, as configured). Receipts survive moving the original file. |
-| F4 | **Import and export**: CSV/XLSX wizard with profiles, rules, duplicates and undo; CSV, XLSX and JSON export | Importing the same statement twice adds nothing the second time. Undo removes the whole batch. |
-| F5 | **Time link**: `time_project_hours`, project rates, Earnings card, record as income, cost in hours | Earnings match Time's report for the month, and posting twice is refused. |
+| F3 ✓ | **Bills and receipts**: recurring rules with catch-up, Bills view, receipt attach from the dialog, drag and drop, Files and Gallery | A monthly bill posts once after CorePro was closed for 40 days (one post per missed month, or a single reminder, as configured). Receipts survive moving the original file. |
+| F4 ✓ | **Import and export**: CSV/XLSX wizard with profiles, rules, duplicates and undo; CSV, XLSX and JSON export | Importing the same statement twice adds nothing the second time. Undo removes the whole batch. |
+| F5 ✓ | **Time link**: `time_project_hours`, project rates, Earnings card, record as income, cost in hours | Earnings match Time's report for the month, and posting twice is refused. |
 | F6 | **Sync**: encrypted per-device change logs, merge, status chip | Two profiles on one computer, syncing through a shared folder, converge after offline edits on both sides. A wrong passphrase reads nothing and deletes nothing. |
 
 ## 13. Risks

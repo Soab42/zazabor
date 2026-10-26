@@ -1,10 +1,19 @@
 import { h } from "../../../ui/dom";
 import { icon } from "../../../ui/icons";
-import { errorText, walletApi, type BudgetRow, type CategorySpend, type MonthTotals, type Tx } from "../api";
+import { errorText, walletApi, type Bill, type BudgetRow, type CategorySpend, type Earnings, type MonthTotals, type Tx } from "../api";
 import { ACCOUNT_KIND_ICON, accountOf, categoryName, categoryOf, fmt, type Ctx } from "../ctx";
-import { addMonths, dayLabel, monthEnd, monthLabel, monthStart, shortDate } from "../format";
+import { addMonths, dayLabel, monthEnd, monthLabel, monthStart, shortDate, todayKey } from "../format";
+import { billName, billSheet, dueText, payBill } from "./bills";
+import { earningsCard } from "./earnings";
 import { chartCard, hbars, meter } from "../charts";
 import { categoryGlyph, chip } from "../sheets";
+
+/** The date `n` days after "YYYY-MM-DD". */
+function addDays(key: string, n: number): string {
+  const [y, m, d] = key.split("-").map(Number);
+  const at = new Date(y, m - 1, d + n);
+  return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`;
+}
 
 /** A signed change against last month, coloured by whether that direction is good. */
 function delta(now: number, before: number, upIsGood: boolean, format: (v: number) => string): HTMLElement | null {
@@ -25,6 +34,8 @@ export function overviewView(ctx: Ctx) {
   let spend: CategorySpend[] = [];
   let budgets: BudgetRow[] = [];
   let recent: Tx[] = [];
+  let bills: Bill[] = [];
+  let earnings: Earnings | null = null;
   const el = h("div", { class: "wl-view wl-overview" });
 
   async function load() {
@@ -37,6 +48,7 @@ export function overviewView(ctx: Ctx) {
         walletApi.budgets(month),
         walletApi.list({ limit: 8 }).then((p) => p.items.filter((t) => !(t.kind === "transfer" && t.amountMinor > 0))),
       ]);
+      [bills, earnings] = await Promise.all([walletApi.bills(todayKey()), walletApi.earnings(month).catch(() => null)]);
     } catch (err) {
       ctx.toast(errorText(err));
     }
@@ -77,20 +89,22 @@ export function overviewView(ctx: Ctx) {
     })), { head: ["Category", "Spent"], rows: top.map((c) => [categoryName(ctx, c.categoryId), money(c.spentMinor)]) },
     spend.length > 6 ? h("button", { class: "text-btn", type: "button", onclick: () => ctx.go("reports") }, "All") : null);
 
+    // A budget that rolls over counts what came from last month too.
+    const limit = (b: BudgetRow) => (b.budgetMinor ?? 0) + b.carryMinor;
     const withBudget = budgets.filter((b) => b.budgetMinor != null && !categoryOf(ctx, b.categoryId)?.parentId)
-      .sort((a, b) => b.spentMinor / Math.max(1, b.budgetMinor!) - a.spentMinor / Math.max(1, a.budgetMinor!)).slice(0, 5);
+      .sort((a, b) => b.spentMinor / Math.max(1, limit(b)) - a.spentMinor / Math.max(1, limit(a))).slice(0, 5);
     const budgetCard = h("section", { class: "wl-card" },
       h("header", { class: "wl-card-head" }, h("div", null, h("h3", null, "Budgets"), h("p", { class: "wl-card-sub" }, "Closest to the limit first")), h("span", { class: "spacer" }),
         h("button", { class: "text-btn", type: "button", onclick: () => ctx.go("budgets") }, withBudget.length ? "All" : "Set up")),
       withBudget.length
         ? h("div", { class: "wl-mini-budgets" }, ...withBudget.map((b) => {
           const cat = categoryOf(ctx, b.categoryId);
-          const ratio = b.budgetMinor ? b.spentMinor / b.budgetMinor : 2;
+          const ratio = limit(b) ? b.spentMinor / limit(b) : 2;
           return h("div", { class: "wl-mini-budget" },
             h("div", { class: "wl-budget-line" }, chip(categoryGlyph(cat?.icon), cat?.color ?? "gray", 22), h("span", { class: "wl-mini-name" }, cat?.name ?? ""), h("span", { class: "spacer" }),
               ratio > 1
-                ? h("span", { class: "wl-mini-amount over" }, icon("info", 12), `${money(b.spentMinor - b.budgetMinor!)} over`)
-                : h("span", { class: "wl-mini-amount" }, `${money(b.spentMinor)} of ${money(b.budgetMinor!)}`)),
+                ? h("span", { class: "wl-mini-amount over" }, icon("info", 12), `${money(b.spentMinor - limit(b))} over`)
+                : h("span", { class: "wl-mini-amount" }, `${money(b.spentMinor)} of ${money(limit(b))}`)),
             meter(ratio));
         }))
         : h("p", { class: "wl-chart-empty" }, "No budgets for this month. Give a category a monthly limit to see how it's going."));
@@ -117,7 +131,28 @@ export function overviewView(ctx: Ctx) {
         }))
         : h("p", { class: "wl-chart-empty" }, "Nothing yet. Try Quick add above: “250 lunch bkash”."));
 
-    el.replaceChildren(h("div", { class: "wl-overview-top" }, hero, tiles), h("div", { class: "wl-overview-grid" }, spendCard, budgetCard, accountsCard, recentCard));
+    // Bills due within two weeks, and reminders still unpaid.
+    const today = todayKey();
+    const horizon = addDays(today, 14);
+    const due = bills.filter((b) => b.nextDate && !b.paused && b.nextDate <= horizon && (b.nextDate >= today || b.overdue > 0)).slice(0, 6);
+    const billsCard = h("section", { class: "wl-card" },
+      h("header", { class: "wl-card-head" }, h("div", null, h("h3", null, "Coming up"), h("p", { class: "wl-card-sub" }, "Bills in the next two weeks")), h("span", { class: "spacer" }),
+        h("button", { class: "text-btn", type: "button", onclick: () => ctx.go("bills") }, bills.length ? "All" : "Add")),
+      due.length
+        ? h("div", { class: "wl-mini-txs" }, ...due.map((b) => {
+          const cat = categoryOf(ctx, b.categoryId);
+          const late = b.nextDate! < today;
+          return h("div", { class: "wl-mini-tx wl-mini-bill" },
+            chip(categoryGlyph(cat?.icon ?? "repeat"), cat?.color ?? "gray", 26),
+            h("button", { class: "wl-mini-text text-btn", type: "button", onclick: () => billSheet(ctx, b) }, h("span", { class: "wl-mini-name" }, billName(ctx, b)), h("span", { class: `wl-card-sub${late ? " wl-late" : ""}` }, dueText(b))),
+            h("span", { class: "spacer" }),
+            h("span", { class: `wl-mini-amount ${b.kind === "income" ? "in" : ""}` }, fmt(ctx, b.kind === "income" ? b.amountMinor : -b.amountMinor, b.currency, { signed: true })),
+            !b.autoPost ? h("button", { class: `btn small${late ? " primary" : ""}`, type: "button", title: b.kind === "income" ? "Mark as received" : "Mark as paid", onclick: () => void payBill(ctx, b) }, icon("check", 13)) : null);
+        }))
+        : h("p", { class: "wl-chart-empty" }, bills.length ? "Nothing due in the next two weeks." : "Add rent, bills and subscriptions to see what's coming."));
+    const earn = earnings && (earnings.rows.length || earnings.rates.length) ? earningsCard(ctx, month, earnings) : null;
+
+    el.replaceChildren(h("div", { class: "wl-overview-top" }, hero, tiles), h("div", { class: "wl-overview-grid" }, spendCard, budgetCard, billsCard, accountsCard, ...(earn ? [earn] : []), recentCard));
   }
 
   return { id: "overview" as const, title: "Overview", el, usesMonth: true, load };

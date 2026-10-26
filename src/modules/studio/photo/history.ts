@@ -81,6 +81,14 @@ export class History {
     this.onChange();
   }
 
+  /**
+   * The newest step, when it's the one showing (nothing undone after it): a quick run of the same
+   * change (a slider moved with the arrow keys) can fold into it instead of adding steps.
+   */
+  get last(): Step | null {
+    return this.applied && this.applied === this.entries.length ? this.entries[this.applied - 1].step : null;
+  }
+
   undo() {
     if (!this.canUndo) return;
     this.entries[--this.applied].step.undo();

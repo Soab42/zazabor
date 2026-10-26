@@ -1,7 +1,7 @@
 import { h } from "../../../ui/dom";
 import { openDialog } from "../../time/dialog";
 import "../../time/time-module.css";
-import { SAVE_FORMATS, type SaveFormat } from "./api";
+import { hasQuality, SAVE_FORMATS, type SaveFormat } from "./api";
 import type { PhotoSettings } from "./settings";
 
 export interface NewCanvas {
@@ -98,10 +98,12 @@ export function askExport(last: PhotoSettings["export"]): Promise<{ format: Save
     const note = h("p", { class: "tt-dialog-text ph-note" });
     const sync = () => {
       qualityValue.textContent = `${quality.value}`;
-      qualityRow.hidden = format.value !== "jpeg";
+      qualityRow.hidden = !hasQuality(format.value as SaveFormat);
       note.textContent = format.value === "jpeg" || format.value === "bmp"
         ? "This format has no transparency: transparent parts become white. Layers are merged."
-        : "Layers are merged into one picture; the colour profile is kept.";
+        : format.value === "avif"
+          ? "Layers are merged; AVIF is written as sRGB and takes a few seconds for large pictures."
+          : "Layers are merged into one picture; the colour profile is kept.";
     };
     format.addEventListener("change", sync);
     quality.addEventListener("input", sync);
@@ -167,5 +169,166 @@ export function askImageSize(width: number, height: number, maxSide: number): Pr
     });
     w.focus();
     w.select();
+  });
+}
+
+/** One number (Feather, Expand, Contract…); null when cancelled. */
+export function askNumber(o: { title: string; label: string; value: number; min: number; max: number; unit: string; icon?: import("../../../ui/icons").IconName }): Promise<number | null> {
+  return new Promise((resolve) => {
+    let result: number | null = null;
+    const input = h("input", { type: "number", class: "ph-input", min: o.min, max: o.max, step: 1, value: o.value });
+    const submit = () => {
+      const v = Number(input.value);
+      if (!(v >= o.min && v <= o.max)) {
+        dialog.error(`Enter a number from ${o.min} to ${o.max}.`);
+        return;
+      }
+      result = v;
+      dialog.close();
+    };
+    const dialog = openDialog({
+      title: o.title,
+      icon: o.icon ?? "phMarquee",
+      tone: "work",
+      body: [field(o.label, input, o.unit)],
+      foot: [
+        h("span", { class: "spacer" }),
+        h("button", { class: "btn", type: "button", onclick: () => dialog.close() }, "Cancel"),
+        h("button", { class: "btn primary", type: "button", onclick: submit }, "OK"),
+      ],
+      submit,
+      onClose: () => resolve(result),
+    });
+    input.focus();
+    input.select();
+  });
+}
+
+export interface ColorRangeChoice {
+  color: string;
+  fuzziness: number;
+  allLayers: boolean;
+}
+
+/** Select ▸ Color Range: a colour and how far from it counts; `preview` shows each change. */
+export function askColorRange(start: ColorRangeChoice, preview: (c: ColorRangeChoice) => void): Promise<ColorRangeChoice | null> {
+  return new Promise((resolve) => {
+    let result: ColorRangeChoice | null = null;
+    const current = { ...start };
+    const color = h("input", { type: "color", class: "ph-color-field", value: current.color, "aria-label": "Colour" });
+    const fuzz = h("input", { type: "range", class: "ph-range", min: 0, max: 200, step: 1, value: current.fuzziness });
+    const fuzzValue = h("span", { class: "ph-field-suffix" }, String(current.fuzziness));
+    const all = h("input", { type: "checkbox", checked: current.allLayers });
+    let timer = 0;
+    const changed = () => {
+      current.color = color.value;
+      current.fuzziness = Number(fuzz.value);
+      current.allLayers = all.checked;
+      fuzzValue.textContent = fuzz.value;
+      clearTimeout(timer);
+      timer = window.setTimeout(() => preview({ ...current }), 120);
+    };
+    color.addEventListener("input", changed);
+    fuzz.addEventListener("input", changed);
+    all.addEventListener("change", changed);
+    const submit = () => {
+      clearTimeout(timer);
+      result = { ...current };
+      dialog.close();
+    };
+    const dialog = openDialog({
+      title: "Color Range",
+      class: "ph-live-dialog",
+      subtitle: "Selects every pixel close to a colour",
+      icon: "phWand",
+      tone: "work",
+      body: [
+        field("Colour", color),
+        h("label", { class: "ph-field" }, h("span", { class: "ph-field-label" }, "Fuzziness"), fuzz, fuzzValue),
+        h("label", { class: "ph-check" }, all, "Sample all layers"),
+      ],
+      foot: [
+        h("span", { class: "spacer" }),
+        h("button", { class: "btn", type: "button", onclick: () => dialog.close() }, "Cancel"),
+        h("button", { class: "btn primary", type: "button", onclick: submit }, "OK"),
+      ],
+      submit,
+      onClose: () => {
+        clearTimeout(timer);
+        resolve(result);
+      },
+    });
+    preview({ ...current });
+  });
+}
+
+type FilterKind = import("./filters").FilterKind;
+type FilterSettings = import("./filters").FilterSettings;
+
+/** A filter's settings, previewed on the canvas while they change; null when cancelled. */
+export function askFilter<K extends FilterKind>(kind: K, start: FilterSettings[K], title: string, preview: (s: FilterSettings[K] | null) => void): Promise<FilterSettings[K] | null> {
+  return new Promise((resolve) => {
+    let result: FilterSettings[K] | null = null;
+    const current = { ...start } as Record<string, number | boolean>;
+    let timer = 0;
+    const previewOn = h("input", { type: "checkbox", checked: true });
+    const changed = () => {
+      clearTimeout(timer);
+      timer = window.setTimeout(() => preview(previewOn.checked ? ({ ...current } as FilterSettings[K]) : null), 90);
+    };
+    previewOn.addEventListener("change", changed);
+    const range = (key: string, label: string, min: number, max: number, step: number, unit = "") => {
+      const input = h("input", { type: "range", class: "ph-range", min, max, step, value: current[key] as number });
+      const box = h("input", { type: "number", class: "ph-input small", min, max, step, value: current[key] as number });
+      input.addEventListener("input", () => {
+        current[key] = Number(input.value);
+        box.value = input.value;
+        changed();
+      });
+      box.addEventListener("change", () => {
+        const v = Math.min(max, Math.max(min, Number(box.value) || min));
+        current[key] = v;
+        input.value = box.value = String(v);
+        changed();
+      });
+      return h("label", { class: "ph-field" }, h("span", { class: "ph-field-label" }, label), input, box, unit ? h("span", { class: "ph-field-suffix" }, unit) : null);
+    };
+    const toggle = (key: string, label: string) => {
+      const input = h("input", { type: "checkbox", checked: current[key] as boolean });
+      input.addEventListener("change", () => {
+        current[key] = input.checked;
+        changed();
+      });
+      return h("label", { class: "ph-check" }, input, label);
+    };
+    const body: HTMLElement[] = [];
+    if (kind === "gaussian") body.push(range("radius", "Radius", 0.1, 250, 0.1, "px"));
+    else if (kind === "unsharp") body.push(range("amount", "Amount", 1, 500, 1, "%"), range("radius", "Radius", 0.1, 250, 0.1, "px"), range("threshold", "Threshold", 0, 255, 1, "levels"));
+    else if (kind === "noise") body.push(range("amount", "Amount", 0, 400, 0.5, "%"), toggle("gaussian", "Gaussian (uniform when off)"), toggle("mono", "Monochromatic"));
+    else body.push(range("angle", "Angle", -360, 360, 1, "°"), range("distance", "Distance", 1, 300, 1, "px"));
+    body.push(h("label", { class: "ph-check" }, previewOn, "Preview"));
+    const submit = () => {
+      clearTimeout(timer);
+      result = { ...current } as FilterSettings[K];
+      dialog.close();
+    };
+    const dialog = openDialog({
+      title,
+      class: "ph-live-dialog",
+      icon: kind === "noise" ? "phNoise" : kind === "unsharp" ? "phSharpen" : kind === "motion" ? "phMotion" : "phBlur",
+      tone: "work",
+      body,
+      foot: [
+        h("span", { class: "spacer" }),
+        h("button", { class: "btn", type: "button", onclick: () => dialog.close() }, "Cancel"),
+        h("button", { class: "btn primary", type: "button", onclick: submit }, "OK"),
+      ],
+      submit,
+      onClose: () => {
+        clearTimeout(timer);
+        resolve(result);
+      },
+    });
+    preview({ ...current } as FilterSettings[K]);
   });
 }

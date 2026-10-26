@@ -26,7 +26,43 @@ export interface Source {
   mips: boolean;
 }
 
+/** A 3D colour table on the GPU (see lut.ts). */
+export interface Lut3D {
+  tex: WebGLTexture;
+  size: number;
+}
+
+/** Shader ids of the effects drawn in the layer shader (shake, pulse and blur-in move or blur the layer instead). */
+export const SHADER_EFFECTS: Record<string, number> = { glitch: 1, rgb: 2, vhs: 3, mirror: 4, flash: 5 };
+
+/** A layer's extras: effects, chroma key, colour table, mask and picture-in-picture frame. */
+export interface LayerFx {
+  sharpen: number;
+  vignette: number;
+  grain: number;
+  /** SHADER_EFFECTS id, 0 for none. */
+  effect: number;
+  amount: number;
+  /** Seconds into the clip, and the timeline time (animated effects). */
+  local: number;
+  time: number;
+  seed: number;
+  /** Key colour (0…1) and tolerance, softness, spill. */
+  key: [number, number, number, number, number, number] | null;
+  lut: Lut3D | null;
+  lutStrength: number;
+  /** 1 = ellipse, 2 = rectangle; centre in the picture (0…1), size and feather in its shorter side, inverted. */
+  mask: { shape: 1 | 2; rect: [number, number, number, number]; feather: number; invert: boolean } | null;
+  /** Rounded corners and border in output pixels; border colour 0…1. */
+  radius: number;
+  border: number;
+  borderColor: [number, number, number];
+}
+
 export interface LayerDraw {
+  /** A drop shadow instead of a picture: a soft dark rounded box `box` big (half sizes, px). */
+  shadow?: { box: [number, number]; radius: number; softness: number };
+  fx?: LayerFx;
   source: Source;
   /** Centre and size in output pixels (before rotation), rotation in radians. */
   center: [number, number];
@@ -56,16 +92,26 @@ void main() {
 
 const LAYER_FS = `#version 300 es
 precision highp float;
+precision highp sampler3D;
 in vec2 vUv;
 out vec4 outColor;
 uniform int uYuv;
 uniform sampler2D uY, uU, uV;
-uniform vec2 uTexel;
+uniform sampler3D uLut;
+uniform vec2 uTexel, uPx, uBox;
 uniform float uLod, uOpacity, uDim, uGraded;
 uniform vec3 uLift, uGamma, uGain, uShadowTint, uHighTint;
 uniform float uSat, uContrast;
 uniform vec3 uAdjust;
+uniform int uEffect, uLutOn, uMask, uKeyOn, uSolid;
+uniform float uSharpen, uVignette, uGrain, uAmount, uLocal, uTime, uSeed, uLutStrength, uLutSize;
+uniform vec3 uKeyColor, uKeyParams, uBorderColor;
+uniform vec4 uMaskRect;
+uniform float uMaskFeather, uMaskInvert, uRadius, uBorder, uSoft;
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+vec2 chroma(vec3 c) { float y = dot(c, vec3(0.299, 0.587, 0.114)); return vec2((c.b - y) * 0.565, (c.r - y) * 0.713); }
+float roundBox(vec2 p, vec2 b, float r) { vec2 q = abs(p) - b + r; return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r; }
 vec4 fetch(vec2 uv) {
   if (uYuv == 1) {
     float y = (textureLod(uY, uv, uLod).r - 0.0627) * 1.164;
@@ -92,15 +138,76 @@ vec3 grade(vec3 c) {
   c += uShadowTint * (1.0 - smoothstep(0.0, 0.55, l)) + uHighTint * smoothstep(0.45, 1.0, l);
   return clamp(c, 0.0, 1.0);
 }
+vec2 effectUv(vec2 uv) {
+  if (uEffect == 4) uv.x = uv.x < 0.5 ? uv.x : 1.0 - uv.x;
+  if (uEffect == 1) {
+    float t = floor(uTime * 12.0), band = floor(uv.y * 24.0);
+    if (hash(vec2(band, t + uSeed)) > 1.0 - 0.25 * uAmount) uv.x += (hash(vec2(t, band)) - 0.5) * 0.12 * uAmount;
+  }
+  if (uEffect == 3) uv.x += sin(uv.y * 40.0 + uTime * 5.0) * 0.002 * uAmount + (hash(vec2(floor(uv.y * 240.0), floor(uTime * 30.0))) - 0.5) * 0.003 * uAmount;
+  return uv;
+}
+vec4 colorAt(vec2 uv) {
+  vec4 s = sampleAt(clamp(uv, 0.0, 1.0));
+  if (uEffect == 1 || uEffect == 2 || uEffect == 3) {
+    float d = (uEffect == 2 ? 0.012 : uEffect == 1 ? 0.009 : 0.004) * uAmount;
+    if (uEffect == 1) d *= step(0.45, hash(vec2(floor(uTime * 12.0), uSeed)));
+    s.r = sampleAt(clamp(uv + vec2(d, 0.0), 0.0, 1.0)).r;
+    s.b = sampleAt(clamp(uv - vec2(d, 0.0), 0.0, 1.0)).b;
+  }
+  if (uSharpen > 0.0) {
+    vec2 o = uTexel;
+    vec3 n = (sampleAt(clamp(uv + vec2(o.x, 0.0), 0.0, 1.0)).rgb + sampleAt(clamp(uv - vec2(o.x, 0.0), 0.0, 1.0)).rgb
+      + sampleAt(clamp(uv + vec2(0.0, o.y), 0.0, 1.0)).rgb + sampleAt(clamp(uv - vec2(0.0, o.y), 0.0, 1.0)).rgb) * 0.25;
+    s.rgb = clamp(s.rgb + (s.rgb - n) * uSharpen * 2.0, 0.0, 1.0);
+  }
+  return s;
+}
 void main() {
-  vec4 s = sampleAt(clamp(vUv, 0.0, 1.0));
+  vec2 p = (vUv - 0.5) * uPx;
+  if (uSolid == 1) {
+    float d = roundBox(p, uBox, uRadius);
+    float a = (1.0 - smoothstep(-uSoft, uSoft, d)) * uOpacity;
+    outColor = vec4(0.0, 0.0, 0.0, a);
+    return;
+  }
+  vec4 s = colorAt(effectUv(vUv));
   vec3 c = s.rgb;
+  float alpha = s.a;
+  if (uKeyOn == 1) {
+    float d = distance(chroma(c), chroma(uKeyColor));
+    alpha *= smoothstep(uKeyParams.x, uKeyParams.x + uKeyParams.y + 0.001, d);
+    c = mix(c, vec3(luma(c)), uKeyParams.z * (1.0 - smoothstep(uKeyParams.x, uKeyParams.x + uKeyParams.y + 0.2, d)));
+  }
   if (uGraded > 0.5) c = grade(c);
   c += uAdjust.x * 0.5;
   c = (c - 0.5) * (1.0 + uAdjust.y) + 0.5;
   c = mix(vec3(luma(c)), c, 1.0 + uAdjust.z);
+  c = clamp(c, 0.0, 1.0);
+  if (uLutOn == 1) c = mix(c, texture(uLut, c * ((uLutSize - 1.0) / uLutSize) + 0.5 / uLutSize).rgb, uLutStrength);
+  if (uVignette > 0.0) c *= 1.0 - uVignette * smoothstep(0.3, 0.95, length(vUv - 0.5) * 1.414);
+  if (uEffect == 3) c = mix(c, c * (0.9 + 0.1 * sin(vUv.y * uPx.y * 1.6)) * vec3(1.04, 0.98, 1.07), uAmount);
+  if (uEffect == 5) c = mix(c, vec3(1.0), clamp(uAmount * exp(-uLocal * 7.0), 0.0, 1.0));
+  if (uGrain > 0.0) c += (hash(vUv * uPx + fract(uTime * 13.7) * 97.0) - 0.5) * uGrain * 0.22;
   c = clamp(c, 0.0, 1.0) * (1.0 - uDim);
-  float a = s.a * uOpacity;
+  if (uMask > 0) {
+    // Sizes are fractions of the picture's shorter side, so equal ones make a circle or a square.
+    float side = min(uPx.x, uPx.y);
+    vec2 q = (vUv - uMaskRect.xy) * uPx;
+    vec2 hs = max(uMaskRect.zw * side * 0.5, vec2(0.5));
+    float d;
+    if (uMask == 1) d = (length(q / hs) - 1.0) * min(hs.x, hs.y);
+    else { vec2 e = abs(q) - hs; d = length(max(e, 0.0)) + min(max(e.x, e.y), 0.0); }
+    float f = max(1.0, uMaskFeather * side);
+    float inside = 1.0 - smoothstep(-f, f, d);
+    alpha *= uMaskInvert > 0.5 ? 1.0 - inside : inside;
+  }
+  if (uRadius > 0.0 || uBorder > 0.0) {
+    float d = roundBox(p, uBox, uRadius);
+    alpha *= clamp(0.5 - d, 0.0, 1.0);
+    if (uBorder > 0.0) c = mix(c, uBorderColor, clamp(d + uBorder + 0.5, 0.0, 1.0));
+  }
+  float a = alpha * uOpacity;
   outColor = vec4(c * a, a);
 }`;
 
@@ -292,6 +399,24 @@ export class Compositor {
     return s;
   }
 
+  /** A colour table as a 3D texture (RGB, 16-bit float). */
+  uploadLut(size: number, data: Float32Array): Lut3D {
+    const gl = this.gl;
+    const tex = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_3D, tex);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+    gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGB16F, size, size, size, 0, gl.RGB, gl.FLOAT, data);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    for (const k of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T, gl.TEXTURE_WRAP_R]) gl.texParameteri(gl.TEXTURE_3D, k, gl.CLAMP_TO_EDGE);
+    gl.bindTexture(gl.TEXTURE_3D, null);
+    return { tex, size };
+  }
+
+  releaseLut(lut: Lut3D) {
+    this.gl.deleteTexture(lut.tex);
+  }
+
   release(source: Source) {
     for (const t of source.textures) this.gl.deleteTexture(t);
     source.textures = [];
@@ -335,9 +460,20 @@ export class Compositor {
     gl.uniform1i(u("uY"), 0);
     gl.uniform1i(u("uU"), 1);
     gl.uniform1i(u("uV"), 2);
+    // Its own unit: two sampler types may not share one.
+    gl.uniform1i(u("uLut"), 3);
     for (const l of layers) {
       const s = l.source;
-      if (!s.textures.length || !s.width) continue;
+      if (!l.shadow && (!s.textures.length || !s.width)) continue;
+      this.layerExtras(l);
+      if (l.shadow) {
+        gl.uniform2f(u("uCenter"), l.center[0], l.center[1]);
+        gl.uniform2f(u("uSize"), l.size[0], l.size[1]);
+        gl.uniform1f(u("uRot"), l.rotation);
+        gl.uniform1f(u("uOpacity"), l.opacity);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        continue;
+      }
       if (l.blur > 0) this.ensureMips(s);
       s.textures.forEach((tex, i) => {
         gl.activeTexture(gl.TEXTURE0 + i);
@@ -364,7 +500,58 @@ export class Compositor {
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
     gl.disable(gl.BLEND);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_3D, null);
     gl.activeTexture(gl.TEXTURE0);
+  }
+
+  /** The uniforms beyond the picture itself: effects, key, colour table, mask, frame, shadow. */
+  private layerExtras(l: LayerDraw) {
+    const gl = this.gl;
+    const u = this.ul;
+    const fx = l.fx;
+    gl.uniform2f(u("uPx"), l.size[0], l.size[1]);
+    gl.uniform1i(u("uSolid"), l.shadow ? 1 : 0);
+    if (l.shadow) {
+      gl.uniform2f(u("uBox"), l.shadow.box[0], l.shadow.box[1]);
+      gl.uniform1f(u("uRadius"), l.shadow.radius);
+      gl.uniform1f(u("uSoft"), l.shadow.softness);
+      return;
+    }
+    gl.uniform2f(u("uBox"), l.size[0] / 2, l.size[1] / 2);
+    gl.uniform1i(u("uEffect"), fx?.effect ?? 0);
+    gl.uniform1f(u("uAmount"), fx?.amount ?? 0);
+    gl.uniform1f(u("uLocal"), fx?.local ?? 0);
+    gl.uniform1f(u("uTime"), fx?.time ?? 0);
+    gl.uniform1f(u("uSeed"), fx?.seed ?? 0);
+    gl.uniform1f(u("uSharpen"), fx?.sharpen ?? 0);
+    gl.uniform1f(u("uVignette"), fx?.vignette ?? 0);
+    gl.uniform1f(u("uGrain"), fx?.grain ?? 0);
+    const key = fx?.key;
+    gl.uniform1i(u("uKeyOn"), key ? 1 : 0);
+    if (key) {
+      gl.uniform3f(u("uKeyColor"), key[0], key[1], key[2]);
+      gl.uniform3f(u("uKeyParams"), key[3], key[4], key[5]);
+    }
+    const lut = fx?.lut;
+    gl.uniform1i(u("uLutOn"), lut ? 1 : 0);
+    if (lut) {
+      gl.activeTexture(gl.TEXTURE3);
+      gl.bindTexture(gl.TEXTURE_3D, lut.tex);
+      gl.uniform1f(u("uLutSize"), lut.size);
+      gl.uniform1f(u("uLutStrength"), fx?.lutStrength ?? 1);
+    }
+    const mask = fx?.mask;
+    gl.uniform1i(u("uMask"), mask ? mask.shape : 0);
+    if (mask) {
+      gl.uniform4f(u("uMaskRect"), mask.rect[0], mask.rect[1], mask.rect[2], mask.rect[3]);
+      gl.uniform1f(u("uMaskFeather"), Math.max(0.001, mask.feather));
+      gl.uniform1f(u("uMaskInvert"), mask.invert ? 1 : 0);
+    }
+    gl.uniform1f(u("uRadius"), fx?.radius ?? 0);
+    gl.uniform1f(u("uBorder"), fx?.border ?? 0);
+    const bc = fx?.borderColor ?? [1, 1, 1];
+    gl.uniform3f(u("uBorderColor"), bc[0], bc[1], bc[2]);
   }
 
   /**
@@ -416,6 +603,18 @@ export class Compositor {
     gl.uniform3f(u("uHighTint"), 0, 0, 0);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.activeTexture(gl.TEXTURE0);
+  }
+
+  /** The colour of output pixel (x, y) from the top left, 0…255 (the eyedropper). */
+  readPixel(x: number, y: number): [number, number, number] | null {
+    const c = this.targets.c;
+    if (!c || this.lost) return null;
+    const gl = this.gl;
+    const px = new Uint8Array(4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, c.fb);
+    gl.readPixels(Math.max(0, Math.min(c.width - 1, Math.round(x))), Math.max(0, Math.min(c.height - 1, c.height - 1 - Math.round(y))), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return [px[0], px[1], px[2]];
   }
 
   /** Shows C on the canvas (its size is the output size). */

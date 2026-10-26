@@ -7,6 +7,10 @@ import { errorText, walletApi, type Filter, type Tx, type TxKind } from "../api"
 import { accountOf, categoryName, categoryOf, fmt, type Ctx } from "../ctx";
 import { addMonths, dateKey, dayLabel, monthEnd, monthStart, parseDate, plain, thisMonth, todayKey } from "../format";
 import { categoryGlyph, chip } from "../sheets";
+import { dropTarget } from "../drops";
+import { attachReceipts, pickReceipts } from "../receipts";
+import { billSheet } from "./bills";
+import { exportDialog } from "./importer";
 
 const PAGE = 200;
 
@@ -48,15 +52,24 @@ export function transactionsView(ctx: Ctx) {
   accountSelect.addEventListener("change", () => ((accountId = accountSelect.value || null), void load()));
   categorySelect.addEventListener("change", () => ((categoryId = categorySelect.value || null), void load()));
 
+  const exportButton = h("button", { class: "icon-btn", type: "button", title: "Export these transactions", "aria-label": "Export these transactions", onclick: () => exportDialog(ctx, filter(0)) }, icon("saveAs", 16));
   const filters = h("div", { class: "wl-filters" }, periodSelect, custom, accountSelect, categorySelect,
     h("div", { class: "segmented" }, ...kindButtons), h("span", { class: "spacer" }),
-    h("label", { class: "search wl-search" }, icon("search", 15), search));
+    h("label", { class: "search wl-search" }, icon("search", 15), search), exportButton);
   const summary = h("div", { class: "wl-summary" });
   const list = h("div", { class: "wl-tx-list", role: "listbox", "aria-multiselectable": "true", tabindex: 0 });
   const more = h("button", { class: "btn small", type: "button", onclick: () => void load(true) }, "Load more");
   const moreRow = h("div", { class: "wl-more" }, more);
   const selectionBar = h("div", { class: "wl-selection glass-strong" });
   const el = h("div", { class: "wl-view wl-transactions" }, filters, summary, list, moreRow, selectionBar);
+  // Pictures and PDFs dropped on a row are its receipts.
+  dropTarget(list, (paths, at) => {
+    const t = items.find((x) => x.id === at.dataset.id);
+    if (t) void attachReceipts(ctx, t.id, paths);
+  }, (under) => {
+    const row = under.closest<HTMLElement>(".wl-tx[data-id]");
+    return row && !row.classList.contains("transfer") ? row : null;
+  });
 
   function span(): { from: string | null; to: string | null } {
     const month = thisMonth();
@@ -133,12 +146,15 @@ export function transactionsView(ctx: Ctx) {
       : [t.payee ? categoryName(ctx, t.categoryId, true) : null, acc?.name, t.note].filter(Boolean);
     const amount = transferWithoutSide ? fmt(ctx, -t.amountMinor, t.currency) : fmt(ctx, t.amountMinor, t.currency, { signed: true });
     const el = h("div", {
-      class: `wl-tx${selected.has(t.id) ? " selected" : ""} ${t.kind}`, role: "option", "aria-selected": String(selected.has(t.id)), tabindex: -1,
+      class: `wl-tx${selected.has(t.id) ? " selected" : ""} ${t.kind}`, role: "option", "aria-selected": String(selected.has(t.id)), tabindex: -1, "data-id": t.id,
     },
     t.kind === "transfer" ? chip("transfer", "gray") : chip(categoryGlyph(cat?.icon), cat?.color ?? "gray"),
     h("div", { class: "wl-tx-text" },
       h("span", { class: "wl-tx-title", title: title(t) }, title(t)),
       sub.length ? h("span", { class: "wl-tx-sub", title: sub.join(" · ") }, sub.join(" · ")) : null),
+    h("span", { class: "wl-tx-marks" },
+      t.recurringId ? h("span", { class: "wl-tx-mark", title: "Posted by a bill" }, icon("repeat", 13)) : null,
+      t.receipts ? h("span", { class: "wl-tx-mark", title: `${t.receipts} receipt${t.receipts === 1 ? "" : "s"}` }, icon("paperclip", 13), t.receipts > 1 ? String(t.receipts) : null) : null),
     acc && !accountId && t.kind !== "transfer" ? h("span", { class: `wl-acc-pill wl-c-${acc.color}` }, acc.name) : null,
     h("span", { class: `wl-tx-amount ${t.kind === "income" ? "in" : t.kind === "transfer" ? "move" : "out"}` }, amount));
     el.addEventListener("click", (e) => select(t.id, e.ctrlKey || e.metaKey, e.shiftKey));
@@ -266,6 +282,8 @@ export function transactionsView(ctx: Ctx) {
     openMenu(x, y, [
       { label: "Edit…", icon: "pencil", action: () => ctx.openTx(t), disabled: many },
       { label: "Duplicate", icon: "copy", disabled: many || t.kind === "transfer", action: () => ctx.openTx(null, { kind: t.kind === "income" ? "income" : "expense", accountId: t.accountId, amount: plain(t.amountMinor, t.currency), categoryId: t.categoryId, payee: t.payee, note: t.note, date: todayKey() }) },
+      { label: "Attach Receipt…", icon: "paperclip", disabled: many || t.kind === "transfer", action: () => void pickReceipts().then((paths) => attachReceipts(ctx, t.id, paths)) },
+      { label: "Repeat…", icon: "repeat", disabled: many || t.kind === "transfer" || !!t.recurringId, action: () => billSheet(ctx, null, t) },
       { label: "Show this account", icon: "wallet", action: () => ctx.go("transactions", { accountId: t.accountId }), disabled: !!accountId },
       "separator",
       { label: many ? `Delete ${chosen().length} transactions` : "Delete", icon: "trash", danger: true, action: () => void remove(chosen()) },

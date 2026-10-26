@@ -23,7 +23,8 @@ export async function loadPdfjs() {
  */
 export async function renderPdf(path: string, width: number, isCurrent: () => boolean): Promise<HTMLElement> {
   const pdfjs = await loadPdfjs();
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(await readBinary(path, MAX_BYTES)) }).promise;
+  // OffscreenCanvas off: WebKitGTK draws big page pictures (scans) blank through it.
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(await readBinary(path, MAX_BYTES)), isOffscreenCanvasSupported: false }).promise;
   const pages = h("div", { class: "ql-pdf" });
   const count = Math.min(doc.numPages, MAX_PAGES);
   const scale = Math.max(1, window.devicePixelRatio || 1);

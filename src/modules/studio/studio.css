@@ -15,3 +15,7 @@
 .sd-tile.r1x1 .sd-tile-frame { width: 80px; height: 80px; }
 .sd-tile.r4x5 .sd-tile-frame { width: 72px; height: 90px; }
 .sd-tile.r4x3 .sd-tile-frame { width: 100px; height: 75px; }
+
+/* Home: projects AutoRecover kept from a CorePro that stopped without saving. */
+.sd-recovered { margin: 22px 0 8px; }
+.sd-recovered[hidden] { display: none; }
