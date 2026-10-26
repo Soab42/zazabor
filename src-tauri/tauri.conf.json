@@ -13,6 +13,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "CorePro",
         "width": 1400,
         "height": 900,
@@ -23,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' cs: http://cs.localhost data: blob:; media-src 'self' cs: http://cs.localhost blob:; connect-src 'self' ipc: http://ipc.localhost cs: http://cs.localhost; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' cs: http://cs.localhost data: blob:; media-src 'self' cs: http://cs.localhost blob:; connect-src 'self' ipc: http://ipc.localhost cs: http://cs.localhost; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {

@@ -2,9 +2,17 @@ import type { Config } from "../config";
 import type { IconName } from "../ui/icons";
 
 /** The features CorePro is made of; each can be turned off in Settings. */
-export type ModuleId = "files" | "gallery" | "video" | "terminal";
+export type ModuleId = "files" | "gallery" | "video" | "terminal" | "notes" | "time" | "wallet" | "office" | "studio" | "clipboard";
 
-export const MODULE_IDS: readonly ModuleId[] = ["files", "gallery", "video", "terminal"];
+export const MODULE_IDS: readonly ModuleId[] = ["files", "gallery", "video", "terminal", "notes", "time", "wallet", "office", "studio", "clipboard"];
+
+/** A dot on a module's rail button while it has something going on (Time: a timer running). */
+export interface RailStatus {
+  /** "live" pulses (a task timer runs), "paused" (an activity runs), "on" (checked in, nothing running). */
+  tone: "live" | "paused" | "on";
+  /** Added to the button's tooltip. */
+  title: string;
+}
 
 /** Something one module asks the shell to show, usually in another module. */
 export type OpenRequest =
@@ -14,7 +22,14 @@ export type OpenRequest =
    * window exists only for this file, so show it without the module's library around it.
    */
   | { kind: "image"; path: string; siblings?: string[]; alone?: boolean }
-  | { kind: "video"; path: string; siblings?: string[]; alone?: boolean };
+  | { kind: "video"; path: string; siblings?: string[]; alone?: boolean }
+  /** A Word or Excel file (or .csv, .odt…), for Office. */
+  | { kind: "office"; path: string; alone?: boolean }
+  /**
+   * Studio: a picture (or a .coreimage) to edit in Photo, or clips and pictures to start a video
+   * with in the Video Editor (a .corevideo project opens as it is).
+   */
+  | { kind: "studio"; app: "photo" | "video"; path?: string; paths?: string[] };
 
 /** The app-wide privacy lock, as seen by modules. */
 export interface ShellLock {
@@ -38,6 +53,8 @@ export interface ShellContext {
   /** Opens a path with the system's default application. */
   openExternally(path: string): void;
   showModule(id: ModuleId): void;
+  /** Opens Settings, on a category when given (main window only). */
+  openSettings(category?: string): void;
   readonly lock: ShellLock;
 }
 
@@ -58,6 +75,8 @@ export interface AppModule {
   open?(request: OpenRequest): void;
   /** True while the module is in a full-screen mode (e.g. a slideshow) that shell shortcuts must not interrupt. */
   readonly modal?: boolean;
+  /** Ctrl+N reaches `handleKey` (a new file, as in Word) instead of opening a new CorePro window. */
+  readonly ownsNewKey?: boolean;
   /** Appearance changed (theme, accent, grid layout, zoom curve); re-apply whatever depends on it. */
   appearanceChanged?(): void;
   /** Settings edited the module's part of the config; re-read it. */

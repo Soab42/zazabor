@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Installs CorePro for the current user, no root needed: the app in ~/.local/bin, its bundled
 # soundtracks in ~/.local/lib/CorePro, and a launcher entry plus icons so it appears in the
-# applications menu and in "Open With" for images, video and folders. It also removes the old
-# SliderPro launcher, binary and icons so the menu has no duplicate.
+# applications menu and in "Open With" for images, video, folders, and Word, Excel and CSV files.
+# With --background it also starts CorePro in the background at login, for the clipboard
+# history (Settings → Clipboard → Run in the background does the same). It removes the old
+# SliderPro launcher, binary and icons.
 #
-#   scripts/install-linux.sh              build, then install
-#   scripts/install-linux.sh --no-build   install the existing release build
-#   scripts/install-linux.sh --uninstall  remove everything this script installed
+#   scripts/install-linux.sh               build, then install
+#   scripts/install-linux.sh --no-build    install the existing release build
+#   scripts/install-linux.sh --background  also start CorePro in the background at login
+#   scripts/install-linux.sh --uninstall   remove everything this script installed
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -14,6 +17,18 @@ bin_dir="$HOME/.local/bin"
 lib_dir="$HOME/.local/lib/CorePro"
 data_dir="${XDG_DATA_HOME:-$HOME/.local/share}"
 desktop_file="$data_dir/applications/corepro.desktop"
+autostart_file="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/corepro.desktop"
+build=1
+background=0
+for arg in "$@"; do
+  case "$arg" in
+    --no-build) build=0 ;;
+    --background) background=1 ;;
+    --no-background) background=0 ;;
+    --uninstall) ;;
+    *) echo "Unknown option: $arg" >&2; exit 2 ;;
+  esac
+done
 icon_sizes=(32 64 128 256 512)
 
 refresh_menus() {
@@ -29,7 +44,7 @@ remove_sliderpro() {
 }
 
 if [[ "${1:-}" == "--uninstall" ]]; then
-  rm -f "$bin_dir/corepro" "$desktop_file"
+  rm -f "$bin_dir/corepro" "$desktop_file" "$autostart_file"
   rm -rf "$lib_dir"
   for size in "${icon_sizes[@]}"; do rm -f "$data_dir/icons/hicolor/${size}x${size}/apps/corepro.png"; done
   remove_sliderpro
@@ -38,7 +53,7 @@ if [[ "${1:-}" == "--uninstall" ]]; then
   exit 0
 fi
 
-if [[ "${1:-}" != "--no-build" ]]; then
+if [[ $build == 1 ]]; then
   npx tauri build --no-bundle
 fi
 
@@ -62,17 +77,48 @@ cat > "$desktop_file" <<EOF
 [Desktop Entry]
 Type=Application
 Name=CorePro
-GenericName=Files, photos and video
-Comment=Browse files, view photos with deep zoom and play videos in one app
+GenericName=Files, photos, video and office
+Comment=Files, photos, video, notes, time tracking, a wallet, Word and Excel files, and clipboard history in one app
 Exec=$bin_dir/corepro %F
 Icon=corepro
 Terminal=false
 Categories=Utility;FileManager;Graphics;AudioVideo;
-Keywords=files;folders;photo;picture;gallery;slideshow;video;viewer;
-MimeType=image/jpeg;image/png;image/gif;image/webp;image/bmp;image/tiff;video/mp4;video/x-matroska;video/webm;video/quicktime;video/x-msvideo;inode/directory;
+Keywords=files;folders;photo;picture;gallery;slideshow;video;viewer;notes;sticky;time;tracker;wallet;money;office;word;excel;docx;xlsx;spreadsheet;document;clipboard;emoji;
+MimeType=image/jpeg;image/png;image/gif;image/webp;image/bmp;image/tiff;video/mp4;video/x-matroska;video/webm;video/quicktime;video/x-msvideo;inode/directory;application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;application/vnd.ms-excel.sheet.macroEnabled.12;text/csv;text/tab-separated-values;application/pdf;
 StartupWMClass=corepro
+Actions=new-note;clipboard;
+
+[Desktop Action new-note]
+Name=New Note
+Exec=$bin_dir/corepro --new-note
+
+[Desktop Action clipboard]
+Name=Clipboard History
+Exec=$bin_dir/corepro --clipboard
 EOF
+
+# At login, CorePro starts with no window and keeps the clipboard history (the same entry
+# Settings → Clipboard → "Run in the background" writes).
+if [[ $background == 1 ]]; then
+  mkdir -p "$(dirname "$autostart_file")"
+  cat > "$autostart_file" <<EOF
+[Desktop Entry]
+Type=Application
+Name=CorePro
+Comment=Keeps the clipboard history, quick notes and the time tracker ready
+Exec=$bin_dir/corepro --background
+Icon=corepro
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+EOF
+fi
 
 remove_sliderpro
 refresh_menus
 echo "CorePro installed. Find it in your applications menu, or run: corepro"
+if [[ $background == 1 ]]; then
+  echo "It starts in the background at login (Settings → Clipboard → Run in the background turns that off)."
+else
+  echo "For clipboard history from login, turn on Settings → Clipboard → Run in the background."
+fi

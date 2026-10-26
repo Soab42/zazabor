@@ -1,3 +1,6 @@
+mod awake;
+mod background;
+mod clipboard;
 mod dims;
 mod fs;
 mod git;
@@ -5,16 +8,22 @@ mod imaging;
 mod lock;
 mod migrate;
 mod music;
+mod notes;
+mod office;
+mod photo;
 mod protocol;
 mod scan;
 mod term;
+mod time;
 mod video;
+mod videoedit;
+mod wallet;
 
 use std::path::{Path, PathBuf};
 use tauri::Manager;
 
 /// Library commands refuse to run while the app is locked.
-fn ensure_unlocked() -> Result<(), String> {
+pub(crate) fn ensure_unlocked() -> Result<(), String> {
     if lock::is_locked() {
         Err("locked".into())
     } else {
@@ -193,9 +202,18 @@ fn path_kind(path: String) -> &'static str {
     }
 }
 
-/// The first command-line argument that names an existing file or folder, for "Open with".
+/// The file or folder the main window should open ("Open with"), once.
 #[tauri::command]
 fn launch_path() -> Option<String> {
+    PENDING_PATH.lock().unwrap_or_else(|e| e.into_inner()).take()
+}
+
+/// The file or folder the main window opens when it starts: this launch's, or one a later launch
+/// handed over while no main window was open. Taken once.
+static PENDING_PATH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// The file or folder on this launch's command line, as an absolute path.
+fn launch_arg() -> Option<String> {
     std::env::args()
         .skip(1)
         .filter(|a| !a.starts_with('-'))
@@ -203,6 +221,36 @@ fn launch_path() -> Option<String> {
         .find(|p| p.exists())
         .and_then(|p| std::fs::canonicalize(&p).ok().or(Some(p)))
         .map(|p| p.to_string_lossy().into_owned())
+}
+
+/// The main window (tauri.conf.json describes it but leaves making it to here).
+fn build_main(app: &tauri::AppHandle) -> Result<(), String> {
+    let config = app.config().app.windows.iter().find(|w| w.label == "main").cloned().ok_or("tauri.conf.json has no main window")?;
+    let window = tauri::WebviewWindowBuilder::from_config(app, &config).map_err(|e| e.to_string())?.build().map_err(|e| e.to_string())?;
+    #[cfg(target_os = "linux")]
+    window.with_webview(enable_cors_for_cs_scheme).map_err(|e| e.to_string())?;
+    #[cfg(not(target_os = "linux"))]
+    let _ = window;
+    Ok(())
+}
+
+/// A later launch of CorePro: shows the main window (making it again if it was closed while
+/// CorePro kept running in the background) and opens `path` there.
+pub(crate) fn show_main(app: &tauri::AppHandle, path: Option<String>) {
+    use tauri::Emitter;
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        if let Some(path) = path {
+            let _ = window.emit("open-path", path);
+        }
+        return;
+    }
+    *PENDING_PATH.lock().unwrap_or_else(|e| e.into_inner()) = path;
+    if let Err(err) = build_main(app) {
+        eprintln!("Could not open CorePro's window: {err}");
+    }
 }
 
 fn config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -238,10 +286,20 @@ async fn open_window(
     path: Option<String>,
     siblings: Option<Vec<String>>,
 ) -> Result<(), String> {
+    new_window(&app, &module, path, siblings)
+}
+
+/// See `open_window`.
+pub(crate) fn new_window(
+    app: &tauri::AppHandle,
+    module: &str,
+    path: Option<String>,
+    siblings: Option<Vec<String>>,
+) -> Result<(), String> {
     static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(2);
     let label = format!("window-{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
     let start = serde_json::json!({ "module": module, "path": path, "siblings": siblings });
-    let window = tauri::WebviewWindowBuilder::new(&app, label, tauri::WebviewUrl::App("index.html".into()))
+    let window = tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::App("index.html".into()))
         .title("CorePro")
         .inner_size(1280.0, 820.0)
         .min_inner_size(860.0, 560.0)
@@ -274,6 +332,21 @@ fn enable_cors_for_cs_scheme(webview: tauri::webview::PlatformWebview) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // One CorePro at a time (two would overwrite each other's notes and time): with CorePro
+    // already running, `corepro --new-note` / `--clipboard` and plain launches go to it, and a
+    // second `--background` has nothing to do.
+    if notes::quick::requested() {
+        if notes::quick::forward() {
+            return;
+        }
+    } else if background::requested() {
+        if notes::quick::running() {
+            return;
+        }
+    } else if notes::quick::forward_show(launch_arg().as_deref()) {
+        return;
+    }
+    *PENDING_PATH.lock().unwrap_or_else(|e| e.into_inner()) = launch_arg();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .register_asynchronous_uri_scheme_protocol("cs", |_ctx, request, responder| {
@@ -285,9 +358,21 @@ pub fn run() {
             protocol::init(cache.join("renders"));
             dims::init(cache.join("dimensions.json"));
             lock::init(app.path().app_config_dir()?);
-            #[cfg(target_os = "linux")]
-            if let Some(window) = app.get_webview_window("main") {
-                window.with_webview(enable_cors_for_cs_scheme)?;
+            notes::init(app.handle().clone(), app.path().app_data_dir()?);
+            clipboard::init(app.handle().clone(), app.path().app_data_dir()?);
+            notes::quick::serve(app.handle().clone());
+            time::init(app.handle().clone(), app.path().app_data_dir()?);
+            wallet::init(app.handle().clone(), app.path().app_data_dir()?);
+            office::init(app.path().app_data_dir()?);
+            // A quick note (`--new-note`) starts with only the note, the clipboard (`--clipboard`)
+            // with only the Win+V popup, `--background` with no window at all; otherwise the main
+            // window.
+            if notes::quick::clipboard_requested() {
+                clipboard::popup::show(app.handle())?;
+            } else if notes::quick::requested() {
+                notes::quick::new_note(app.handle());
+            } else if !background::requested() {
+                build_main(app.handle())?;
             }
             Ok(())
         })
@@ -295,6 +380,7 @@ pub fn run() {
             if let tauri::WindowEvent::Destroyed = event {
                 video::window_closed(window.label());
                 term::window_closed(window.label());
+                awake::window_closed(window.label());
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -314,6 +400,109 @@ pub fn run() {
             lock::lock_status,
             lock::lock_now,
             open_window,
+            awake::awake_set,
+            awake::awake_active,
+            notes::notes_list,
+            notes::notes_get,
+            notes::notes_create,
+            notes::notes_update,
+            notes::notes_delete,
+            notes::notes_restore,
+            notes::notes_purge,
+            notes::notes_window,
+            notes::notes_set_window,
+            notes::notes_open,
+            notes::notes_reopen,
+            notes::notes_show_list,
+            notes::quick::notes_shortcut,
+            notes::quick::notes_set_shortcut,
+            notes::sync::notes_sync_status,
+            notes::sync::notes_sync_set_folder,
+            notes::sync::notes_sync_now,
+            time::time_data,
+            time::time_check_in,
+            time::time_check_out,
+            time::time_start,
+            time::time_begin,
+            time::time_stop,
+            time::time_add,
+            time::time_edit,
+            time::time_delete,
+            time::time_task_add,
+            time::time_task_edit,
+            time::time_report,
+            time::time_report_save,
+            // wallet (keep this block's commands together)
+            wallet::wallet_state,
+            wallet::wallet_account_save,
+            wallet::wallet_account_archive,
+            wallet::wallet_account_delete,
+            wallet::wallet_rate_set,
+            wallet::wallet_category_save,
+            wallet::wallet_category_delete,
+            wallet::wallet_tx_list,
+            wallet::wallet_tx_save,
+            wallet::wallet_tx_delete,
+            wallet::wallet_tx_set_category,
+            wallet::wallet_transfer_save,
+            wallet::wallet_transfer,
+            wallet::wallet_parse,
+            wallet::wallet_budgets,
+            wallet::wallet_budget_set,
+            wallet::wallet_budgets_copy,
+            wallet::wallet_by_category,
+            wallet::wallet_months,
+            wallet::wallet_backups,
+            wallet::wallet_backup_now,
+            wallet::wallet_backup_restore,
+            // office
+            office::office_read,
+            office::office_write,
+            office::sheet_open,
+            office::sheet_save,
+            office::office_recovery_save,
+            office::office_recovery_list,
+            office::office_recovery_read,
+            office::office_recovery_delete,
+            background::app_background,
+            background::app_set_background,
+            // pdf (keep this block's commands together)
+            office::pdf_signatures::pdf_signatures,
+            office::pdf_signatures::pdf_signature_add,
+            office::pdf_signatures::pdf_signature_delete,
+            // photo (keep this block's commands together)
+            photo::photo_decode,
+            photo::photo_encode,
+            photo::photo_copy_path,
+            photo::photo_project_save,
+            photo::photo_project_open,
+            // video editor (keep this block's commands together)
+            videoedit::videoedit_probe,
+            videoedit::videoedit_frame,
+            videoedit::videoedit_release,
+            videoedit::videoedit_strip,
+            videoedit::videoedit_audio,
+            videoedit::videoedit_encoders,
+            videoedit::videoedit_export_begin,
+            videoedit::videoedit_export_audio,
+            videoedit::videoedit_export_frame,
+            videoedit::videoedit_export_finish,
+            videoedit::videoedit_export_cancel,
+            videoedit::videoedit_project_save,
+            videoedit::videoedit_project_open,
+            // clipboard
+            clipboard::clipboard_list,
+            clipboard::clipboard_pin,
+            clipboard::clipboard_delete,
+            clipboard::clipboard_clear,
+            clipboard::clipboard_set_settings,
+            clipboard::clipboard_use,
+            clipboard::clipboard_type,
+            clipboard::clipboard_popup,
+            clipboard::clipboard_popup_hide,
+            clipboard::clipboard_show_section,
+            clipboard::clipboard_shortcut,
+            clipboard::clipboard_set_shortcut,
             term::term_spawn,
             term::term_write,
             term::term_resize,
@@ -439,6 +628,13 @@ pub fn run() {
             video::renderers::video_cast_to,
             video::renderers::video_cast_stop_discovery
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running CorePro");
+        .build(tauri::generate_context!())
+        .expect("error while running CorePro")
+        .run(|_, event| match event {
+            // The last window closed: in the background mode CorePro keeps running (for the
+            // clipboard history); a later launch shows the window again.
+            tauri::RunEvent::ExitRequested { code: None, api, .. } if background::keep_running() => api.prevent_exit(),
+            tauri::RunEvent::Exit => clipboard::on_exit(),
+            _ => {}
+        });
 }

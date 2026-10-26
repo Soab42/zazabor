@@ -1,7 +1,7 @@
 import { shotAt } from "./motion";
 import type { FrameState, Renderer, SlideFrame, SlideTexture } from "./renderer";
 
-const VERTEX = `#version 300 es
+export const VERTEX = `#version 300 es
 out vec2 vUv;
 void main() {
   // One oversized triangle covering the screen; vUv has its origin at the top-left.
@@ -11,7 +11,7 @@ void main() {
   gl_Position = vec4(pos, 0.0, 1.0);
 }`;
 
-const COMMON = `#version 300 es
+export const COMMON = `#version 300 es
 precision highp float;
 in vec2 vUv;
 out vec4 outColor;
@@ -61,7 +61,7 @@ void main() {
 }`;
 
 /** Blends the two composed frames with a transition, then grades and finishes the picture. */
-const FINAL = `${COMMON}
+export const FINAL = `${COMMON}
 uniform sampler2D uA;
 uniform sampler2D uB;
 uniform int uKind;        // -2 black, -1 A only, otherwise a transition id
@@ -853,7 +853,7 @@ void main() {
 }`;
 
 /** Transitions that sample blurred (mip) levels of the composed frames. */
-const NEEDS_FRAME_MIPS = new Set([2, 18, 31, 48]);
+export const NEEDS_FRAME_MIPS = new Set([2, 18, 31, 48]);
 
 class GLTexture implements SlideTexture {
   constructor(

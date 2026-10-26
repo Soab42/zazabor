@@ -1,4 +1,4 @@
-import { open } from "@tauri-apps/plugin-dialog";
+import { open } from "../../shared/dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { saveConfig } from "../../config";
 import { fsApi } from "../files/api";
@@ -62,6 +62,13 @@ class GalleryModule implements AppModule {
         if (this.alone) void getCurrentWindow().setTitle(photo.name).catch(() => undefined);
       },
       slideshow: (scopes) => this.startSlideshow(scopes),
+      edited: (photo, saved) => {
+        const width = saved.replaced ? photo.width : 0, height = saved.replaced ? photo.height : 0;
+        this.library.addFile({ path: saved.path, name: basename(saved.path), size: 0, mtime: saved.mtime, width, height });
+      },
+      // Studio may be turned on or off while the Gallery is open.
+      openInPhoto: (path) => shell.config.features.studio && shell.open({ kind: "studio", app: "photo", path }),
+      canOpenInPhoto: () => shell.config.features.studio,
     });
     this.el.append(this.libraryView.el, this.viewer.el);
     this.appearanceChanged();

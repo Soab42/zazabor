@@ -13,6 +13,9 @@ import { computeHistogram } from "./histogram";
 import { InfoPanel } from "./info";
 import { swapsAxes } from "./orient";
 import type { Curve } from "./easing";
+import type { QuickEdit, QuickEditResult } from "./quickedit";
+import { canEdit } from "../../studio/photo/api";
+import { showToast } from "../../files/ops/toast";
 import { TiledImage } from "./tiles";
 import { ZoomView, type ZoomLayer } from "./zoom";
 
@@ -21,6 +24,12 @@ export interface ViewerHandlers {
   /** Another photo is on show. */
   shown?(photo: Photo): void;
   slideshow(scopes: SlideshowScope[]): void;
+  /** Quick Edit wrote a picture: a copy next to `photo`, or `photo` itself replaced. */
+  edited?(photo: Photo, saved: QuickEditResult): void;
+  /** Opens a picture in Studio's Photo. */
+  openInPhoto?(path: string): void;
+  /** Studio is on, so Photo can open pictures. */
+  canOpenInPhoto?(): boolean;
 }
 
 const CACHE_LIMIT = 4;
@@ -71,6 +80,8 @@ export class Viewer {
   private immersive = false;
   private idleTimer = 0;
   private sliderActive = false;
+  private editButton: HTMLButtonElement;
+  private quickEdit: QuickEdit | null = null;
 
   constructor(private readonly config: Config, thumbs: ThumbLoader, private readonly handlers: ViewerHandlers) {
     this.zoom = new ZoomView(this.stage);
@@ -105,6 +116,7 @@ export class Viewer {
     this.zoomLabel.addEventListener("click", () => this.toggleActualSize());
 
     this.infoButton = h("button", { class: "icon-btn", title: "Info & histogram (I)", onclick: () => this.toggleInfo() }, icon("info"));
+    this.editButton = h("button", { class: "btn", title: "Edit: crop, light, colour and filters (E)", onclick: () => void this.edit() }, icon("photoEdit", 15), "Edit");
     const top = h(
       "header",
       { class: "v-top" },
@@ -127,6 +139,7 @@ export class Viewer {
         h("button", { class: "icon-btn", title: "Rotate right (R)", onclick: () => this.zoom.rotate(1) }, icon("rotateRight")),
         this.infoButton,
         h("button", { class: "icon-btn", title: "Fullscreen (F)", onclick: () => this.toggleFullscreen() }, icon("fullscreen")),
+        this.editButton,
         h("button", { class: "btn primary", title: "Slideshow from this photo (S)", onclick: () => this.playSlideshow() }, icon("play", 15), "Slideshow"),
       ),
     );
@@ -183,6 +196,8 @@ export class Viewer {
   }
 
   async close() {
+    this.quickEdit?.dispose();
+    this.quickEdit = null;
     if (this.immersive) await this.setFullscreen(false);
     this.token++;
     this.el.hidden = true;
@@ -192,6 +207,8 @@ export class Viewer {
 
   handleKey(e: KeyboardEvent): boolean {
     const mod = e.ctrlKey || e.metaKey;
+    // Quick Edit has the keys while it's open; the photo underneath doesn't change.
+    if (this.quickEdit) return this.quickEdit.handleKey(e) || !mod;
     switch (e.key) {
       case "Escape":
         if (this.immersive) this.setFullscreen(false);
@@ -236,6 +253,10 @@ export class Viewer {
       case "s": case "S": case "F5":
         this.playSlideshow();
         return true;
+      case "e": case "E":
+        if (mod) return false;
+        void this.edit();
+        return true;
       case "h": case "H":
         this.config.showFilmstrip = !this.config.showFilmstrip;
         this.bottom.hidden = !this.config.showFilmstrip;
@@ -255,6 +276,50 @@ export class Viewer {
   private step(delta: number) {
     const next = clamp(this.index + delta, 0, this.photos.length - 1);
     if (next !== this.index) this.show(next);
+  }
+
+  /** Opens Quick Edit on the photo on show. */
+  private async edit() {
+    const photo = this.currentPhoto;
+    if (!photo || this.quickEdit || !canEdit(photo.path)) return;
+    if (this.immersive) await this.setFullscreen(false);
+    const { QuickEdit } = await import("./quickedit");
+    if (this.quickEdit || this.currentPhoto !== photo) return;
+    const openInPhoto = this.handlers.canOpenInPhoto?.() ? this.handlers.openInPhoto : undefined;
+    const quick = new QuickEdit(photo, {
+      openInPhoto: openInPhoto ? (path) => openInPhoto(path) : null,
+      close: (saved) => {
+        this.quickEdit = null;
+        if (saved) this.onEdited(photo, saved);
+      },
+    });
+    this.quickEdit = quick;
+    this.el.append(quick.el);
+    try {
+      await quick.start();
+    } catch (err) {
+      console.error(`Can't edit ${photo.path}:`, err);
+      showToast(`Can’t edit “${photo.name}”: ${err instanceof Error ? err.message : String(err)}`, undefined, 6000);
+      quick.dispose();
+      if (this.quickEdit === quick) this.quickEdit = null;
+    }
+  }
+
+  /** Shows what Quick Edit saved: the new copy, next to the original, or the original again. */
+  private onEdited(photo: Photo, saved: QuickEditResult) {
+    this.handlers.edited?.(photo, saved);
+    const index = this.photos.indexOf(photo);
+    if (index < 0) return;
+    if (saved.replaced) {
+      this.photos[index] = { ...photo, mtime: saved.mtime };
+      this.film.setPhotos(this.photos);
+      this.show(index);
+      return;
+    }
+    const name = saved.path.split("/").pop() ?? saved.path;
+    this.photos.splice(index + 1, 0, { ...photo, path: saved.path, name, mtime: saved.mtime, size: 0, width: 0, height: 0 });
+    this.film.setPhotos(this.photos);
+    this.show(index + 1);
   }
 
   private playSlideshow() {
@@ -311,6 +376,7 @@ export class Viewer {
     const token = ++this.token;
     const current = () => token === this.token;
     this.name.textContent = photo.name;
+    this.editButton.disabled = !canEdit(photo.path);
     this.sub.textContent = `${index + 1} of ${this.photos.length}   ·   ${photo.folder.label}`;
     this.handlers.shown?.(photo);
     this.prevButton.disabled = index === 0;

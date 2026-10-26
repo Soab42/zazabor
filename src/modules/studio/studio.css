@@ -1,0 +1,17 @@
+/* ---- Studio: Photo is violet, the Video Editor coral; the rest is Office's frame (office.css). */
+
+.tone-photo { --app: #8b5cf6; --app-ink: #c4b0ff; --app-soft: rgba(139, 92, 246, 0.2); }
+.tone-video { --app: #f97350; --app-ink: #ffb199; --app-soft: rgba(249, 115, 80, 0.18); }
+:root[data-theme="light"] .tone-photo { --app: #7c3aed; --app-ink: #6d28d9; --app-soft: rgba(124, 58, 237, 0.12); }
+:root[data-theme="light"] .tone-video { --app: #ea580c; --app-ink: #c2410c; --app-soft: rgba(234, 88, 12, 0.12); }
+.of-rail-btn.tone-photo, .of-rail-btn.tone-video { color: var(--app-ink); }
+.of-rail-btn.tone-photo.active, .of-rail-btn.tone-video.active { background: var(--app-soft); color: var(--app-ink); }
+
+/* New-project tiles: a frame in the project's shape on a dark board. */
+.sd-tile { background: #20222a; }
+.sd-tile-frame { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -60%); border-radius: 4px; background: linear-gradient(135deg, color-mix(in srgb, var(--app) 55%, #ffffff), var(--app)); opacity: 0.85; }
+.sd-tile.r9x16 .sd-tile-frame { width: 54px; height: 96px; }
+.sd-tile.r16x9 .sd-tile-frame { width: 104px; height: 58px; }
+.sd-tile.r1x1 .sd-tile-frame { width: 80px; height: 80px; }
+.sd-tile.r4x5 .sd-tile-frame { width: 72px; height: 90px; }
+.sd-tile.r4x3 .sd-tile-frame { width: 100px; height: 75px; }

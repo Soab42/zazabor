@@ -1,4 +1,4 @@
-import { open } from "@tauri-apps/plugin-dialog";
+import { open } from "../../../../shared/dialog";
 import { formatDate, h } from "../../../../ui/dom";
 import { icon } from "../../../../ui/icons";
 import { openMenu } from "../../../../ui/menu";

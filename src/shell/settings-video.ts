@@ -1,4 +1,4 @@
-import { open } from "@tauri-apps/plugin-dialog";
+import { open } from "../shared/dialog";
 import type { SettingsGroup, SettingsRow } from "../appearance";
 import { basename, h } from "../ui/dom";
 import { icon, type IconName } from "../ui/icons";

@@ -1,5 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open } from "../../shared/dialog";
 import type { AppModule, OpenRequest, ShellContext } from "../../shell/module";
 import { basename, dirname, h, isTypingTarget, stripExtension } from "../../ui/dom";
 import { icon, type IconName } from "../../ui/icons";

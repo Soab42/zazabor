@@ -35,9 +35,16 @@ bzip2 = "0.5"
 lzma-rs = "0.3"
 mime_guess = "2"
 portable-pty = "0.9.0"
+# Wallet: the ledger is a SQLite database (docs/plans/money.md).
+rusqlite = { version = "0.41", features = ["bundled"] }
+# Office → Sheets: reads and writes .xlsx; the page edits the same model through @ironcalc/wasm.
+ironcalc = "0.9.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = { version = "2.0", features = ["v2_40"] }
+# Clipboard history (Win+V): GTK's clipboard and XTest's Ctrl+V. Both already come with Tauri.
+gtk = "0.18"
+x11-dl = "2.21"
 
 # Image decoding is unusably slow unoptimized; optimize dependencies even in dev builds.
 [profile.dev.package."*"]

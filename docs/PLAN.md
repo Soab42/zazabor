@@ -397,6 +397,15 @@ OpenSubtitles (needs an API key), a decode-resolution choice and the optional se
 
 ## 13. Later (backlog)
 
+Self management: **Time** (check-in, task timers, breaks and prayer, daily report) is built
+(`src/modules/time`, `src-tauri/src/time`). Next, with their open questions:
+[`plans/money.md`](plans/money.md) (personal cost management) and
+[`plans/docs-and-sheets.md`](plans/docs-and-sheets.md) (a word processor and an Excel-compatible
+spreadsheet).
+[`plans/pdf.md`](plans/pdf.md) (an Acrobat-like PDF reader and editor).
+[`plans/photo-editor.md`](plans/photo-editor.md) (a mini Photoshop).
+[`plans/video-editor.md`](plans/video-editor.md) (a mini CapCut).
+
 Native Wayland video (no XWayland).
 
 Video extras from the Figma file: audio and video effects panels, network streams, playlists,

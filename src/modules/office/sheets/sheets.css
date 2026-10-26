@@ -1,0 +1,120 @@
+/* ---- Sheets: name box and formula bar, the grid's frame, sheet tabs, its dialogs ---------------
+   The grid itself is drawn on a canvas (grid.ts); its colours are there. */
+
+.sheets { min-height: 0; }
+
+.sh-formulabar {
+  position: relative; z-index: 4; flex: none; display: flex; align-items: stretch; gap: 4px; min-height: 30px; padding: 3px 8px;
+  background: var(--glass-surface); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); box-shadow: inset 0 -0.5px 0 var(--line-strong);
+}
+.sh-formulabar[hidden] { display: none; }
+.sh-namebox {
+  flex: none; width: 96px; height: 24px; padding: 0 8px; border: 0; border-radius: 6px; background: var(--control); color: var(--text);
+  box-shadow: inset 0 0 0 0.5px var(--line-strong); font: inherit; font-size: 12.5px; font-variant-numeric: tabular-nums; outline: none;
+}
+.sh-namebox:focus { box-shadow: 0 0 0 2px var(--focus), inset 0 0 0 0.5px var(--line-strong); }
+.sh-fx-sep { flex: none; width: 1px; margin: 3px 2px; background: var(--line-strong); }
+.sh-fx-btn { flex: none; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--muted); cursor: pointer; }
+.sh-fx-btn:hover { background: var(--hover); color: var(--text); }
+.sh-fx-btn.fx .rb-glyph { color: var(--app-ink); }
+.sh-formula {
+  flex: 1; min-width: 0; min-height: 24px; max-height: 120px; padding: 3px 8px; border: 0; border-radius: 6px; resize: vertical;
+  background: var(--control); color: var(--text); box-shadow: inset 0 0 0 0.5px var(--line-strong);
+  font: 13px/1.35 var(--mono); outline: none; overflow-y: auto; white-space: pre-wrap;
+}
+.sh-formula:focus { box-shadow: 0 0 0 2px var(--focus), inset 0 0 0 0.5px var(--line-strong); }
+
+.sh-grid { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.sh-canvas { position: absolute; left: 0; top: 0; display: block; touch-action: none; }
+.sh-scroll { position: absolute; background: var(--control); }
+.sh-scroll.v { top: 0; right: 0; bottom: 12px; width: 12px; }
+.sh-scroll.h { left: 0; right: 12px; bottom: 0; height: 12px; }
+.sh-thumb { position: absolute; border-radius: 6px; background: rgba(var(--fg), 0.28); }
+.sh-scroll.v .sh-thumb { left: 2px; right: 2px; }
+.sh-scroll.h .sh-thumb { top: 2px; bottom: 2px; }
+.sh-thumb:hover { background: rgba(var(--fg), 0.42); }
+.sh-guide { position: absolute; z-index: 3; background: var(--app); pointer-events: none; }
+.sh-guide[hidden] { display: none; }
+
+/* The cell editor: over the active cell; while idle it's invisible and only takes the typing. */
+.sh-celledit {
+  position: absolute; z-index: 2; margin: 0; padding: 1px 3px; border: 0; resize: none; overflow: hidden; outline: none;
+  box-shadow: 0 0 0 2px var(--app), 0 4px 14px rgba(0, 0, 0, 0.25); white-space: pre; line-height: 1.2;
+}
+.sh-celledit.idle { opacity: 0; pointer-events: none; box-shadow: none; caret-color: transparent; }
+
+.sh-suggest {
+  position: fixed; z-index: 75; display: flex; flex-direction: column; min-width: 260px; max-width: 420px; max-height: 260px; overflow-y: auto; padding: 4px;
+  border-radius: var(--radius-md); background: var(--glass-strong-surface); -webkit-backdrop-filter: var(--blur-strong); backdrop-filter: var(--blur-strong); box-shadow: inset 0 1px 0 var(--spec), var(--elev-3);
+}
+.sh-suggest[hidden] { display: none; }
+.sh-suggest-item { display: flex; flex-direction: column; gap: 1px; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+.sh-suggest-item b { font: 600 12px var(--mono); }
+.sh-suggest-item span { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sh-suggest-item.active, .sh-suggest-item:hover { background: var(--selection); }
+
+.sh-bottom { position: relative; z-index: 4; flex: none; display: flex; align-items: stretch; height: 30px; background: var(--glass-surface); box-shadow: inset 0 0.5px 0 var(--line-strong); }
+.sh-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 1; padding: 0 6px; }
+.sh-tabs-strip { display: flex; align-items: stretch; gap: 1px; min-width: 0; height: 100%; overflow-x: auto; scrollbar-width: none; }
+.sh-tab {
+  flex: none; max-width: 180px; padding: 0 14px; border: 0; background: none; color: var(--text-2); font: inherit; font-size: 12.5px; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 0 0 6px 6px;
+}
+.sh-tab:hover { background: var(--hover); color: var(--text); }
+.sh-tab.active { background: var(--control-hover); color: var(--app-ink); font-weight: 650; box-shadow: inset 0 -2.5px 0 var(--app); }
+.sh-tab-rename { width: 120px; height: 22px; border: 0; border-radius: 4px; padding: 0 6px; background: var(--bg-raised); color: var(--text); font: inherit; outline: 2px solid var(--app); }
+.sh-tab-add { color: var(--app-ink); }
+.sh-mode { min-width: 48px; }
+.sh-stats { color: var(--text-2); }
+
+/* dialogs */
+.sh-choose { display: flex; flex-direction: column; gap: 8px; }
+.sh-format { width: min(560px, 100%); }
+.sh-format-tabs { align-self: flex-start; }
+.sh-format-body { min-height: 220px; }
+.sh-pane { display: flex; flex-direction: column; gap: 12px; }
+.sh-number { flex-direction: row; gap: 14px; }
+.sh-kinds { width: 160px; height: auto; padding: 4px; background-image: none; }
+.sh-number-side { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.sh-sample { color: var(--muted); font: 12px var(--mono); overflow-wrap: anywhere; }
+.sh-checks { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.sh-check { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+.sh-fn { width: min(560px, 100%); }
+.sh-fn-list { width: 100%; height: 190px; padding: 4px; background-image: none; font-family: var(--mono); }
+.sh-fn-help { min-height: 54px; }
+.sh-fn-help b { font-family: var(--mono); font-size: 12.5px; }
+.sh-fn-help p { margin: 4px 0 0; color: var(--muted); }
+.sh-names { display: flex; flex-direction: column; gap: 2px; max-height: 180px; overflow-y: auto; }
+.sh-name-row { display: grid; grid-template-columns: 140px minmax(0, 1fr) 26px; align-items: center; gap: 10px; min-height: 30px; padding: 0 4px 0 8px; border-radius: 6px; background: var(--control); }
+.sh-name-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-family: var(--mono); font-size: 12px; }
+
+/* Format Painter waits for where the formats go. */
+.sheets.painting .sh-canvas { cursor: copy !important; }
+
+/* AutoFilter's menu */
+.sh-filter { display: flex; flex-direction: column; gap: 2px; width: 240px; }
+.sh-filter > .rb-list-item { display: flex; align-items: center; gap: 6px; }
+.sh-filter-search.search { width: auto; margin: 4px 0; }
+.sh-filter-list { display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; padding: 2px 0; box-shadow: inset 0 0.5px 0 var(--line), inset 0 -0.5px 0 var(--line); }
+.sh-filter-item { padding: 3px 6px; border-radius: 5px; font-size: 12.5px; }
+.sh-filter-item:hover { background: var(--hover); }
+.sh-filter-count { margin-left: auto; color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+.sh-filter-foot { display: flex; justify-content: flex-end; gap: 6px; padding-top: 6px; }
+
+/* Print: the sheet alone, as a table (print.ts). */
+#sh-print-root { display: none; }
+@media print {
+  /* Only while this app prints: the other Office apps' print rules stay loaded too. */
+  html:has(> body > #sh-print-root), body:has(> #sh-print-root) { background: #fff !important; height: auto !important; overflow: visible !important; }
+  body:has(> #sh-print-root) > :not(#sh-print-root) { display: none !important; }
+  #sh-print-root { display: block; padding: 36pt 32pt; color: #000; }
+  #sh-print-root table { border-collapse: collapse; table-layout: fixed; }
+  #sh-print-root td { padding: 1pt 3pt; overflow: hidden; }
+  #sh-print-root table.grid td { outline: 0.5pt solid #c8c8c8; }
+  #sh-print-root tr { break-inside: avoid; }
+}
+
+/* List boxes in the dialogs (Insert Function, Format Cells' categories) pick like the app's lists. */
+.sh-fn-list option, .sh-kinds option { padding: 3px 8px; border-radius: 5px; }
+.sh-fn-list option:checked, .sh-kinds option:checked { background: var(--selection) linear-gradient(0deg, var(--selection), var(--selection)); color: var(--accent); }
+.sh-fn-list:focus option:checked, .sh-kinds:focus option:checked { background: var(--accent) linear-gradient(0deg, var(--accent), var(--accent)); color: var(--accent-ink); }

@@ -1,0 +1,181 @@
+/* ---- Docs: the desk, the page and the text on it, the find bar -------------------------------
+   The page is paper: white with black text in both themes, in Word's default look (Calibri 11pt,
+   blue headings), so these colours are the document's own and literal. The desk is a quiet grey
+   that follows the theme. Chrome around them (find bar, galleries) uses the tokens. */
+
+.dc-editor { --desk: #e6e8eb; }
+:root:not([data-theme="light"]) .dc-editor { --desk: #2a2c30; }
+
+.dc-body { position: relative; flex: 1; min-height: 0; display: flex; }
+.dc-desk { flex: 1; min-width: 0; overflow: auto; background: var(--desk); }
+.dc-sheet-wrap { display: flex; justify-content: center; min-width: min-content; padding: 24px 28px 56px; }
+.dc-paper {
+  position: relative; flex: none; box-sizing: border-box; width: var(--pw);
+  padding: var(--mt) var(--mr) var(--mb) var(--ml);
+  background: #fff; color: #000; color-scheme: light;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.14), 0 1px 3px rgba(0, 0, 0, 0.12), 0 6px 22px rgba(0, 0, 0, 0.16);
+}
+.dc-fill { pointer-events: none; }
+.dc-guides { position: absolute; inset: 0; pointer-events: none; }
+.dc-guide { position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed rgba(0, 0, 0, 0.16); }
+.dc-guide span { position: absolute; right: 8px; top: -8px; padding: 0 4px; background: #fff; color: #9aa0a8; font: 9px/1 var(--font); letter-spacing: 0.04em; text-transform: uppercase; }
+
+/* Web Layout: no paper, the text fills the window. */
+.dc-desk.web { background: #fff; }
+.dc-desk.web .dc-sheet-wrap { display: block; min-height: 100%; padding: 0; }
+.dc-desk.web .dc-paper { width: auto; padding: 28px 48px 80px; box-shadow: none; }
+
+/* ---- the text */
+
+/* Word's Normal: 1.08 lines, a Word line being about 1.2 of the font size (see WORD_LINE). */
+.dc-content { font-family: Calibri, Carlito, "Liberation Sans", Arial, sans-serif; font-size: 11pt; line-height: 1.3; color: #000; overflow-wrap: break-word; }
+.dc-pm { outline: none; position: relative; caret-color: #000; min-height: 1em; white-space: pre-wrap; tab-size: 36pt; }
+.dc-pm:focus-visible { box-shadow: none; }
+.dc-content ::selection { background: rgba(59, 130, 246, 0.28); }
+.dc-content p { margin: 0 0 8pt; }
+.dc-content h1, .dc-content h2, .dc-content h3, .dc-content h4, .dc-content h5, .dc-content h6 {
+  font-family: "Calibri Light", Carlito, "Liberation Sans", Arial, sans-serif; font-weight: normal; color: #2f5496; line-height: 1.3; margin: 12pt 0 0;
+}
+.dc-content h1 { font-size: 16pt; }
+.dc-content h2 { font-size: 13pt; margin-top: 2pt; }
+.dc-content h3 { font-size: 12pt; margin-top: 2pt; color: #1f3763; }
+.dc-content h4 { font-size: 11pt; margin-top: 2pt; font-style: italic; }
+.dc-content h5, .dc-content h6 { font-size: 11pt; margin-top: 2pt; }
+.dc-content h1 + *, .dc-content h2 + *, .dc-content h3 + * { margin-top: 0; }
+.dc-content .ds-title { font-family: "Calibri Light", Carlito, "Liberation Sans", Arial, sans-serif; font-size: 28pt; line-height: 1.2; margin: 0; letter-spacing: -0.5pt; }
+.dc-content .ds-subtitle { color: #5a5a5a; letter-spacing: 0.75pt; }
+.dc-content .ds-quote, .dc-content blockquote { font-style: italic; color: #404040; text-align: center; margin: 10pt 43pt 8pt; }
+.dc-content blockquote p { margin: 0; }
+.dc-content pre { margin: 0 0 8pt; padding: 6pt 8pt; background: #f3f3f3; border-radius: 3px; font: 10pt/1.3 "Liberation Mono", "DejaVu Sans Mono", monospace; white-space: pre-wrap; }
+.dc-content code { font-family: "Liberation Mono", "DejaVu Sans Mono", monospace; font-size: 0.92em; background: #f1f1f1; border-radius: 2px; padding: 0 2px; }
+.dc-content pre code { background: none; padding: 0; font-size: inherit; }
+.dc-content a { color: #0563c1; text-decoration: underline; cursor: text; }
+.dc-content mark { color: inherit; padding: 0; }
+.dc-content hr { border: 0; border-top: 0.75pt solid #000; margin: 6pt 0; }
+.dc-content hr.ProseMirror-selectednode { outline: 2px solid rgba(59, 130, 246, 0.6); }
+.dc-content ul, .dc-content ol { margin: 0 0 8pt; padding-left: 27pt; }
+.dc-content li > p { margin: 0; }
+.dc-content li > ul, .dc-content li > ol { margin: 0; }
+.dc-content ul ul { list-style-type: circle; }
+.dc-content ul ul ul { list-style-type: square; }
+.dc-content ul[data-type="taskList"] { list-style: none; padding-left: 4pt; }
+.dc-content ul[data-type="taskList"] > li { display: flex; gap: 6pt; align-items: flex-start; }
+.dc-content ul[data-type="taskList"] > li > label { flex: none; display: flex; padding-top: 2pt; user-select: none; }
+.dc-content ul[data-type="taskList"] > li > label input {
+  -webkit-appearance: none; appearance: none; display: block; width: 10pt; height: 10pt; margin: 0;
+  border: 1px solid #595959; border-radius: 1.5px; background: #fff; cursor: pointer;
+}
+.dc-content ul[data-type="taskList"] > li > label input:checked {
+  border-color: #2563eb;
+  background: #2563eb url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2l2.3 2.3 4.7-5' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 100% no-repeat;
+}
+.dc-content ul[data-type="taskList"] > li > div { flex: 1; min-width: 0; }
+.dc-content ul[data-type="taskList"] > li > div > p { margin: 0; }
+.dc-content ul[data-type="taskList"] > li[data-checked="true"] > div { color: #777; text-decoration: line-through; }
+.dc-content img { max-width: 100%; height: auto; vertical-align: bottom; }
+.dc-content img.ProseMirror-selectednode, .dc-content [data-resize-wrapper].ProseMirror-selectednode { outline: 2px solid #3b82f6; }
+.dc-content [data-resize-handle] { z-index: 2; width: 9px; height: 9px; margin: -5px; box-sizing: border-box; background: #fff; border: 1px solid #3b82f6; border-radius: 2px; opacity: 0; }
+.dc-content [data-resize-handle="top-left"], .dc-content [data-resize-handle="bottom-right"] { cursor: nwse-resize; }
+.dc-content [data-resize-handle="top-right"], .dc-content [data-resize-handle="bottom-left"] { cursor: nesw-resize; }
+.dc-content [data-resize-container]:hover [data-resize-handle], .dc-content [data-resize-container].ProseMirror-selectednode [data-resize-handle], .dc-content [data-resize-state="true"] [data-resize-handle] { opacity: 1; }
+.dc-content [data-resize-container].ProseMirror-selectednode img { outline: 2px solid #3b82f6; }
+
+/* Tables: Word's Table Grid. */
+.dc-content .tableWrapper { margin: 0 0 8pt; overflow-x: auto; }
+.dc-content table { border-collapse: collapse; width: 100%; table-layout: fixed; margin: 0; }
+.dc-content td, .dc-content th { position: relative; min-width: 1em; border: 0.5pt solid #000; padding: 0 5.4pt; vertical-align: top; box-sizing: border-box; }
+.dc-content th { font-weight: bold; text-align: left; }
+.dc-content td p, .dc-content th p { margin: 0; }
+.dc-content .selectedCell::after { content: ""; position: absolute; inset: 0; background: rgba(59, 130, 246, 0.16); pointer-events: none; }
+.dc-content .column-resize-handle { position: absolute; right: -2px; top: 0; bottom: -2px; width: 4px; background: #3b82f6; pointer-events: none; }
+.dc-content.resize-cursor, .dc-content .resize-cursor { cursor: col-resize; }
+
+/* A page break: the page ends, a strip of desk, the next page begins. */
+.dc-content .dc-page-break {
+  height: 18px; margin: var(--mb) calc(-1 * var(--mr)) var(--mt) calc(-1 * var(--ml));
+  background: var(--desk); box-shadow: inset 0 5px 6px -5px rgba(0, 0, 0, 0.28), inset 0 -5px 6px -5px rgba(0, 0, 0, 0.28);
+}
+.dc-content .dc-page-break.ProseMirror-selectednode { outline: 2px solid #3b82f6; outline-offset: -2px; }
+.dc-desk.web .dc-page-break, #dc-print-root .dc-page-break { height: 0; margin: 10pt 0; background: none; box-shadow: none; border-top: 1px dashed #aaa; }
+
+/* Formatting marks. */
+.dc-marks .dc-pm p::after, .dc-marks .dc-pm h1::after, .dc-marks .dc-pm h2::after, .dc-marks .dc-pm h3::after, .dc-marks .dc-pm li p::after { content: "¶"; color: #7aa7e8; font-family: Arial, sans-serif; font-size: 0.9em; }
+.dc-marks .dc-pm .dc-page-break::after { content: "Page Break"; display: block; text-align: center; color: #7aa7e8; font: 9px/18px var(--font); letter-spacing: 0.06em; text-transform: uppercase; }
+
+/* Find. */
+.dc-content .dc-find-hit { background: rgba(255, 213, 0, 0.5); border-radius: 1px; }
+.dc-content .dc-find-hit.current { background: #ff9632; }
+
+.dc-painting .dc-pm { cursor: copy; }
+
+/* ---- find bar */
+
+.dc-findbar {
+  position: absolute; top: 10px; right: 22px; z-index: 8; display: flex; flex-direction: column; gap: 6px; padding: 8px;
+  border-radius: var(--radius-lg); animation: menu-in var(--dur-fast) var(--ease-out);
+}
+.dc-findbar[hidden], .dc-find-row[hidden] { display: none; }
+.dc-find-row { display: flex; align-items: center; gap: 4px; }
+.search.dc-find-field { width: 230px; height: 28px; }
+.dc-find-count { flex: none; color: var(--muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.dc-find-opt.active { background: var(--app-soft); color: var(--app-ink); }
+.dc-replace-input { width: 230px; height: 28px; }
+
+/* ---- ribbon parts */
+
+.rb-glyph.grow::after { content: "▲"; font-size: 6px; vertical-align: super; margin-left: 1px; }
+.rb-glyph.shrink { font-size: 10.5px; }
+.rb-glyph.shrink::after { content: "▼"; font-size: 6px; vertical-align: super; margin-left: 1px; }
+
+.dc-styles { display: flex; align-items: stretch; gap: 3px; height: 62px; }
+.dc-style-card {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; width: 70px; padding: 4px; border: 0; border-radius: 6px;
+  background: #fff; color: #000; cursor: pointer; box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.16);
+}
+.dc-style-card:hover { box-shadow: inset 0 0 0 1px var(--app); }
+.dc-style-card.on { box-shadow: inset 0 0 0 2px var(--app); }
+.dc-style-preview { height: 28px; display: flex; align-items: center; max-width: 100%; overflow: hidden; white-space: nowrap; font: 11pt Calibri, Carlito, "Liberation Sans", sans-serif; }
+.dc-style-name { font: 10px var(--font); color: #555; white-space: nowrap; }
+.s-h1 .dc-style-preview { font: 15px "Calibri Light", Carlito, sans-serif; color: #2f5496; }
+.s-h2 .dc-style-preview { font: 13px "Calibri Light", Carlito, sans-serif; color: #2f5496; }
+.s-title .dc-style-preview { font: 19px "Calibri Light", Carlito, sans-serif; }
+.dc-style-more { display: grid; place-items: center; width: 18px; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
+.dc-style-more:hover { background: var(--hover); color: var(--text); }
+
+.dc-field-head { color: var(--faint); font-size: 10.5px; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; }
+.dc-point-field { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
+.dc-point-field > span { width: 40px; }
+
+/* Insert → Table grid, Symbol grid. */
+.dc-table-picker { display: flex; flex-direction: column; gap: 6px; }
+.dc-grid-label { color: var(--text-2); font-size: var(--text-sm); font-weight: 600; }
+.dc-grid { display: grid; grid-template-columns: repeat(10, 18px); gap: 3px; }
+.dc-grid-cell { width: 18px; height: 18px; padding: 0; border: 0; border-radius: 2px; background: var(--control); box-shadow: inset 0 0 0 0.5px var(--line-strong); cursor: pointer; }
+/* Popovers live on the page's body, outside the editor's tone, so Docs' blue is spelled out. */
+.dc-grid-cell.on { background: rgba(59, 130, 246, 0.32); box-shadow: inset 0 0 0 1px #3b82f6; }
+.dc-symbols { display: grid; grid-template-columns: repeat(12, 26px); gap: 2px; }
+.dc-symbol { width: 26px; height: 26px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--text); font: 15px/1 var(--font); cursor: pointer; }
+.dc-symbol:hover { background: var(--hover); }
+
+/* Dialogs. */
+.dc-stats { display: grid; grid-template-columns: 1fr auto; gap: 8px 20px; margin: 0; }
+.dc-stats dt { color: var(--text-2); }
+.dc-stats dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.dc-lost { margin: 0; padding-left: 20px; color: var(--text-2); line-height: 1.6; }
+.tt-input.dc-num { width: 100%; }
+
+.dc-status-btn { height: 22px; padding: 0 6px; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; cursor: pointer; }
+.dc-status-btn:hover { background: var(--hover); color: var(--text); }
+.of-status .icon-btn.small { width: 24px; height: 22px; }
+.of-status .icon-btn.small.active { background: var(--app-soft); color: var(--app-ink); }
+
+/* ---- print: the document alone */
+#dc-print-root { display: none; }
+@media print {
+  /* Only while this app prints: the other Office apps' print rules stay loaded too. */
+  html:has(> body > #dc-print-root), body:has(> #dc-print-root) { background: #fff !important; height: auto !important; overflow: visible !important; }
+  body:has(> #dc-print-root) > :not(#dc-print-root) { display: none !important; }
+  #dc-print-root { display: block; }
+  #dc-print-root .dc-find-hit { background: none; }
+  #dc-print-root .dc-page-break { break-after: page; border: 0; margin: 0; }
+}

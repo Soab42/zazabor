@@ -44,10 +44,15 @@ pub fn read_bytes(path: &Path, max_bytes: u64) -> Result<Vec<u8>, String> {
     std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-/// Saves `text` over a file the way editors do: written to a hidden temporary file in the same
+/// Saves `text` over a file the way editors do; see `write_bytes`.
+pub fn write_text(path: &Path, text: &str) -> Result<f64, String> {
+    write_bytes(path, text.as_bytes())
+}
+
+/// Saves `bytes` over a file the way editors do: written to a hidden temporary file in the same
 /// folder, flushed, given the original's permissions, then renamed over it, so a crash or a full
 /// disk never leaves a half-written file. Returns the new modification time.
-pub fn write_text(path: &Path, text: &str) -> Result<f64, String> {
+pub fn write_bytes(path: &Path, bytes: &[u8]) -> Result<f64, String> {
     use std::io::Write;
     let shown = path.display();
     let dir = path.parent().ok_or_else(|| format!("Can’t save {shown}"))?;
@@ -56,7 +61,7 @@ pub fn write_text(path: &Path, text: &str) -> Result<f64, String> {
     let tmp = dir.join(format!(".{name}.{}.corepro-save", std::process::id()));
     let result = (|| -> std::io::Result<()> {
         let mut file = std::fs::File::create(&tmp)?;
-        file.write_all(text.as_bytes())?;
+        file.write_all(bytes)?;
         file.sync_all()?;
         if let Some(meta) = &existing {
             std::fs::set_permissions(&tmp, meta.permissions())?;

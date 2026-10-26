@@ -1,0 +1,202 @@
+import type { ShellContext } from "../../../shell/module";
+import { save } from "../../../shared/dialog";
+import { basename, dirname, formatBytes, h } from "../../../ui/dom";
+import { showToast } from "../../files/ops/toast";
+import { openDialog } from "../../time/dialog";
+import { errorText } from "../../time/api";
+import { editApi, type Encoders, type ExportSpec } from "./api";
+import { mixdown, type Engine } from "./engine";
+import type { MediaStore } from "./media";
+import { canvasSize, projectDuration, type Project } from "./model";
+import { formatTime } from "./timeline";
+
+/**
+ * Export: settings, then the job. The page draws each frame at the output size (the same
+ * compositor as the preview), packs it to I420 on the GPU and hands it to the backend, which
+ * encodes with VA-API H.264 into MP4 (or VP9 into WebM). The sound is mixed first with an
+ * OfflineAudioContext from the same clips the preview plays.
+ */
+
+export interface ExportHost {
+  project(): Project;
+  store: MediaStore;
+  engine: Engine;
+  /** Decoder keys for the export start with this. */
+  keyPrefix: string;
+  title: string;
+  folder: string | null;
+  shell: ShellContext;
+}
+
+type Quality = ExportSpec["quality"];
+
+interface Choice {
+  format: "mp4" | "webm";
+  short: 720 | 1080;
+  fps: number;
+  quality: Quality;
+  audio: boolean;
+}
+
+let last: Partial<Choice> = {};
+
+function segmented<V extends string | number>(options: [V, string][], get: () => V, set: (v: V) => void, disabled: (v: V) => boolean = () => false) {
+  const buttons = options.map(([v, label]) => {
+    const b = h("button", { type: "button", class: get() === v ? "active" : "", disabled: disabled(v), onclick: () => {
+      set(v);
+      for (const x of buttons) x.classList.toggle("active", x === b);
+    } }, label);
+    return b;
+  });
+  return h("div", { class: "segmented ve-seg" }, ...buttons);
+}
+
+/** Asks for the export's settings and file, then runs it. */
+export async function openExport(host: ExportHost): Promise<void> {
+  const encoders: Encoders = await editApi.encoders().catch(() => ({ h264: false, mp3: false, vp9: false, opus: false, aac: false, hevc: false }));
+  const p = host.project();
+  const choice: Choice = {
+    format: last.format ?? (encoders.h264 ? "mp4" : "webm"),
+    short: last.short ?? 1080,
+    fps: p.canvas.fps,
+    quality: last.quality ?? "standard",
+    audio: last.audio ?? true,
+  };
+  if (choice.format === "mp4" && !encoders.h264) choice.format = "webm";
+  const size = h("span", { class: "ve-value" });
+  const showSize = () => {
+    const { width, height } = canvasSize(p.canvas.aspect, choice.short);
+    size.textContent = `${width} × ${height}`;
+  };
+  showSize();
+  const notes: string[] = [];
+  if (!encoders.h264) notes.push("MP4 needs an H.264 encoder: VA-API (gstreamer1.0-vaapi) or x264 (gstreamer1.0-plugins-ugly).");
+  if (!encoders.aac) notes.push("MP4s get MP3 sound: this system has no AAC encoder (gstreamer1.0-libav adds one). YouTube, Instagram and TikTok take MP3.");
+  notes.push("HEVC isn't offered yet: VA-API's HEVC encoder doesn't start on this machine.");
+  const duration = projectDuration(p);
+  const settings = await new Promise<Choice | null>((resolve) => {
+    let result: Choice | null = null;
+    const row = (label: string, control: Node, extra?: Node) => h("div", { class: "ve-row" }, h("label", null, label), control, extra ?? null);
+    const audioToggle = h("input", { type: "checkbox", class: "switch", checked: choice.audio, onchange: () => (choice.audio = audioToggle.checked) });
+    const dialog = openDialog({
+      title: "Export video",
+      subtitle: `${host.title} · ${formatTime(duration, 30, false)}`,
+      icon: "download",
+      tone: "work",
+      class: "ve-export-dialog tone-video",
+      body: [
+        row("Format", segmented<"mp4" | "webm">([["mp4", "MP4 · H.264"], ["webm", "WebM · VP9"]], () => choice.format, (v) => (choice.format = v), (v) => (v === "mp4" ? !encoders.h264 : !encoders.vp9))),
+        row("Resolution", segmented<720 | 1080>([[720, "720p"], [1080, "1080p"]], () => choice.short, (v) => {
+          choice.short = v;
+          showSize();
+        }), size),
+        row("Frame rate", segmented<number>([[24, "24"], [25, "25"], [30, "30"], [50, "50"], [60, "60"]], () => choice.fps, (v) => (choice.fps = v))),
+        row("Quality", segmented<Quality>([["high", "High"], ["standard", "Standard"], ["small", "Smaller file"]], () => choice.quality, (v) => (choice.quality = v))),
+        h("div", { class: "ve-row" }, h("label", null, "Sound"), h("span", { class: "spacer" }), audioToggle),
+        h("ul", { class: "ve-export-notes" }, ...notes.map((n) => h("li", null, n))),
+      ],
+      foot: [
+        h("span", { class: "spacer" }),
+        h("button", { class: "btn", type: "button", onclick: () => dialog.close() }, "Cancel"),
+        h("button", { class: "btn primary", type: "button", "data-autofocus": "", onclick: () => {
+          result = { ...choice };
+          dialog.close();
+        } }, "Export…"),
+      ],
+      onClose: () => resolve(result),
+    });
+  });
+  if (!settings) return;
+  last = settings;
+  const ext = settings.format;
+  const base = host.folder ? `${host.folder}/${host.title}.${ext}` : `${host.title}.${ext}`;
+  let path = await save({ title: "Export Video", defaultPath: base, filters: [{ name: ext === "mp4" ? "MP4 video" : "WebM video", extensions: [ext] }] }).catch(() => null);
+  if (!path) return;
+  if (!path.toLowerCase().endsWith(`.${ext}`)) path += `.${ext}`;
+  const { width, height } = canvasSize(p.canvas.aspect, settings.short);
+  await run(host, { path, width, height, fps: settings.fps, format: settings.format, quality: settings.quality, audio: settings.audio });
+}
+
+async function run(host: ExportHost, spec: ExportSpec) {
+  const p = host.project();
+  const duration = projectDuration(p);
+  const total = Math.max(1, Math.ceil(duration * spec.fps - 1e-6));
+  let cancelled = false;
+  let running = true;
+  const bar = h("div", { class: "ve-progress-bar" });
+  const status = h("p", { class: "ve-progress-text" }, "Starting the encoder…");
+  const dialog = openDialog({
+    title: `Exporting ${basename(spec.path)}`,
+    subtitle: `${spec.width} × ${spec.height} · ${spec.fps} fps · ${spec.format === "mp4" ? "H.264" : "VP9"}`,
+    icon: "download",
+    tone: "work",
+    class: "ve-export-dialog tone-video",
+    body: [h("div", { class: "ve-progress" }, bar), status],
+    foot: [h("span", { class: "spacer" }), h("button", { class: "btn", type: "button", onclick: () => dialog.close() }, "Cancel")],
+    onClose: () => {
+      if (running) cancelled = true;
+    },
+  });
+  const engine = host.engine;
+  engine.hold(true);
+  let job: number | null = null;
+  const started = performance.now();
+  try {
+    job = await editApi.exportBegin(spec);
+    if (spec.audio) {
+      status.textContent = "Mixing the sound…";
+      const pcm = await mixdown(p, host.store, total / spec.fps);
+      if (cancelled) throw new Error("Cancelled");
+      await editApi.exportAudio(job, pcm);
+    }
+    const bytes = (spec.width * spec.height * 3) / 2;
+    const buffers = [new Uint8Array(bytes), new Uint8Array(bytes)];
+    let inflight: Promise<number> | null = null;
+    const loopStart = performance.now();
+    for (let n = 0; n < total; n++) {
+      if (cancelled) break;
+      const t = n / spec.fps;
+      const waits: Promise<void>[] = [];
+      engine.compose(t, spec.width, spec.height, host.keyPrefix, waits);
+      if (waits.length) {
+        await Promise.all(waits);
+        engine.compose(t, spec.width, spec.height, host.keyPrefix, null, false);
+      }
+      const buffer = buffers[n % 2];
+      engine.gfx.readI420(buffer);
+      if (inflight) await inflight;
+      inflight = editApi.exportFrame(job, buffer);
+      if (n % 5 === 0 || n === total - 1) {
+        const elapsed = (performance.now() - loopStart) / 1000;
+        const fps = (n + 1) / Math.max(0.001, elapsed);
+        const left = (total - n - 1) / Math.max(0.1, fps);
+        bar.style.width = `${((n + 1) / total) * 100}%`;
+        status.textContent = `Frame ${n + 1} of ${total} · ${fps.toFixed(1)} fps (${(fps / spec.fps).toFixed(2)}× real time) · about ${formatTime(left, 30, false)} left`;
+        // Let the dialog paint.
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+    if (inflight) await inflight;
+    if (cancelled) throw new Error("Cancelled");
+    status.textContent = "Finishing the file…";
+    const done = await editApi.exportFinish(job);
+    job = null;
+    running = false;
+    dialog.close();
+    const seconds = (performance.now() - started) / 1000;
+    console.info(`[video-editor] exported ${done.frames} frames ${spec.width}x${spec.height} in ${seconds.toFixed(1)} s (${(done.frames / seconds).toFixed(1)} fps), ${done.bytes} bytes`);
+    showToast(`Exported ${basename(done.path)} · ${formatBytes(done.bytes)} in ${formatTime(seconds, 30, false)}`, {
+      label: "Show in Files",
+      run: () => host.shell.open({ kind: "folder", path: dirname(done.path) }),
+    }, 9000);
+  } catch (err) {
+    running = false;
+    if (job !== null) await editApi.exportCancel(job).catch(() => undefined);
+    dialog.close();
+    if ((err as Error)?.message !== "Cancelled") showToast(`The export stopped: ${errorText(err)}`);
+    else showToast("Export cancelled.");
+  } finally {
+    engine.releasePrefix(host.keyPrefix);
+    engine.hold(false);
+  }
+}

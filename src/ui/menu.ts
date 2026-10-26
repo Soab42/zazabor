@@ -30,11 +30,15 @@ export function closeMenu() {
   openMenuEl = null;
 }
 
-/** Shows a context menu at a screen position; arrow keys, Enter and Escape work. */
-export function openMenu(x: number, y: number, items: MenuItem[]) {
+/**
+ * Shows a context menu at a screen position; arrow keys, Enter and Escape work. `header` sits
+ * above the items (e.g. a row of colour swatches).
+ */
+export function openMenu(x: number, y: number, items: MenuItem[], header?: HTMLElement) {
   closeMenu();
   const buttons: HTMLButtonElement[] = [];
   const menu = h("div", { class: "menu", role: "menu" });
+  if (header) menu.append(header);
   for (const item of items) {
     if (item === "separator") {
       menu.append(h("div", { class: "menu-sep" }));

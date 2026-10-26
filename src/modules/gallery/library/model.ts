@@ -1,4 +1,4 @@
-import { api, type FolderScan } from "../../../api";
+import { api, type FolderScan, type PhotoFile } from "../../../api";
 import { basename, dirname } from "../../../ui/dom";
 
 export interface Photo {
@@ -120,6 +120,18 @@ export class Library {
   removeRoot(root: string) {
     this.roots = this.roots.filter((r) => r !== root);
     this.sources.delete(root);
+    this.rebuild();
+    this.emit();
+  }
+
+  /** A picture written into a folder the library shows (Quick Edit's copy) appears without a rescan. */
+  addFile(file: PhotoFile) {
+    const dir = dirname(file.path);
+    for (const scans of this.sources.values()) {
+      for (const scan of scans) {
+        if (scan.path === dir) scan.photos = [...scan.photos.filter((p) => p.path !== file.path), file];
+      }
+    }
     this.rebuild();
     this.emit();
   }

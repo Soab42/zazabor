@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { h } from "./ui/dom";
 import { icon } from "./ui/icons";
 
@@ -179,5 +180,28 @@ export function openLockSettings(status: LockStatus, autoLockMinutes: number): P
     );
     const overlay = h("div", { class: "modal-overlay" }, dialog);
     document.body.append(overlay);
+  });
+}
+
+/**
+ * For windows without the app shell (a file's viewer, a note): locked at the start, or locked
+ * later from any window, the window's content hides until unlocked.
+ */
+export async function followLock() {
+  let status = await lockApi.status().catch(() => null);
+  const unlock = async () => {
+    document.body.classList.add("app-locked");
+    await askForAccess(status?.mode ?? "custom", "unlock");
+    document.body.classList.remove("app-locked");
+  };
+  if (status?.locked) await unlock();
+  let locking = false;
+  void listen<boolean>("lock-changed", async (e) => {
+    if (!e.payload) return dismissUnlockPrompt();
+    if (locking) return;
+    locking = true;
+    status = await lockApi.status().catch(() => status);
+    await unlock();
+    locking = false;
   });
 }

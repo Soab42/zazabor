@@ -13,7 +13,7 @@ mod names;
 mod ops;
 mod search;
 mod tags;
-mod text;
+pub(crate) mod text;
 mod trash;
 mod volumes;
 mod watch;
@@ -40,6 +40,16 @@ pub async fn fs_list(path: String, show_hidden: bool) -> Result<Vec<FsEntry>, St
     tauri::async_runtime::spawn_blocking(move || list::list(Path::new(&path), show_hidden))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// Whether a path is on a cloud drive mounted by GVfs, whose files are named by id on disk.
+pub fn is_cloud(path: &Path) -> bool {
+    cloud::is_cloud(path)
+}
+
+/// A cloud drive folder's entries, with the names people see (see `cloud.rs`).
+pub fn cloud_list(path: &Path) -> Result<Vec<FsEntry>, String> {
+    cloud::list(path, false)
 }
 
 /// What people call a path's last part on a cloud drive, where files are named by id on disk;

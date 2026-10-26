@@ -5,7 +5,9 @@ import type { ShellContext } from "../../shell/module";
 import { formatBytes, h, isTypingTarget, rafThrottle } from "../../ui/dom";
 import { icon } from "../../ui/icons";
 import { openMenu, type MenuItem } from "../../ui/menu";
-import { openFileWindow } from "../../shell/windows";
+import { openFileWindow, openWindow } from "../../shell/windows";
+import { kindOf } from "../office/api";
+import { studioProjectKind } from "../studio/app";
 import { fsApi, onChanged, type FsEntry, type Volume } from "./api";
 import { setDragHooks } from "./dnd";
 import { tagStore } from "./info/tagstore";
@@ -728,6 +730,12 @@ export class Browser {
       const section = isImageExt(entry.ext) ? "gallery" : "video";
       if (this.shell.config.features[section]) openFileWindow(entry, folder);
       else this.shell.openExternally(entry.path);
+    } else if (this.shell.config.features.office && kindOf(entry.path)) {
+      // A Word or Excel file opens in an Office window of its own, as Word and Excel do.
+      openWindow("office", entry.path);
+    } else if (this.shell.config.features.studio && studioProjectKind(entry.path)) {
+      // A Photo or Video Editor project opens in a Studio window of its own.
+      openWindow("studio", entry.path);
     } else {
       this.shell.openExternally(entry.path);
     }

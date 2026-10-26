@@ -1,5 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { displayRenderSize, loadImage, previewUrl } from "../../../api";
+import { keepAwake } from "../../../shared/awake";
 import type { Photo } from "../library/model";
 import { clamp, formatDate, h, stripExtension } from "../../../ui/dom";
 import { icon } from "../../../ui/icons";
@@ -168,7 +169,8 @@ export class Player {
     const win = getCurrentWindow();
     this.wasFullscreen = await win.isFullscreen().catch(() => true);
     if (!this.wasFullscreen) await win.setFullscreen(true).catch((err) => console.warn("Fullscreen failed:", err));
-    // Keep the screen awake where the webview supports it.
+    // Keep the screen awake: through the desktop, and the webview where it supports it.
+    keepAwake("slideshow", true);
     navigator.wakeLock?.request("screen").then((lock) => (this.wakeLock = lock), () => {});
   }
 
@@ -183,6 +185,7 @@ export class Player {
     cancelAnimationFrame(this.frame);
     clearTimeout(this.idleTimer);
     this.wakeLock?.release().catch(() => {});
+    keepAwake("slideshow", false);
     this.stopMusic();
     this.unsubscribePreview();
     const photo = (this.trans ?? this.cur)?.slide.photo ?? this.photos[this.order[this.startPos]] ?? null;

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open } from "../../../shared/dialog";
 import type { BuiltinTrack, MusicFile } from "../../../api";
 import type { Photo } from "../library/model";
 import { basename, h } from "../../../ui/dom";

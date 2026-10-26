@@ -1,5 +1,5 @@
 import type { UnlistenFn } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open } from "../../../../shared/dialog";
 import { basename, dirname, h, rafThrottle, stripExtension } from "../../../../ui/dom";
 import { icon } from "../../../../ui/icons";
 import type { VideoContext } from "../../extensions";

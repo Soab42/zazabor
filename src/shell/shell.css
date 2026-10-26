@@ -39,6 +39,20 @@ body.dropping::after { content: "Drop a folder or a file to open it"; }
   transition: opacity 0.18s, transform 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 .rail-btn.active .rail-pill { opacity: 1; transform: translateY(-50%) scaleY(1); }
+/* A module's status (Time: checked in, a timer running): green, amber while on a break. */
+.rail-dot {
+  --dot: #30c35a;
+  position: absolute; top: 7px; right: 7px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--dot); box-shadow: 0 0 0 2px var(--glass-strong, rgba(0, 0, 0, 0.4));
+}
+.rail-dot.paused { --dot: #f5a524; }
+.rail-dot.on { background: transparent; box-shadow: inset 0 0 0 1.5px var(--dot), 0 0 0 2px var(--glass-strong, rgba(0, 0, 0, 0.4)); }
+.rail-dot.live::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--dot);
+  animation: rail-dot-pulse 2s var(--ease-out) infinite;
+}
+@keyframes rail-dot-pulse { from { opacity: 0.7; transform: scale(1); } to { opacity: 0; transform: scale(2.6); } }
+@media (prefers-reduced-motion: reduce) { .rail-dot.live::after { animation: none; } }
 
 /* ---- empty placeholders (Files, Video until their modules land) --------------------------------- */
 
@@ -217,3 +231,9 @@ input.switch:disabled { opacity: 0.45; cursor: default; }
   .rail-pill, .ob-theme, .ob-feature, .ob-theme-check { transition-property: opacity, background, color, box-shadow; }
   .ob-theme:hover, .ob-feature:hover { transform: none; }
 }
+
+/* Settings → Notes: a hint over its controls, which line up on the right. */
+.st-card .st-notes-row .st-inline { justify-content: flex-end; flex-wrap: wrap; }
+.st-card .st-notes-row .st-value { min-width: 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-card .st-notes-row select { width: auto; }
+.st-value.st-error { max-width: 420px; color: var(--danger); white-space: normal; overflow-wrap: anywhere; }

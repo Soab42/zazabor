@@ -1,10 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { homeDir } from "@tauri-apps/api/path";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { applyAppearance } from "../appearance";
 import { adoptConfig, CONFIG_SAVED, parseConfig, saveConfig, type Config } from "../config";
-import { askForAccess, dismissUnlockPrompt, lockApi } from "../lock";
+import { followLock } from "../lock";
 import { fsApi, type FsEntry } from "../modules/files/api";
 import { isCloudPath } from "../modules/files/cloud";
 import { categoryOf, iconNameFor, iconNode, kindLabel, sizeText } from "../modules/files/kinds";
@@ -137,22 +136,3 @@ function openOutside(entry: FsEntry) {
   void invoke("fs_open_default", { path: entry.url ?? entry.path }).catch(() => undefined);
 }
 
-/** Locked at the start, or locked later from any window: hide the file until unlocked. */
-async function followLock() {
-  let status = await lockApi.status().catch(() => null);
-  const unlock = async () => {
-    document.body.classList.add("app-locked");
-    await askForAccess(status?.mode ?? "custom", "unlock");
-    document.body.classList.remove("app-locked");
-  };
-  if (status?.locked) await unlock();
-  let locking = false;
-  void listen<boolean>("lock-changed", async (e) => {
-    if (!e.payload) return dismissUnlockPrompt();
-    if (locking) return;
-    locking = true;
-    status = await lockApi.status().catch(() => status);
-    await unlock();
-    locking = false;
-  });
-}

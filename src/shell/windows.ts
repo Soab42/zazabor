@@ -14,7 +14,13 @@ import type { ModuleId } from "./module";
  * What an extra window shows: a module (Files can start in a folder), or one file on its own.
  * `siblings` are the files a window for one file browses through, in order.
  */
-export type WindowStart = { module: ModuleId; path?: string | null; siblings?: string[] | null } | { module: "viewer"; path: string };
+export type WindowStart =
+  | { module: ModuleId; path?: string | null; siblings?: string[] | null }
+  | { module: "viewer"; path: string }
+  /** A sticky note on the desktop; `path` is the note's id. */
+  | { module: "note"; path: string }
+  /** The Win+V clipboard popup. */
+  | { module: "clipboard-popup"; path?: null };
 
 /** Where this window starts; null for the main window. Set by the backend before the page loads. */
 export const windowStart: WindowStart | null = (window as { __COREPRO_WINDOW__?: WindowStart }).__COREPRO_WINDOW__ ?? null;

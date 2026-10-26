@@ -191,22 +191,31 @@ fn start_worker(app: AppHandle) {
     WORKER.call_once(|| {
         std::thread::Builder::new()
             .name("video-state".into())
-            .spawn(|| loop {
-                let timed_out = {
-                    let guard = lock_ignore_poison(&WAKE.0);
-                    let (mut guard, result) = WAKE
-                        .1
-                        .wait_timeout_while(guard, TICK, |woken| !*woken)
-                        .unwrap_or_else(|e| e.into_inner());
-                    *guard = false;
-                    result.timed_out()
-                };
-                let state = snapshot();
-                if state.playing && !AUDIO_APPLIED.swap(true, Ordering::SeqCst) {
-                    apply_audio();
-                }
-                if !timed_out || state.playing {
-                    emit(&state);
+            .spawn(|| {
+                let mut awake = false;
+                loop {
+                    let timed_out = {
+                        let guard = lock_ignore_poison(&WAKE.0);
+                        let (mut guard, result) = WAKE
+                            .1
+                            .wait_timeout_while(guard, TICK, |woken| !*woken)
+                            .unwrap_or_else(|e| e.into_inner());
+                        *guard = false;
+                        result.timed_out()
+                    };
+                    let state = snapshot();
+                    if state.playing && !AUDIO_APPLIED.swap(true, Ordering::SeqCst) {
+                        apply_audio();
+                    }
+                    // A playing video keeps the screen awake (a song alone doesn't).
+                    let watching = state.playing && state.video_width > 0;
+                    if watching != awake {
+                        awake = watching;
+                        crate::awake::set("video", watching);
+                    }
+                    if !timed_out || state.playing {
+                        emit(&state);
+                    }
                 }
             })
             .expect("failed to start the video state thread");

@@ -1,4 +1,8 @@
 import { getVersion } from "@tauri-apps/api/app";
+import { invoke } from "@tauri-apps/api/core";
+import { open as openDialog } from "../shared/dialog";
+import { clipboardCategory } from "../clipboard/settings";
+import { notesApi, onSyncStatus, syncText, type SyncStatus } from "../notes/api";
 import { createAppearanceControls, type SettingsGroup, type SettingsRow } from "../appearance";
 import type { Config, FilesView } from "../config";
 import type { LockMode } from "../lock";
@@ -79,6 +83,12 @@ function sliderRow(label: string, min: number, max: number, step: number, get: (
 }
 
 const textValue = (text: string) => h("span", { class: "st-value" }, text);
+
+/** Shows an error from the backend in a value field. */
+function alertText(el: HTMLElement, err: unknown) {
+  el.textContent = String(err);
+  el.classList.add("st-error");
+}
 
 // ---- keyboard reference ---------------------------------------------------------------------------
 
@@ -169,6 +179,8 @@ export class Settings {
   private lockNowButton = h("button", { type: "button", class: "btn small" }, "Lock now");
   private autoLockValue = textValue("");
   private version = textValue("");
+  /** Shows the notes sync's status on the Notes page while it exists. */
+  private showSync: ((status: SyncStatus) => void) | null = null;
 
   constructor(private readonly host: SettingsHost) {
     this.appearance = createAppearanceControls(host.config.appearance, () => host.appearanceChanged());
@@ -194,6 +206,7 @@ export class Settings {
     );
     this.el.append(aside, main);
     getVersion().then((v) => (this.version.textContent = v)).catch(() => (this.version.textContent = "dev"));
+    void onSyncStatus((status) => this.showSync?.(status));
   }
 
   get isOpen() {
@@ -312,6 +325,8 @@ export class Settings {
           ],
         }],
       },
+      this.notesCategory(),
+      clipboardCategory(),
       ...videoCategories(this.host),
       this.aboutCategory(),
     ];
@@ -366,6 +381,96 @@ export class Settings {
         const minutes = config.autoLockMinutes;
         this.autoLockValue.textContent = mode === "off" ? "Not applicable" : minutes ? `After ${minutes} minute${minutes === 1 ? "" : "s"}` : "Never";
       },
+    };
+  }
+
+  private notesCategory(): Category {
+    const { config } = this.host;
+    const button = (label: string, onclick: () => void, cls = "btn small") => h("button", { type: "button", class: cls, onclick }, label);
+    const wideRow = (label: string, hint: string, control: HTMLElement): SettingsRow => ({
+      label: `${label} ${hint}`,
+      el: h("div", { class: "sf-row plain wide st-notes-row" }, h("div", { class: "st-text" }, h("span", { class: "sf-label" }, label), h("p", { class: "sf-hint" }, hint)), control),
+    });
+
+    // Sync through a folder.
+    const folderValue = textValue("Off");
+    const statusValue = textValue("");
+    const turnOff = button("Turn Off", () => void notesApi.setSyncFolder(null).catch((err) => alertText(statusValue, err)), "btn small ghost");
+    const syncNow = button("Sync Now", () => void notesApi.syncNow());
+    const showFolder = button("Show Folder", () => {
+      const folder = folderValue.title;
+      if (folder) void invoke("fs_open_default", { path: folder }).catch(() => undefined);
+    }, "btn small ghost");
+    const choose = button("Choose…", async () => {
+      const folder = await openDialog({ directory: true, title: "Choose a Folder to Sync Notes With" }).catch(() => null);
+      if (typeof folder === "string") await notesApi.setSyncFolder(folder).catch((err) => alertText(statusValue, err));
+    });
+    this.showSync = (status) => {
+      folderValue.textContent = status.folder ? status.folder.replace(/^.*\//, "") || status.folder : "Off";
+      folderValue.title = status.folder ?? "";
+      statusValue.textContent = syncText(status);
+      statusValue.classList.toggle("st-error", status.state === "error");
+      for (const el of [turnOff, syncNow, showFolder]) el.hidden = !status.folder;
+      choose.textContent = status.folder ? "Change…" : "Choose…";
+    };
+
+    // The desktop shortcut for a quick note.
+    type Shortcut = { supported: boolean; state: "none" | "installed" | "other"; binding: string; command: string };
+    const BINDINGS: [string, string][] = [["<Super><Alt>n", "Super+Alt+N"], ["<Primary><Alt>n", "Ctrl+Alt+N"], ["<Super><Shift>n", "Super+Shift+N"], ["<Primary><Shift><Alt>n", "Ctrl+Shift+Alt+N"]];
+    const keys = h("select", { "aria-label": "Shortcut" }, ...BINDINGS.map(([value, label]) => h("option", { value }, label)));
+    const shortcutState = textValue("");
+    const shortcutButton = button("Add Shortcut", () => void setShortcut(keys.value));
+    const removeShortcut = button("Remove", () => void setShortcut(null), "btn small ghost");
+    const copyCommand = button("Copy Command", () => void navigator.clipboard.writeText(command).catch(() => undefined));
+    let command = "";
+    const showShortcut = (s: Shortcut) => {
+      command = s.command;
+      if (!BINDINGS.some(([value]) => value === s.binding)) keys.append(h("option", { value: s.binding }, s.binding));
+      keys.value = s.binding;
+      keys.hidden = shortcutButton.hidden = !s.supported;
+      copyCommand.hidden = s.supported;
+      removeShortcut.hidden = s.state === "none";
+      shortcutButton.textContent = s.state === "installed" ? "Update" : s.state === "other" ? "Use This CorePro" : "Add Shortcut";
+      shortcutState.textContent = !s.supported ? "" : s.state === "installed" ? "On" : s.state === "other" ? "Opens another CorePro" : "";
+    };
+    const setShortcut = async (binding: string | null) => {
+      try {
+        showShortcut(await invoke<Shortcut>("notes_set_shortcut", { binding }));
+      } catch (err) {
+        alertText(shortcutState, err);
+      }
+    };
+
+    const refresh = () => {
+      void notesApi.syncStatus().then((s) => this.showSync?.(s), () => undefined);
+      void invoke<Shortcut>("notes_shortcut").then(showShortcut, () => undefined);
+    };
+    return {
+      id: "notes", title: "Notes", icon: "note", section: "Modules",
+      groups: [
+        {
+          title: "Sync",
+          rows: [
+            wideRow("Sync folder", "Each note is saved there as a Markdown file. Pick a folder in Google Drive or OneDrive (connected in your desktop’s Online Accounts), Nextcloud, Dropbox or Syncthing to read your notes on the web and on your other computers.",
+              h("div", { class: "st-inline" }, folderValue, turnOff, choose)),
+            plainRow("Status", h("div", { class: "st-inline" }, statusValue, showFolder, syncNow)),
+          ],
+        },
+        {
+          title: "Quick note",
+          rows: [
+            wideRow("Keyboard shortcut", "Opens a new note from anywhere, even when CorePro isn’t running. It runs “corepro --new-note”, which you can also bind yourself.",
+              h("div", { class: "st-inline" }, shortcutState, keys, removeShortcut, shortcutButton, copyCommand)),
+          ],
+        },
+        {
+          title: "Notes",
+          rows: [
+            toggleRow("Reopen notes at start", "Notes that were on the desktop when CorePro closed come back when it starts.", () => config.notes.reopen, (on) => (config.notes.reopen = on, this.host.configChanged())).row,
+          ],
+        },
+      ],
+      refresh,
     };
   }
 

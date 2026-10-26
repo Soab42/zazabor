@@ -1,4 +1,4 @@
-import { open as pickFiles } from "@tauri-apps/plugin-dialog";
+import { open as pickFiles } from "../../../../shared/dialog";
 import { basename, dirname, h } from "../../../../ui/dom";
 import { icon } from "../../../../ui/icons";
 import { videoApi } from "../../api";

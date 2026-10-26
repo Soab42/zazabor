@@ -87,6 +87,93 @@ export interface Config {
   files: FilesSettings;
   video: VideoSettings;
   terminal: TerminalSettings;
+  notes: NotesSettings;
+  wallet: WalletSettings;
+  office: OfficeSettings;
+  clipboard: ClipboardSettings;
+  studio: StudioSettings;
+}
+
+/** The clipboard history's page side (the history and its recording settings live in the backend, see clipboard/mod.rs). */
+export interface ClipboardSettings {
+  /** Emoji, kaomoji and symbols picked lately in the Win+V popup, most recent first. */
+  recent: string[];
+  /** The Clipboard section's filter. */
+  filter: "all" | "text" | "image" | "files" | "pinned";
+}
+
+/** Studio: Photo and the Video Editor. */
+export interface StudioSettings {
+  /** Projects and pictures opened lately, most recent first (at most 40). */
+  recent: string[];
+  /** Settings of Photo and the Video Editor, by app (each normalizes its own). */
+  apps: Record<string, unknown>;
+}
+
+const DEFAULT_STUDIO: StudioSettings = { recent: [], apps: {} };
+
+function normalizeStudio(raw: Partial<StudioSettings> | undefined): StudioSettings {
+  const recent = Array.isArray(raw?.recent) ? [...new Set(raw.recent.filter((p): p is string => typeof p === "string"))].slice(0, 40) : [];
+  const apps = raw?.apps && typeof raw.apps === "object" && !Array.isArray(raw.apps) ? raw.apps : {};
+  return { recent, apps };
+}
+
+const DEFAULT_CLIPBOARD: ClipboardSettings = { recent: [], filter: "all" };
+
+function normalizeClipboard(raw: Partial<ClipboardSettings> | undefined): ClipboardSettings {
+  const filters: ClipboardSettings["filter"][] = ["all", "text", "image", "files", "pinned"];
+  return {
+    recent: Array.isArray(raw?.recent) ? [...new Set(raw.recent.filter((r): r is string => typeof r === "string" && r.length < 64))].slice(0, 24) : [],
+    filter: filters.includes(raw?.filter as ClipboardSettings["filter"]) ? (raw!.filter as ClipboardSettings["filter"]) : "all",
+  };
+}
+
+/** Wallet (the ledger itself lives in the backend, see wallet/mod.rs). */
+export interface WalletSettings {
+  /** Amounts show as ••• (for sharing the screen). */
+  hideAmounts: boolean;
+}
+
+const DEFAULT_WALLET: WalletSettings = { hideAmounts: false };
+
+function normalizeWallet(raw: Partial<WalletSettings> | undefined): WalletSettings {
+  return { ...DEFAULT_WALLET, hideAmounts: raw?.hideAmounts === true };
+}
+
+/** Office: Docs and Sheets. */
+export interface OfficeSettings {
+  /** Files opened lately, most recent first (at most 40). */
+  recent: string[];
+  /** Files pinned on Home. */
+  pinned: string[];
+}
+
+const DEFAULT_OFFICE: OfficeSettings = { recent: [], pinned: [] };
+
+function normalizeOffice(raw: Partial<OfficeSettings> | undefined): OfficeSettings {
+  const paths = (list: unknown) => (Array.isArray(list) ? [...new Set(list.filter((p): p is string => typeof p === "string"))] : []);
+  return { recent: paths(raw?.recent).slice(0, 40), pinned: paths(raw?.pinned) };
+}
+
+/** Sticky notes (the notes themselves and their sync live in the backend, see notes/mod.rs). */
+export interface NotesSettings {
+  /** Notes that were on the desktop when CorePro last ran open again at the start. */
+  reopen: boolean;
+  /** How the Notes section shows them: a board of cards, or Kanban columns by status. */
+  layout: "board" | "kanban";
+  /** The Kanban columns, left to right; a note's status is one of these names. */
+  columns: string[];
+}
+
+const DEFAULT_NOTES: NotesSettings = { reopen: true, layout: "board", columns: ["To do", "In progress", "Done"] };
+
+function normalizeNotes(raw: Partial<NotesSettings> | undefined): NotesSettings {
+  const columns = Array.isArray(raw?.columns) ? [...new Set(raw.columns.filter((c) => typeof c === "string" && c.trim()).map((c) => c.trim()))] : null;
+  return {
+    reopen: raw?.reopen !== false,
+    layout: raw?.layout === "kanban" ? "kanban" : "board",
+    columns: columns ?? [...DEFAULT_NOTES.columns],
+  };
 }
 
 /** The Terminal section and the editor's terminal panel. */
@@ -196,6 +283,11 @@ const DEFAULTS: Config = {
   files: DEFAULT_FILES,
   video: DEFAULT_VIDEO,
   terminal: DEFAULT_TERMINAL,
+  notes: structuredClone(DEFAULT_NOTES),
+  wallet: structuredClone(DEFAULT_WALLET),
+  office: structuredClone(DEFAULT_OFFICE),
+  clipboard: structuredClone(DEFAULT_CLIPBOARD),
+  studio: structuredClone(DEFAULT_STUDIO),
 };
 
 export async function loadConfig(): Promise<Config> {
@@ -228,6 +320,11 @@ export function parseConfig(raw: string): Config {
     files: normalizeFiles(parsed.files),
     video: normalizeVideo(parsed.video),
     terminal: normalizeTerminal(parsed.terminal),
+    notes: normalizeNotes(parsed.notes),
+    wallet: normalizeWallet(parsed.wallet),
+    office: normalizeOffice(parsed.office),
+    clipboard: normalizeClipboard(parsed.clipboard),
+    studio: normalizeStudio(parsed.studio),
   };
 }
 

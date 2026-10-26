@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { api } from "../api";
 import { applyAppearance } from "../appearance";
+import { isKeptAwake } from "../shared/awake";
 import { adoptConfig, CONFIG_SAVED, parseConfig, saveConfig, type Config } from "../config";
 import { askForAccess, dismissUnlockPrompt, lockApi, openLockSettings, type LockStatus } from "../lock";
 import { h, isTypingTarget } from "../ui/dom";
@@ -10,6 +11,8 @@ import { MODULE_IDS, type AppModule, type ModuleId, type OpenRequest, type Shell
 import { Onboarding } from "./onboarding";
 import { Rail } from "./rail";
 import { MODULES } from "./registry";
+import { kindOf } from "../modules/office/api";
+import { studioProjectKind } from "../modules/studio/app";
 import { classifyPath } from "./router";
 import { Settings } from "./settings";
 import { isTerminalTarget } from "../terminal/target";
@@ -41,6 +44,8 @@ export class Shell implements ShellContext {
   private locking = false;
   private idleTimer = 0;
   private lastActivityTold = 0;
+  /** Stops the rail-dot watchers of the modules that have one, by module. */
+  private statusWatchers = new Map<ModuleId, () => void>();
 
   readonly lock: ShellLock = this.makeLock();
 
@@ -63,6 +68,7 @@ export class Shell implements ShellContext {
       document.getElementById("app")!.append(this.workspace);
     }
     this.rail.setItems(this.enabledModules());
+    this.watchStatuses();
     this.applyAppearance();
 
     // "System" follows the desktop's light or dark setting as it changes.
@@ -97,25 +103,36 @@ export class Shell implements ShellContext {
       this.onboarding = null;
     }
     // An extra window starts where it was asked to; the main window where it was left.
-    const wanted = windowStart && windowStart.module !== "viewer" ? windowStart.module : this.config.module;
+    const wanted = windowStart && windowStart.module !== "viewer" && windowStart.module !== "note" && windowStart.module !== "clipboard-popup" ? windowStart.module : this.config.module;
     const first = this.config.features[wanted] ? wanted : this.enabledModules()[0];
     // A Terminal window starts its first shell in the folder it was opened for.
     if (first === "terminal" && windowStart?.path) (await this.ensure("terminal"))?.open?.({ kind: "folder", path: windowStart.path });
     await this.activate(first);
     const path = windowStart?.path;
     if (path && first === wanted) {
-      const siblings = (windowStart?.module !== "viewer" && windowStart?.siblings) || undefined;
+      const siblings = (windowStart && "siblings" in windowStart && windowStart.siblings) || undefined;
       if (first === "files") this.open({ kind: "folder", path });
       else if (first === "gallery") this.open({ kind: "image", path, siblings, alone: isFileWindow });
       else if (first === "video") this.open({ kind: "video", path, siblings, alone: isFileWindow });
+      else if (first === "office") this.open({ kind: "office", path, alone: true });
+      else if (first === "studio") {
+        const app = studioProjectKind(path);
+        if (app) this.open({ kind: "studio", app, path });
+      }
     }
-    if (isMainWindow) await this.openLaunchPath();
+    if (isMainWindow) {
+      // Notes that were on the desktop when CorePro last ran come back.
+      if (this.config.features.notes && this.config.notes.reopen) invoke("notes_reopen").catch(() => undefined);
+      await this.openLaunchPath();
+    }
   }
 
   // ---- other windows
 
   /** Opens a module in a new window, at the place it's showing (Files: the same folder). */
   private openModuleWindow(id: ModuleId) {
+    const custom = MODULES[id].newWindow;
+    if (custom) return custom.open();
     openWindow(id, this.modules.get(id)?.windowPath?.() ?? undefined);
   }
 
@@ -123,6 +140,12 @@ export class Shell implements ShellContext {
   private followOtherWindows() {
     void onOthers<string>(CONFIG_SAVED, (json) => this.configFromElsewhere(json));
     void onOthers<null>(ACTIVITY, () => this.resetIdleTimer());
+    // A note's "Notes List" brings the main window to the Notes section.
+    if (isMainWindow) void listen("notes-show-list", () => this.config.features.notes && this.showModule("notes"));
+    // CorePro launched again ("Open with" while it runs, or in the background): open what it was given.
+    if (isMainWindow) void listen<string>("open-path", (e) => void this.openPath(e.payload, 1));
+    // The clipboard popup's "Open Clipboard" brings the main window to the Clipboard section.
+    if (isMainWindow) void listen("clipboard-show-section", () => this.config.features.clipboard && this.showModule("clipboard"));
     void listen<boolean>("lock-changed", (e) => {
       if (e.payload) void this.lockApp(false);
       else dismissUnlockPrompt();
@@ -144,6 +167,7 @@ export class Shell implements ShellContext {
       if (!isMainWindow && this.active && !this.config.features[this.active]) return closeThisWindow();
       for (const id of MODULE_IDS) if (!this.config.features[id] && this.modules.has(id)) this.dropModule(id);
       this.rail.setItems(this.enabledModules());
+      this.watchStatuses();
       if (!this.active || !this.config.features[this.active]) void this.activate(this.enabledModules()[0]);
       this.revealActive();
     }
@@ -184,9 +208,10 @@ export class Shell implements ShellContext {
   }
 
   open(request: OpenRequest) {
-    const target: ModuleId = request.kind === "folder" ? "files" : request.kind === "image" ? "gallery" : "video";
+    const target: ModuleId = request.kind === "folder" ? "files" : request.kind === "image" ? "gallery" : request.kind === "office" ? "office" : request.kind === "studio" ? "studio" : "video";
     if (!this.config.features[target]) {
-      this.openExternally(request.path);
+      const path = "path" in request ? request.path : undefined;
+      if (path) this.openExternally(path);
       return;
     }
     this.closeSettings(false);
@@ -272,8 +297,25 @@ export class Shell implements ShellContext {
       }
     }
     this.rail.setItems(this.enabledModules());
+    this.watchStatuses();
     this.revealActive();
     this.saveConfig();
+  }
+
+  /** Keeps the rail dots of the enabled modules that have one (main window only: it has the rail). */
+  private watchStatuses() {
+    if (!isMainWindow) return;
+    for (const id of MODULE_IDS) {
+      const watch = MODULES[id].status;
+      const unwatch = this.statusWatchers.get(id);
+      if (watch && this.config.features[id] && !unwatch) {
+        this.statusWatchers.set(id, watch((status) => this.rail.setStatus(id, status)));
+      } else if (unwatch && !this.config.features[id]) {
+        unwatch();
+        this.statusWatchers.delete(id);
+        this.rail.setStatus(id, null);
+      }
+    }
   }
 
   private dropModule(id: ModuleId) {
@@ -312,9 +354,10 @@ export class Shell implements ShellContext {
     else this.openSettings();
   }
 
-  private openSettings() {
-    if (this.settings.isOpen || this.onboarding) return;
-    this.settings.open();
+  openSettings(category?: string) {
+    if (this.onboarding || !isMainWindow) return;
+    if (this.settings.isOpen && !category) return;
+    this.settings.open(category);
     this.revealActive();
   }
 
@@ -347,7 +390,7 @@ export class Shell implements ShellContext {
     const active = this.active ? this.modules.get(this.active) : undefined;
     // Settings and switching sections belong to the main window.
     if (!isMainWindow) {
-      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "n" && !active?.modal && this.active) {
+      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "n" && !active?.modal && !active?.ownsNewKey && this.active) {
         e.preventDefault();
         this.openModuleWindow(this.active);
         return;
@@ -364,7 +407,7 @@ export class Shell implements ShellContext {
       if (this.settings.handleKey(e)) e.preventDefault();
       return;
     }
-    if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "n" && !active?.modal && this.active) {
+    if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "n" && !active?.modal && !active?.ownsNewKey && this.active) {
       e.preventDefault();
       this.openModuleWindow(this.active);
       return;
@@ -405,10 +448,10 @@ export class Shell implements ShellContext {
     clearTimeout(this.idleTimer);
     const minutes = this.config.autoLockMinutes;
     if (this.lockStatus.mode === "off" || !minutes || this.locking) return;
-    this.idleTimer = window.setTimeout(() => {
-      // Never interrupt a slideshow someone is watching.
+    this.idleTimer = window.setTimeout(async () => {
+      // Never interrupt a slideshow or a video someone is watching, in this window or another.
       const active = this.active ? this.modules.get(this.active) : undefined;
-      if (active?.modal) this.resetIdleTimer();
+      if (active?.modal || (await isKeptAwake())) this.resetIdleTimer();
       else void this.lockApp();
     }, minutes * 60_000);
   }
@@ -440,6 +483,10 @@ export class Shell implements ShellContext {
     if (kind === "dir") this.openFolder(path);
     else if (kind === "image" && count === 1) this.open({ kind: "image", path });
     else if (kind === "video" && count === 1) this.open({ kind: "video", path });
+    // Word and Excel files (and CSV, text) go to Office.
+    else if (kind === "other" && count === 1 && this.config.features.office && kindOf(path)) this.open({ kind: "office", path });
+    // Photo and Video Editor projects go to Studio.
+    else if (kind === "other" && count === 1 && this.config.features.studio && studioProjectKind(path)) this.open({ kind: "studio", app: studioProjectKind(path)!, path });
   }
 
   private async openLaunchPath() {
@@ -450,12 +497,14 @@ export class Shell implements ShellContext {
   private async setupDragDrop() {
     await getCurrentWebview().onDragDropEvent(async (event) => {
       const payload = event.payload;
+      // A file picker open in this window takes the drop itself (see shared/filepicker).
+      const picking = document.body.classList.contains("file-picker-open");
       if (payload.type === "enter" || payload.type === "over") {
-        if (!this.onboarding) document.body.classList.add("dropping");
+        if (!this.onboarding && !picking) document.body.classList.add("dropping");
         return;
       }
       document.body.classList.remove("dropping");
-      if (payload.type !== "drop" || this.onboarding || document.body.classList.contains("app-locked")) return;
+      if (payload.type !== "drop" || picking || this.onboarding || document.body.classList.contains("app-locked")) return;
       for (const path of payload.paths) await this.openPath(path, payload.paths.length);
     });
   }
