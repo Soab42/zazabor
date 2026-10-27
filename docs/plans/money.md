@@ -25,7 +25,7 @@ management" section, after Time (`src-tauri/src/time/`).*
   words), Reports (span presets; spending by category, income and spending per month, net worth;
   each with hover details and a table view).
 - **Hide amounts** (eye button, Ctrl+H) shows every amount as `৳•••`, and stays on across restarts.
-  Every `wallet_*` command refuses while CorePro is locked, and locking clears the section.
+  Every `wallet_*` command refuses while Zazabor is locked, and locking clears the section.
 - **Backups**: a copy each day (`VACUUM INTO wallet/backups/YYYY-MM-DD.db`, the last 14 kept),
   and a "before-restore" copy before any restore.
 - **Roll-over and archiving** (2026-10-27): a budget can roll over (what's left of last month's,
@@ -43,7 +43,7 @@ Migration 2 adds `recurring`, `receipts`, `rules`, `import_profiles`, `import_ba
 - **Bills (F3)**, `bills.rs` and the Bills view: daily, weekly, monthly (a day, or the last day;
   the 31st falls on the month's last day without drifting) and yearly rules, every N periods, a
   first date and an optional end. A bill either **posts by itself**: on the day, and for every
-  date it missed while CorePro was closed, each date in one SQLite transaction with moving the
+  date it missed while Zazabor was closed, each date in one SQLite transaction with moving the
   rule on, so a second run or a crash never posts twice (checked at start, each hour while
   unlocked, and whenever bills are listed). Or it **reminds**: it stays due, once, with the count
   of missed dates ("2 unpaid · since 10 Sep"), until Mark Paid posts the next date or Skip passes
@@ -51,7 +51,7 @@ Migration 2 adds `recurring`, `receipts`, `rules`, `import_profiles`, `import_ba
   "Repeat…" on any transaction, and a Coming up card on Overview with Mark Paid.
 - **Receipts (F3)**, `receipts.rs`: pictures and PDFs (40 MB at most) are copied into
   `wallet/receipts/<xxh3-128>.<ext>`, so the original can move or go; the same file is stored
-  once. Attach from the transaction sheet (CorePro's own picker), by dropping files on the sheet
+  once. Attach from the transaction sheet (Zazabor's own picker), by dropping files on the sheet
   or on a row (`drops.ts` claims the drop so the shell doesn't open the file), from Files'
   context menu ("Attach to Wallet Transaction…", in any window), or on a new transaction before
   it's added. Thumbnails open in a viewer window; rows show a paperclip. A file no receipt points
@@ -87,21 +87,87 @@ recorded once, and Excel export read back. Dropping files from the desktop wasn'
 test display has no app to drag from).
 
 Not done: bank- and wallet-specific profiles (they need sample statements, section 11),
-reading PDF statements, "Cost in hours" next to expenses, receipts from the Gallery (the viewer
+"Cost in hours" next to expenses, receipts from the Gallery (the viewer
 has no menu for it yet), "Send to Notes", reminders as desktop notifications, and F6 sync.
 
+
+### Statements (round 3, 2026-10-27)
+
+`src-tauri/src/statements/` (parse, layout, build, xlsx, ai, keys) and `src/shared/statements/`.
+
+- **Reading a statement**: PDF (pdf.js in the page sends the text with its positions), CSV, TSV,
+  TXT and `.xlsx`. The heading row names the columns (date, particulars, reference, withdrawal and
+  deposit or one amount with Dr/Cr, balance). Headings pdf.js joined into one piece ("Chq/Ref No
+  Withdrawal") are picked out by name. Wrapped particulars are joined, carried-down dates filled
+  in and newest-first statements turned round. The bank, the account's last four digits, the
+  period and the opening and closing balances come from the lines around the table. A check
+  runs the balance down the rows and compares the totals; rows that don't add up are flagged,
+  never changed.
+- **Reading with Claude**: scans, photos and statements the reader can't make out go to Claude.
+  Settings → AI holds an Anthropic API key, the model (default `claude-opus-5-5`) and a consent
+  switch; nothing is sent without the key and the consent.
+  - The request is raw HTTPS from Rust (`reqwest`), streamed, with structured output (a JSON
+    schema of the statement). PDFs go as a document block, pictures downscaled to 2400 px.
+  - Rate limits and overload are retried; refusals and statements too long to answer are
+    reported.
+  - The key is kept in the desktop's Secret Service keyring, or in a 0600 file under `ai/` when
+    there's no keyring. The page never sees it.
+  - Every AI command is refused while Zazabor is locked, and the balance check runs on Claude's
+    rows too.
+- **Statement to Excel**: a review dialog shows the statement's details, the rows (flagged ones
+  marked) and whether the balance adds up. Save as Excel writes a Transactions sheet (real dates,
+  ৳ formats, flagged rows shaded, SUM totals, frozen header) and a Summary sheet. In PDF, Convert
+  has Statement to Excel, and Tables to Excel for any PDF's tables (columns from where the text
+  lines up, with joined headings cut at the gutters of the rows below).
+- **Upload to Wallet**: Import & Export → Upload Statement… (or drop a statement on the card).
+  - The account is guessed: the bank and last four digits remembered from before, else an
+    account whose name has them, else "New account: The City Bank ••9012", opening at the
+    statement's opening balance. Rows already in Wallet are dimmed.
+  - The rows go through the same staged import as a CSV, as one batch named after the file,
+    so Undo removes them.
+  - With Settings → Wallet → "Import statements automatically", a statement that adds up, has
+    no flagged rows and has a known account imports without the dialog.
+- **Excel round trip**: Wallet's own Excel export imports back. An Account column puts rows into
+  that account, "Food › Eating out" matches its category, and rows already in the ledger (same
+  date, amount and payee) show as duplicates. Export's toast offers Open in Sheets.
+
+Checked: 19 statement tests and 27 Wallet tests (Wallet's own Excel export comes back without
+duplicates).
+- The statement tests cover CSV, PDF pages with tight and joined headings, the balance check, the
+  workbook read back, a staged import added once and undone, and the settings and key file.
+- They also send the Claude request to a local stand-in: a rate limit is retried, and a refusal
+  and a bad request are reported.
+
+In the app on a nested display, with made-up statements:
+- A City Bank PDF added up (৳50,000 + ৳1,10,112.50 − ৳32,119 = ৳1,27,993.50). Its Excel file read
+  back the same, it imported into a new "The City Bank ••9012" at ৳1,27,993.50, and uploading it
+  again showed every row already in Wallet.
+- A newest-first bKash PDF and a BRAC CSV imported.
+- Tables to Excel kept every column of the City page.
+- A scan with AI off asked for Claude. With a key and consent it was read through a local
+  stand-in for the Messages API.
+
+**The live Claude call is untested**: there is no API key on this machine. Settings → AI → Test
+checks it once a key is added.
+
+Not done:
+- Bank-specific profiles; they need real statements.
+- A watched "statements inbox" folder.
+- Wallet's multi-sheet export imports one sheet at a time.
+- Without a running Secret Service, saving or reading the key waits for the keyring to time out
+  before it uses the file.
 
 ## 1. Goals
 
 - **One person's money in one place.** Where it comes from, where it goes, and what is left in
   each wallet: cash, bank accounts, cards and mobile wallets (bKash, Nagad, Rocket).
 - **Fast to enter.** A transaction takes a few seconds from anywhere: a quick-add field in the
-  section, and a desktop shortcut like the quick note (`corepro --new-note`).
+  section, and a desktop shortcut like the quick note (`zazabor --new-note`).
 - **Honest numbers.** Money is stored as integers in minor units (poisha, cents), never floats.
   Transfers move money between your own accounts without counting as spending.
 - **Plans, not just history.** Monthly budgets per category, recurring bills and subscriptions with
   their next due dates, and reports that show the trend.
-- **Works with the rest of CorePro.** Receipts come from Files and the Gallery. Earnings come from
+- **Works with the rest of Zazabor.** Receipts come from Files and the Gallery. Earnings come from
   the hours Time tracked. Statements come in as CSV or Excel files.
 - **Private.** The privacy lock hides it, amounts can be blurred on screen, and the synced copy on a
   cloud drive is encrypted.
@@ -199,7 +265,7 @@ Keep 14 daily and 12 monthly copies. Settings → Money lists them with a Restor
 
 ## 6. Privacy lock
 
-- While CorePro is locked, the backend refuses every `money_*` command, as it already refuses to
+- While Zazabor is locked, the backend refuses every `money_*` command, as it already refuses to
   serve images. The section hides its content, as private albums do.
 - An optional "Ask before showing Money" setting (off by default) calls `shell.lock.authorize()`
   when the section opens, like hidden albums.
@@ -218,7 +284,7 @@ amount from a receipt photo (OCR with Tesseract) waits for the backlog.
 reads xls, xlsx, xlsb and ods, but not formatting, which an import doesn't need,
 [repo](https://github.com/tafia/calamine)). The steps:
 
-1. Pick a file. CorePro sniffs the delimiter, encoding (UTF-8, or Windows-1252 from old bank
+1. Pick a file. Zazabor sniffs the delimiter, encoding (UTF-8, or Windows-1252 from old bank
    exports), header row and date format.
 2. Map the columns: date, description, amount, or separate debit and credit columns, plus an
    optional balance. Save the mapping as a profile per bank.
@@ -259,13 +325,13 @@ Notes sync by keeping one Markdown file per note in a cloud-drive folder (`notes
 and two computers would overwrite each other. Instead:
 
 - **An append-only change log per device.** Each change to a row is a line of JSON (the full row
-  with `updated`) in `<folder>/CorePro Money/<device-id>/<YYYY-MM>.log`. A device only ever writes
+  with `updated`) in `<folder>/Zazabor Money/<device-id>/<YYYY-MM>.log`. A device only ever writes
   its own files, so the drive never sees a write conflict.
 - **Merge.** Each device reads the other devices' logs from where it last stopped and applies each
   row if its `updated` is newer. The last writer wins per row. Deletes are rows with `deleted` set.
   Both legs of a transfer travel in one line.
 - **Encrypted.** Each line is sealed with XChaCha20-Poly1305 (`chacha20poly1305` crate). The key is
-  derived from a sync passphrase with Argon2, which CorePro already uses for the lock. The drive's
+  derived from a sync passphrase with Argon2, which Zazabor already uses for the lock. The drive's
   website then shows only ciphertext. (Notes are readable on the web by design; money should not
   be.)
 - The same folder picker and status chip as Notes, in Settings → Money. An empty-looking
@@ -296,7 +362,7 @@ All in `src-tauri/src/money/` (`mod.rs` store and migrations, `import.rs`, `expo
 | `money_sync_status`, `money_sync_set_folder`, `money_sync_now` | As the Notes sync commands |
 
 Recurring bills are posted or reminded by a check at start-up and every hour, catching up on days
-when CorePro wasn't running.
+when Zazabor wasn't running.
 
 ## 11. Decisions
 
@@ -326,7 +392,7 @@ no Zakat helper or lending yet. These can still change:
 |---|---|---|
 | F1 ✓ | **Ledger**: SQLite store with migrations, accounts, categories, transactions, transfers with fees, quick add, Transactions view, hide amounts, lock refusal | A month of entries across cash, bank and bKash gives the right balances. Rust tests cover transfer legs, signed sums and minor-unit formatting for 0-, 2- and 3-decimal currencies. |
 | F2 ✓ | **Plans**: budgets, Overview, Reports (SVG charts from tokens), daily backups | Budget bars match the hand-calculated figures. Charts read in light and dark themes. Restoring a backup works. |
-| F3 ✓ | **Bills and receipts**: recurring rules with catch-up, Bills view, receipt attach from the dialog, drag and drop, Files and Gallery | A monthly bill posts once after CorePro was closed for 40 days (one post per missed month, or a single reminder, as configured). Receipts survive moving the original file. |
+| F3 ✓ | **Bills and receipts**: recurring rules with catch-up, Bills view, receipt attach from the dialog, drag and drop, Files and Gallery | A monthly bill posts once after Zazabor was closed for 40 days (one post per missed month, or a single reminder, as configured). Receipts survive moving the original file. |
 | F4 ✓ | **Import and export**: CSV/XLSX wizard with profiles, rules, duplicates and undo; CSV, XLSX and JSON export | Importing the same statement twice adds nothing the second time. Undo removes the whole batch. |
 | F5 ✓ | **Time link**: `time_project_hours`, project rates, Earnings card, record as income, cost in hours | Earnings match Time's report for the month, and posting twice is refused. |
 | F6 | **Sync**: encrypted per-device change logs, merge, status chip | Two profiles on one computer, syncing through a shared folder, converge after offline edits on both sides. A wrong passphrase reads nothing and deletes nothing. |

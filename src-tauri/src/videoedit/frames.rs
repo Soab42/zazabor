@@ -1,7 +1,9 @@
-//! The frame server: one GStreamer decoder per clip on the timeline, scaled to the size the
-//! page draws it at. Asking for the frame at time `t` reuses the last frame, reads forward
-//! (the pipeline decodes a few frames ahead of the page) or does an accurate seek. Frames are
-//! planar I420 with tight rows (the width is a multiple of 8), behind a 32-byte header.
+//! The frame server: GStreamer decoders scaled to the size the page draws each clip at, keyed by
+//! the clip that asks. Asking for the frame at time `t` reuses the last frame, reads forward
+//! (the pipeline decodes a few frames ahead of the page) or does an accurate seek. A clip that
+//! starts takes over an idle decoder of the same file (an earlier cut of it) instead of opening
+//! the file again, so a reel cut from one video keeps a couple of decoders, not one per cut.
+//! Frames are planar I420 with tight rows (the width is a multiple of 8), behind a 32-byte header.
 
 use super::media::{self, Want};
 use gst::prelude::*;
@@ -18,6 +20,8 @@ const MAX_DECODERS: usize = 10;
 const PULL_TIMEOUT: Duration = Duration::from_secs(4);
 /// Frames kept behind the newest one while reading forwards (asks a frame early don't seek).
 const KEEP_FORWARD: usize = 2;
+/// A decoder unused this long is free for another cut of its file to take over.
+const ADOPT_IDLE: Duration = Duration::from_millis(400);
 /// Memory for the stretch decoded ahead of a reversed clip.
 const REVERSE_BYTES: usize = 64 * 1024 * 1024;
 
@@ -55,6 +59,34 @@ type Slot = Arc<Mutex<Option<Decoder>>>;
 struct Entry {
     slot: Slot,
     used: Instant,
+    path: String,
+    size: (u32, u32),
+    /// The source time last asked for.
+    at: f64,
+}
+
+/// The decoders a page key may share: keys are `<prefix>:<clip>`, and preview and export each
+/// have their own prefix.
+fn group_of(key: &str) -> &str {
+    key.rfind(':').map_or("", |i| &key[..=i])
+}
+
+/// How costly it is for a decoder at `at` to serve `t`: reading on is cheap, seeking isn't.
+fn reach_cost(at: f64, t: f64) -> f64 {
+    if t >= at && t - at < READ_AHEAD {
+        t - at
+    } else {
+        10.0 + (t - at).abs()
+    }
+}
+
+/// Picks the idle decoder (same group, file and size) best placed to serve `t`, if any.
+fn adoptable<'a>(entries: impl Iterator<Item = (&'a String, &'a Entry)>, key: &str, path: &str, size: (u32, u32), t: f64, now: Instant) -> Option<String> {
+    let group = group_of(key);
+    entries
+        .filter(|(k, e)| group_of(k) == group && e.path == path && e.size == size && now.duration_since(e.used) >= ADOPT_IDLE)
+        .min_by(|a, b| reach_cost(a.1.at, t).total_cmp(&reach_cost(b.1.at, t)))
+        .map(|(k, _)| k.clone())
 }
 
 fn pool() -> &'static Mutex<HashMap<String, Entry>> {
@@ -240,13 +272,22 @@ pub fn frame(key: &str, path: &str, t: f64, source: (u32, u32), max: (u32, u32),
     let size = decode_size(source, max);
     let slot = {
         let mut pool = lock(pool());
-        if !pool.contains_key(key) && pool.len() >= MAX_DECODERS {
-            if let Some(oldest) = pool.iter().min_by_key(|(_, e)| e.used).map(|(k, _)| k.clone()) {
-                pool.remove(&oldest);
+        let now = Instant::now();
+        if !pool.contains_key(key) {
+            let adopt = if std::env::var_os("ZAZABOR_VIDEOEDIT_NO_ADOPT").is_some() { None } else { adoptable(pool.iter(), key, path, size, t, now) };
+            if let Some(old) = adopt.and_then(|k| pool.remove(&k)) {
+                pool.insert(key.to_string(), old);
+            } else if pool.len() >= MAX_DECODERS {
+                if let Some(oldest) = pool.iter().min_by_key(|(_, e)| e.used).map(|(k, _)| k.clone()) {
+                    pool.remove(&oldest);
+                }
             }
         }
-        let entry = pool.entry(key.to_string()).or_insert_with(|| Entry { slot: Arc::default(), used: Instant::now() });
-        entry.used = Instant::now();
+        let entry = pool.entry(key.to_string()).or_insert_with(|| Entry { slot: Arc::default(), used: now, path: path.to_string(), size, at: t });
+        entry.used = now;
+        entry.path = path.to_string();
+        entry.size = size;
+        entry.at = t;
         entry.slot.clone()
     };
     let mut guard = lock(&slot);
@@ -340,6 +381,34 @@ pub fn strip(path: &str, source: (u32, u32), duration: f64, height: u32, count: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn entry(path: &str, size: (u32, u32), at: f64, idle_ms: u64, now: Instant) -> Entry {
+        Entry { slot: Arc::default(), used: now - Duration::from_millis(idle_ms), path: path.into(), size, at }
+    }
+
+    #[test]
+    fn a_new_cut_takes_over_an_idle_decoder_of_its_file() {
+        let now = Instant::now();
+        let mut pool: HashMap<String, Entry> = HashMap::new();
+        // The cut playing now (busy), an earlier cut (idle, at 1.6 s), another file, the export's.
+        pool.insert("ve1:a".into(), entry("/v/p.mp4", (544, 960), 3.0, 10, now));
+        pool.insert("ve1:b".into(), entry("/v/p.mp4", (544, 960), 1.6, 900, now));
+        pool.insert("ve1:c".into(), entry("/v/l.mp4", (544, 960), 2.0, 900, now));
+        pool.insert("ve1:x:d".into(), entry("/v/p.mp4", (544, 960), 2.0, 900, now));
+        assert_eq!(adoptable(pool.iter(), "ve1:new", "/v/p.mp4", (544, 960), 2.0, now), Some("ve1:b".into()));
+        // A different size, or nothing idle: open a new one.
+        assert_eq!(adoptable(pool.iter(), "ve1:new", "/v/p.mp4", (272, 480), 2.0, now), None);
+        pool.remove("ve1:b");
+        assert_eq!(adoptable(pool.iter(), "ve1:new", "/v/p.mp4", (544, 960), 2.0, now), None);
+        // Export keys only share with export keys.
+        assert_eq!(adoptable(pool.iter(), "ve1:x:e", "/v/p.mp4", (544, 960), 2.0, now), Some("ve1:x:d".into()));
+    }
+
+    #[test]
+    fn reading_on_beats_seeking() {
+        assert!(reach_cost(1.0, 1.2) < reach_cost(2.0, 1.2), "forward is cheap, backward seeks");
+        assert!(reach_cost(1.0, 1.2) < reach_cost(-5.0, 1.2), "near beats far");
+    }
 
     #[test]
     fn decode_size_keeps_aspect_and_alignment() {

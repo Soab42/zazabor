@@ -1,6 +1,6 @@
-# CorePro: plan (draft)
+# Zazabor: plan (draft)
 
-SliderPro grows from a photo gallery into **CorePro**, an all-in-one, pro-grade desktop app: a **file
+SliderPro grows from a photo gallery into **Zazabor**, an all-in-one, pro-grade desktop app: a **file
 manager** in the spirit of macOS Finder, the existing **gallery viewer**, and a **video player**
 based on the [VLC Redesign (Community)](https://www.figma.com/design/kzhCjdwL4QqrCb5hXqfFTp/VLC-Redesign--Community-?node-id=0-1&p=f&t=Pq8VQcXS2LWtmFM8-0)
 Figma concept. Each feature can be switched on or off in Settings, and more features join later.
@@ -33,16 +33,16 @@ The Figma file has been read (section 8.3), so the video player and the Settings
 | Video rendering (M0 result) | **Frames into WebGL** (path B): libVLC decodes I420 frames scaled to the window, the page draws them with WebGL, so glass controls, menus and popovers can sit over the video. Measured: 1080p and 4K at 25 fps, 720p mkv at 24 fps, no dropped frames, ~41 MB/s. Test code on branch `m0-spike`. |
 | File manager, first version | All four groups: browse & views, file operations, Quick Look & info, search & tools (section 6). |
 | Platforms | **Linux first** (X11 session today); code stays portable, macOS/Windows later. |
-| Display server | **X11 now, Wayland later.** On Wayland desktops CorePro runs through XWayland at first; native Wayland video is a later milestone. |
+| Display server | **X11 now, Wayland later.** On Wayland desktops Zazabor runs through XWayland at first; native Wayland video is a later milestone. |
 | App shell | **App rail + workspace**: a slim icon rail on the far left switches Files / Gallery / Video; each keeps its own sidebar and state. |
 | Rails | **Two rails**: the app rail (Files / Gallery / Video) always stays; the Video module adds VLC's own rail beside it, as in the Figma. A module may bring a secondary rail; Files and Gallery don't need one at first. |
-| Default app | Offered in Settings, off by default: separate, reversible switches to make CorePro the default for folders, videos and images (XDG MIME defaults via `xdg-mime`). |
-| Video library | **Automatic**, like the Gallery: CorePro finds video folders (Videos, Downloads, mounted drives) and lists them with thumbnails and durations; single files and folders can still be opened directly. |
+| Default app | Offered in Settings, off by default: separate, reversible switches to make Zazabor the default for folders, videos and images (XDG MIME defaults via `xdg-mime`). |
+| Video library | **Automatic**, like the Gallery: Zazabor finds video folders (Videos, Downloads, mounted drives) and lists them with thumbnails and durations; single files and folders can still be opened directly. |
 | Packaging | **.deb + AppImage.** The .deb depends on the system's `libvlc5` and VLC plugins; the AppImage bundles libVLC and its plugins (larger download, works on any distro). `scripts/install-linux.sh` stays for development. |
 | Network & devices | **Both in the first version**: Android phones (MTP) and network shares (SMB, SFTP), through GVfs, the system layer GNOME Files uses. |
 | Feature toggles | Settings → Features turns modules on/off; disabled modules vanish from the rail. |
 | Look | Glassmorphism, light/dark/system theme, accent colours, already started in the current Appearance dialog. The VLC redesign uses the same idea (50px background blur on panels). |
-| Name | **CorePro** (was SliderPro). App id `dev.soab.corepro`; settings, caches and the menu entry move over from SliderPro's folders on first launch. |
+| Name | **Zazabor** (was SliderPro). App id `dev.soab.zazabor`; settings, caches and the menu entry move over from SliderPro's folders on first launch. |
 | Video, first version | The basic player first (section 8.1), then three Figma extras: speed and ±10 s skip, mini player, customise-player editor. Other VLC features wait. |
 | Video UI | Follows the VLC Redesign Figma file: its layout, controls, settings structure, onboarding and player customisation (section 8.3). |
 | Stack | Keep Tauri 2 (Rust backend) + TypeScript (no framework) + WebGL, as today. |
@@ -53,7 +53,7 @@ Asked one at a time; answers are recorded in section 2 as they come in.
 
 1. **Video extras.** Answered: speed and ±10 s skip, mini player and customise-player editor
    join the first version, built after the basics (section 2).
-2. **App name.** Answered: CorePro (section 2).
+2. **App name.** Answered: Zazabor (section 2).
 3. **One rail or two.** Answered: two rails (section 2).
 4. **Default file manager.** Answered: switches in Settings, off by default (section 2).
 5. **Video library.** Answered: automatic library (section 2).
@@ -141,7 +141,7 @@ the VLC design's settings window: a search field over grouped categories on the 
 with labelled switches and dropdowns on the right.
 
 - **Features**: toggles for Files, Gallery, Video (at least one stays on); per-module "open at
-  launch" choice; "Make CorePro the default for folders / videos / images" switches (off by
+  launch" choice; "Make Zazabor the default for folders / videos / images" switches (off by
   default; turning one off restores the previous default).
 - **Appearance**: theme (dark/light/system), accent, background tone, glass intensity, grid
   layout, zoom curve, custom CSS (the current Appearance dialog, moved here).
@@ -203,7 +203,7 @@ removes it from the rail and from "Open with" routing.
   the GIO mount operation).
 - Remote folders are slow: listings stream in, thumbnails are generated lazily and cached,
   every operation is cancellable, and timeouts show a clear error instead of freezing.
-- Phones: Android must be unlocked and set to "File transfer"; CorePro shows that hint when a
+- Phones: Android must be unlocked and set to "File transfer"; Zazabor shows that hint when a
   phone appears without storage access.
 - Requires the `gvfs-backends` package (installed on Ubuntu/Pop!_OS by default); the .deb
   depends on it.
@@ -281,7 +281,7 @@ Screens are built from it with the Figma connector (`get_design_context` per fra
 - Title bar: app icon, "…" menu, sidebar toggle, breadcrumb of the current folder, centred file
   title, window buttons.
 - Left icon rail: Home, Videos, Music, Network streams, Playlists, Recent, and "+" to add.
-  CorePro shows it as the Video module's secondary rail, next to the app rail (first version:
+  Zazabor shows it as the Video module's secondary rail, next to the app rail (first version:
   Home, Videos, Recent).
 - Collapsible sidebar: back/forward, breadcrumb, item count, sort / view / search buttons, and the
   list (playlists, or a folder of episodes with thumbnails).
@@ -353,7 +353,7 @@ running app.
 | # | Milestone | Done when |
 |---|---|---|
 | M0 | **Video test build** (libVLC rendering paths A and B) | **Done**: path B chosen (section 8.2). |
-| M1 | **Shell**: rename to CorePro (moving SliderPro's settings and caches), app rail, router, Settings page (VLC-style layout) with feature toggles, first-run wizard; gallery moved into a module | Gallery works as before with existing settings kept; toggling features shows/hides modules and survives restart; first run asks for theme, accent and features. |
+| M1 | **Shell**: rename to Zazabor (moving SliderPro's settings and caches), app rail, router, Settings page (VLC-style layout) with feature toggles, first-run wizard; gallery moved into a module | Gallery works as before with existing settings kept; toggling features shows/hides modules and survives restart; first run asks for theme, accent and features. |
 | M2 | **Files: browse & views** | Icon, list, column and gallery views, tabs, history, sidebar, hidden files, live updates, 100k-file folder stays smooth. |
 | M3 | **Files: operations** | Copy/move/rename/new/trash/restore with jobs panel, conflicts and undo; covered by Rust tests on temp folders. |
 | M4 | **Files: Quick Look, info, tags** | Space previews all listed kinds; Get Info; tags readable by the system file manager. |
@@ -366,7 +366,7 @@ running app.
 M0 comes first because the video rendering path affects the shell's window setup (transparency,
 GTK widget tree).
 
-**Progress (Oct 18, 2026, branch `corepro`):** M1–M8 are built, plus the VLC redesign walkthrough
+**Progress (Oct 18, 2026, branch `zazabor`):** M1–M8 are built, plus the VLC redesign walkthrough
 (`docs/design/vlc/REDESIGN.md`). A hands-on pass in a test window covered the player, side panel,
 subtitles, library, queue drag, mini player, stream and capture dialogs, settings pages, and Files
 drag and drop, undo, search, compress/extract, Open With and Connect to Server. Still open: M9
@@ -405,6 +405,7 @@ spreadsheet).
 [`plans/pdf.md`](plans/pdf.md) (an Acrobat-like PDF reader and editor).
 [`plans/photo-editor.md`](plans/photo-editor.md) (a mini Photoshop).
 [`plans/video-editor.md`](plans/video-editor.md) (a mini CapCut).
+[`plans/motion-templates.md`](plans/motion-templates.md) (premium motion templates and Brand Kits for product videos and reels).
 
 Native Wayland video (no XWayland).
 

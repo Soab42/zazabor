@@ -80,22 +80,24 @@ function foot(dialog: () => { close(): void }, ok: () => void, label: string) {
 
 // ---- notes and text
 
-export function noteDialog(): Promise<string | null> {
+/** A new note's text, or with `replyTo` (who wrote the comment) a reply's. */
+export function noteDialog(replyTo?: string): Promise<string | null> {
   return new Promise((resolve) => {
     let answer: string | null = null;
-    const text = textArea({ rows: 5, "aria-label": "Note", "data-autofocus": "", placeholder: "Type your note" });
+    const what = replyTo == null ? "note" : "reply";
+    const text = textArea({ rows: 5, "aria-label": what, "data-autofocus": "", placeholder: `Type your ${what}` });
     const ok = () => {
-      if (!text.value.trim()) return dialog.error("Type the note.");
+      if (!text.value.trim()) return dialog.error(`Type the ${what}.`);
       answer = text.value.trim();
       dialog.close();
     };
     const dialog = openDialog({
-      title: "Add a Note",
-      subtitle: "Shows as a note icon; its text opens on hover. Ctrl+Enter adds it.",
+      title: replyTo == null ? "Add a Note" : "Reply",
+      subtitle: replyTo == null ? "Shows as a note icon; its text opens on hover. Ctrl+Enter adds it." : `Answers ${replyTo || "the comment"}; listed under it in Comments. Ctrl+Enter replies.`,
       icon: "comment",
       tone: "work",
       body: [text],
-      foot: foot(() => dialog, ok, "Add Note"),
+      foot: foot(() => dialog, ok, replyTo == null ? "Add Note" : "Reply"),
       submit: ok,
       onClose: () => resolve(answer),
     });
@@ -366,7 +368,7 @@ export function protectDialog(): Promise<ProtectChoice | null> {
     };
     const dialog = openDialog({
       title: "Protect with a Password",
-      subtitle: "AES-256 encryption. Keep the passwords somewhere safe: CorePro can't open the file without them.",
+      subtitle: "AES-256 encryption. Keep the passwords somewhere safe: Zazabor can't open the file without them.",
       icon: "lock",
       tone: "work",
       class: "pf-wide",
@@ -488,13 +490,35 @@ export function redactFindDialog(): Promise<{ regex: RegExp; label: string }[] |
   });
 }
 
-export function redactApplyDialog(pages: number[], marks: number): Promise<{ dpi: number; cleanup: boolean } | null> {
+export interface RedactChoice {
+  /** "objects": PDFium takes out what's under the marks; "pictures": marked pages become pictures. */
+  method: "objects" | "pictures";
+  dpi: number;
+  cleanup: boolean;
+}
+
+/** `pdfium`: whether true redaction can run, and why not when it can't. `signed`: the file has signatures. */
+export function redactApplyDialog(pages: number[], marks: number, pdfium: { available: boolean; detail: string }, signed: boolean): Promise<RedactChoice | null> {
   return new Promise((resolve) => {
-    let answer: { dpi: number; cleanup: boolean } | null = null;
+    let answer: RedactChoice | null = null;
+    const name = `pf-redact-${Math.random()}`;
+    const option = (id: RedactChoice["method"], label: string, note: string, checked: boolean, disabled = false) => {
+      const c = h("input", { type: "radio", name, value: id, checked, disabled });
+      return h("label", { class: `pf-check pf-option${disabled ? " disabled" : ""}` }, c, h("span", null, h("b", null, label), h("span", { class: "pf-option-note" }, note)));
+    };
+    const objects = option("objects", "Remove what's under the marks", pdfium.available
+      ? "The text, pictures and drawings under the marks are taken out of the file; the rest of each page stays as it is, its text still selectable. Comments, links and form fields under the marks go too."
+      : `Not available: ${pdfium.detail}`, pdfium.available, !pdfium.available);
+    const pictures = option("pictures", "Replace marked pages with pictures", "Each page with marks becomes a picture of itself with the marks painted black. The safest, but those pages lose their text, links, comments and form fields.", !pdfium.available);
     const dpi = select([{ id: "300", label: "300 dpi (sharp, larger file)" }, { id: "200", label: "200 dpi" }, { id: "150", label: "150 dpi (smaller file)" }], "300", "Resolution");
+    const quality = field("Picture quality", dpi);
     const cleanup = h("input", { type: "checkbox", checked: true });
+    const method = () => (pictures.querySelector("input")!.checked ? "pictures" : "objects");
+    const sync = () => (quality.hidden = method() !== "pictures");
+    for (const o of [objects, pictures]) o.querySelector("input")!.addEventListener("change", sync);
+    sync();
     const ok = () => {
-      answer = { dpi: Number(dpi.value), cleanup: cleanup.checked };
+      answer = { method: method(), dpi: Number(dpi.value), cleanup: cleanup.checked };
       dialog.close();
     };
     const dialog = openDialog({
@@ -503,9 +527,10 @@ export function redactApplyDialog(pages: number[], marks: number): Promise<{ dpi
       icon: "pfRedact",
       tone: "work",
       body: [
-        h("p", { class: "tt-dialog-text" }, "Each page with marks is replaced by a picture of itself with the marks painted black, so nothing under them can be recovered. Those pages lose their selectable text, links, comments and form fields; the other pages stay as they are."),
-        field("Picture quality", dpi),
+        h("div", { class: "pf-options" }, objects, pictures),
+        quality,
         h("label", { class: "pf-check" }, cleanup, "Also remove hidden information (metadata, attachments, scripts)"),
+        signed ? h("p", { class: "tt-dialog-text pf-note pf-warn" }, "This file is signed: redacting changes the signed pages, so its signatures will show as invalid.") : null,
         h("p", { class: "tt-dialog-text pf-note" }, "Bookmarks aren't changed: check they don't name what you're hiding. Save under a new name to keep the original."),
       ],
       foot: foot(() => dialog, ok, "Apply"),

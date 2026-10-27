@@ -216,7 +216,7 @@ mod tests {
     use super::*;
 
     fn scratch(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("corepro-trash-{tag}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("zazabor-trash-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -323,7 +323,7 @@ mod tests {
             let _ = fs::remove_dir_all(&root);
             return;
         }
-        let dir = shm.join(format!("corepro-trash-mount-{}", std::process::id()));
+        let dir = shm.join(format!("zazabor-trash-mount-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let f = dir.join("z.txt");
@@ -331,7 +331,7 @@ mod tests {
         let trashed = trashed_path(trash_one(&f, &root.join("Trash")).unwrap());
         assert!(trashed.starts_with("/dev/shm/.Trash-"), "{trashed}");
         let info = fs::read_to_string(info_path(Path::new(&trashed)).unwrap()).unwrap();
-        assert!(info.contains(&format!("Path=corepro-trash-mount-{}/z.txt", std::process::id())));
+        assert!(info.contains(&format!("Path=zazabor-trash-mount-{}/z.txt", std::process::id())));
         assert_eq!(restore_one(Path::new(&trashed)).unwrap(), f);
         let _ = fs::remove_dir_all(shm.join(format!(".Trash-{}", uid())));
         let _ = fs::remove_dir_all(&dir);

@@ -186,7 +186,7 @@ mod tests {
 
     #[test]
     fn devices_come_from_a_fake_tree_with_sysfs_names() {
-        let root = std::env::temp_dir().join(format!("corepro-v4l-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("zazabor-v4l-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let (dev, sys) = (root.join("dev"), root.join("sys"));
         fs::create_dir_all(&dev).unwrap();
@@ -213,7 +213,7 @@ mod tests {
     #[ignore]
     fn live_playlist_lists_its_entries() {
         let file = std::env::var("VIDEO_TEST_FILE").expect("set VIDEO_TEST_FILE");
-        let dir = std::env::temp_dir().join(format!("corepro-m3u-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("zazabor-m3u-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let m3u = dir.join("list.m3u");
         fs::write(&m3u, format!("#EXTM3U\n#EXTINF:-1,First channel\n{file}\n#EXTINF:-1,Second channel\n{file}\n")).unwrap();
@@ -229,6 +229,6 @@ mod tests {
 
     #[test]
     fn a_missing_dev_folder_is_an_empty_list() {
-        assert!(list_devices(Path::new("/nonexistent-corepro"), Path::new("/nonexistent")).is_empty());
+        assert!(list_devices(Path::new("/nonexistent-zazabor"), Path::new("/nonexistent")).is_empty());
     }
 }

@@ -15,6 +15,7 @@ import { kindOf } from "../modules/office/api";
 import { studioProjectKind } from "../modules/studio/app";
 import { classifyPath } from "./router";
 import { Settings } from "./settings";
+import { articleFor, Guide } from "../guide";
 import { isTerminalTarget } from "../terminal/target";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
@@ -32,8 +33,10 @@ export class Shell implements ShellContext {
   private rail = new Rail({
     select: (id) => this.showModule(id),
     settings: () => this.toggleSettings(),
+    help: () => this.toggleGuide(),
     openWindow: (id) => this.openModuleWindow(id),
   });
+  private guide: Guide;
   private workspace = h("main", { class: "workspace" });
   private settings: Settings;
   private modules = new Map<ModuleId, AppModule>();
@@ -50,6 +53,13 @@ export class Shell implements ShellContext {
   readonly lock: ShellLock = this.makeLock();
 
   constructor(readonly config: Config) {
+    this.guide = new Guide({
+      config,
+      saveConfig: () => this.saveConfig(),
+      openTarget: (module, target) => void this.openFromGuide(module, target),
+      enabled: (module) => this.config.features[module],
+      close: () => this.closeGuide(),
+    });
     this.settings = new Settings({
       config,
       appearanceChanged: () => this.appearanceChanged(),
@@ -59,8 +69,9 @@ export class Shell implements ShellContext {
       openLockSettings: () => void this.openLockSettings(),
       lockNow: () => void this.lockApp(),
       close: () => this.closeSettings(),
+      openGuide: () => this.openGuide("getting-started"),
     });
-    this.workspace.append(this.settings.el);
+    this.workspace.append(this.settings.el, this.guide.el);
     // An extra window is one section on its own: no app rail, no Settings, no switching.
     if (isMainWindow) document.getElementById("app")!.append(this.rail.el, this.workspace);
     else {
@@ -76,6 +87,8 @@ export class Shell implements ShellContext {
       if (config.appearance.mode === "system") this.appearanceChanged(false);
     });
     window.addEventListener("keydown", (e) => this.onKey(e));
+    // F1 before anything else gets it: editors (a Sheets cell, a Docs page) keep their own keys.
+    window.addEventListener("keydown", (e) => this.onHelpKey(e), true);
     this.followOtherWindows();
   }
 
@@ -103,7 +116,8 @@ export class Shell implements ShellContext {
       this.onboarding = null;
     }
     // An extra window starts where it was asked to; the main window where it was left.
-    const wanted = windowStart && windowStart.module !== "viewer" && windowStart.module !== "note" && windowStart.module !== "clipboard-popup" ? windowStart.module : this.config.module;
+    const own = (m: string): m is ModuleId => (MODULE_IDS as readonly string[]).includes(m);
+    const wanted = windowStart && own(windowStart.module) ? windowStart.module : this.config.module;
     const first = this.config.features[wanted] ? wanted : this.enabledModules()[0];
     // A Terminal window starts its first shell in the folder it was opened for.
     if (first === "terminal" && windowStart?.path) (await this.ensure("terminal"))?.open?.({ kind: "folder", path: windowStart.path });
@@ -116,12 +130,13 @@ export class Shell implements ShellContext {
       else if (first === "video") this.open({ kind: "video", path, siblings, alone: isFileWindow });
       else if (first === "office") this.open({ kind: "office", path, alone: true });
       else if (first === "studio") {
-        const app = studioProjectKind(path);
+        // A project opens as itself; a clip (the screen recorder's "Open in Video Editor") starts a project.
+        const app = studioProjectKind(path) ?? (/\.(mp4|m4v|mov|mkv|webm)$/i.test(path) ? "video" : null);
         if (app) this.open({ kind: "studio", app, path });
       }
     }
     if (isMainWindow) {
-      // Notes that were on the desktop when CorePro last ran come back.
+      // Notes that were on the desktop when Zazabor last ran come back.
       if (this.config.features.notes && this.config.notes.reopen) invoke("notes_reopen").catch(() => undefined);
       await this.openLaunchPath();
     }
@@ -142,7 +157,7 @@ export class Shell implements ShellContext {
     void onOthers<null>(ACTIVITY, () => this.resetIdleTimer());
     // A note's "Notes List" brings the main window to the Notes section.
     if (isMainWindow) void listen("notes-show-list", () => this.config.features.notes && this.showModule("notes"));
-    // CorePro launched again ("Open with" while it runs, or in the background): open what it was given.
+    // Zazabor launched again ("Open with" while it runs, or in the background): open what it was given.
     if (isMainWindow) void listen<string>("open-path", (e) => void this.openPath(e.payload, 1));
     // The clipboard popup's "Open Clipboard" brings the main window to the Clipboard section.
     if (isMainWindow) void listen("clipboard-show-section", () => this.config.features.clipboard && this.showModule("clipboard"));
@@ -203,6 +218,7 @@ export class Shell implements ShellContext {
   }
 
   showModule(id: ModuleId) {
+    this.closeGuide(false);
     this.closeSettings(false);
     void this.activate(id);
   }
@@ -270,7 +286,7 @@ export class Shell implements ShellContext {
         this.config.module = id;
         this.saveConfig();
       } else {
-        void getCurrentWindow().setTitle(`${MODULES[id].title} — CorePro`).catch(() => undefined);
+        void getCurrentWindow().setTitle(`${MODULES[id].title} — Zazabor`).catch(() => undefined);
       }
     }
     this.revealActive();
@@ -354,8 +370,41 @@ export class Shell implements ShellContext {
     else this.openSettings();
   }
 
+  // ---- the user guide
+
+  private toggleGuide() {
+    if (this.guide.isOpen) this.closeGuide();
+    else this.openGuide();
+  }
+
+  /** Opens the guide on `article`, or on the one for what shows (F1). */
+  private openGuide(article?: string) {
+    if (this.onboarding) return;
+    const mod = this.active ? this.modules.get(this.active) : undefined;
+    this.guide.open(article ?? articleFor(this.active, mod?.guideTopic?.(), this.settings.isOpen));
+    mod?.deactivate();
+    this.rail.setHelpActive(true);
+  }
+
+  private closeGuide(refocus = true) {
+    if (!this.guide.isOpen) return;
+    this.guide.close();
+    this.rail.setHelpActive(false);
+    if (refocus && !this.settings.isOpen && this.active) this.modules.get(this.active)?.activate();
+  }
+
+  /** The guide's Open button: the section (in this window, or a new one from a section window). */
+  private async openFromGuide(module: ModuleId, target?: string) {
+    this.closeGuide(false);
+    if (!isMainWindow && module !== this.active) return this.openModuleWindow(module);
+    this.closeSettings(false);
+    await this.activate(module);
+    if (target) this.modules.get(module)?.showGuideTarget?.(target);
+  }
+
   openSettings(category?: string) {
     if (this.onboarding || !isMainWindow) return;
+    this.closeGuide(false);
     if (this.settings.isOpen && !category) return;
     this.settings.open(category);
     this.revealActive();
@@ -387,6 +436,11 @@ export class Shell implements ShellContext {
       return;
     }
     if (this.onboarding) return;
+    // While the guide is open it has the keys (F1 itself is onHelpKey's).
+    if (this.guide.isOpen) {
+      if (this.guide.handleKey(e)) e.preventDefault();
+      return;
+    }
     const active = this.active ? this.modules.get(this.active) : undefined;
     // Settings and switching sections belong to the main window.
     if (!isMainWindow) {
@@ -424,6 +478,16 @@ export class Shell implements ShellContext {
     if (active && (active.modal || !isTypingTarget(e.target)) && active.handleKey(e)) e.preventDefault();
   }
 
+  /** F1: the guide on what shows, or closes it. A terminal's programs keep F1 for themselves. */
+  private onHelpKey(e: KeyboardEvent) {
+    if (e.key !== "F1" || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+    if (document.body.classList.contains("app-locked") || this.onboarding || isTerminalTarget(e.target)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (this.guide.isOpen) this.closeGuide();
+    else this.openGuide();
+  }
+
   // ---- privacy lock
 
   /**
@@ -437,6 +501,7 @@ export class Shell implements ShellContext {
     else this.lockStatus = await lockApi.status().catch(() => this.lockStatus);
     document.body.classList.add("app-locked");
     this.closeSettings();
+    this.closeGuide(false);
     for (const mod of this.modules.values()) await mod.onLock?.();
     await askForAccess(this.lockStatus.mode, "unlock");
     document.body.classList.remove("app-locked");

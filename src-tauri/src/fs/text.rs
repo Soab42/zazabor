@@ -58,7 +58,7 @@ pub fn write_bytes(path: &Path, bytes: &[u8]) -> Result<f64, String> {
     let dir = path.parent().ok_or_else(|| format!("Can’t save {shown}"))?;
     let name = path.file_name().ok_or_else(|| format!("Can’t save {shown}"))?.to_string_lossy();
     let existing = std::fs::metadata(path).ok();
-    let tmp = dir.join(format!(".{name}.{}.corepro-save", std::process::id()));
+    let tmp = dir.join(format!(".{name}.{}.zazabor-save", std::process::id()));
     let result = (|| -> std::io::Result<()> {
         let mut file = std::fs::File::create(&tmp)?;
         file.write_all(bytes)?;
@@ -115,7 +115,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "fn new() {}\r\n");
         assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o640);
         let leftovers: Vec<_> = std::fs::read_dir(path.parent().unwrap()).unwrap().flatten()
-            .filter(|e| e.file_name().to_string_lossy().contains("corepro-save")).collect();
+            .filter(|e| e.file_name().to_string_lossy().contains("zazabor-save")).collect();
         assert!(leftovers.is_empty());
         // A new file can be saved too.
         let fresh = path.with_file_name("fresh.txt");
@@ -124,7 +124,7 @@ mod tests {
     }
 
     fn temp(name: &str, content: &[u8]) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("corepro-text-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("zazabor-text-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join(name);
         std::fs::write(&path, content).unwrap();

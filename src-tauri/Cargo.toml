@@ -1,15 +1,17 @@
 [package]
-name = "corepro"
+name = "zazabor"
 version = "0.1.0"
 description = "Files, photos and video in one app"
 edition = "2021"
 
 [lib]
-name = "corepro_lib"
+name = "zazabor_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+# Photo: builds the vendored LibRaw (vendor/LibRaw) for RAW files.
+cc = { version = "1", features = ["parallel"] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
@@ -43,12 +45,29 @@ ironcalc = "0.9.1"
 lopdf = { version = "=0.46.0", default-features = false }
 webp = { version = "0.3.1", default-features = false }
 ravif = { version = "0.13.0", default-features = false, features = ["threading"] }
+# Office → PDF: certificate signatures (PKCS#12 and CMS, with the system OpenSSL; docs/plans/pdf.md §4.7).
+openssl = "=0.10.81"
+# Office → PDF: true redaction and editing existing text with PDFium (BSD-3-Clause), loaded at run time
+# from libpdfium.so beside Zazabor (scripts/fetch-pdfium.sh, scripts/install-linux.sh); never linked.
+pdfium-render = { version = "=0.9.4", default-features = false, features = ["pdfium_7881", "thread_safe"] }
+# Statements: Claude reads bank statements over HTTPS (the system's OpenSSL), retrying with a wait.
+reqwest = { version = "=0.13.5", default-features = false, features = ["native-tls"] }
+tokio = { version = "=1.53.3", features = ["time"] }
+candle-core = "=0.11.0"
+candle-nn = "=0.11.0"
+ureq = "=3.4.2"
+sha2 = "0.10"
+# Photo's AI tools: ONNX models on the CPU in pure Rust (no prebuilt runtime is downloaded).
+tract-onnx = "=0.23.9"
+tract-linalg = { version = "=0.23.9", features = ["multithread-mm"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = { version = "2.0", features = ["v2_40"] }
 # Clipboard history (Win+V): GTK's clipboard and XTest's Ctrl+V. Both already come with Tauri.
 gtk = "0.18"
 x11-dl = "2.21"
+# The Claude API key is kept in the desktop's keyring (Secret Service).
+dbus-secret-service = "=4.1.0"
 
 # Image decoding is unusably slow unoptimized; optimize dependencies even in dev builds.
 [profile.dev.package."*"]

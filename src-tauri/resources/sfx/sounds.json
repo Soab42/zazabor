@@ -1,0 +1,74 @@
+[
+ {
+  "id": "whoosh",
+  "title": "Whoosh",
+  "file": "whoosh.ogg",
+  "seconds": 0.85
+ },
+ {
+  "id": "swoosh",
+  "title": "Swoosh",
+  "file": "swoosh.ogg",
+  "seconds": 0.4
+ },
+ {
+  "id": "pop",
+  "title": "Pop",
+  "file": "pop.ogg",
+  "seconds": 0.14
+ },
+ {
+  "id": "click",
+  "title": "Click",
+  "file": "click.ogg",
+  "seconds": 0.08
+ },
+ {
+  "id": "ding",
+  "title": "Ding",
+  "file": "ding.ogg",
+  "seconds": 1.4
+ },
+ {
+  "id": "chime",
+  "title": "Success chime",
+  "file": "chime.ogg",
+  "seconds": 1.5
+ },
+ {
+  "id": "rise",
+  "title": "Riser",
+  "file": "rise.ogg",
+  "seconds": 2.0
+ },
+ {
+  "id": "impact",
+  "title": "Impact",
+  "file": "impact.ogg",
+  "seconds": 1.6
+ },
+ {
+  "id": "glitch",
+  "title": "Glitch",
+  "file": "glitch.ogg",
+  "seconds": 0.6
+ },
+ {
+  "id": "shutter",
+  "title": "Camera shutter",
+  "file": "shutter.ogg",
+  "seconds": 0.3
+ },
+ {
+  "id": "typing",
+  "title": "Typing",
+  "file": "typing.ogg",
+  "seconds": 1.6
+ },
+ {
+  "id": "bubbles",
+  "title": "Bubbles",
+  "file": "bubbles.ogg",
+  "seconds": 0.5
+ }
+]

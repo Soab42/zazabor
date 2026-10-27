@@ -1,6 +1,6 @@
 //! Voice-over recording: the default microphone (PulseAudio/PipeWire) into a WAV file, with a
-//! level meter. WebKitGTK's own microphone access is off in CorePro's webview, so GStreamer does
-//! it. Tests and the nested test display set `COREPRO_TEST_AUDIO_SOURCE` to record a test tone
+//! level meter. WebKitGTK's own microphone access is off in Zazabor's webview, so GStreamer does
+//! it. Tests and the nested test display set `ZAZABOR_TEST_AUDIO_SOURCE` to record a test tone
 //! instead of a real microphone.
 
 use super::media;
@@ -36,7 +36,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 fn source() -> &'static str {
-    if std::env::var_os("COREPRO_TEST_AUDIO_SOURCE").is_some() {
+    if std::env::var_os("ZAZABOR_TEST_AUDIO_SOURCE").is_some() {
         "audiotestsrc is-live=true wave=sine freq=330 volume=0.3"
     } else {
         "pulsesrc"
@@ -117,11 +117,11 @@ mod tests {
 
     #[test]
     fn records_a_test_tone_into_a_wav() {
-        std::env::set_var("COREPRO_TEST_AUDIO_SOURCE", "1");
+        std::env::set_var("ZAZABOR_TEST_AUDIO_SOURCE", "1");
         if media::init().is_err() {
             return;
         }
-        let path = std::env::temp_dir().join(format!("corepro-voice-{}.wav", std::process::id()));
+        let path = std::env::temp_dir().join(format!("zazabor-voice-{}.wav", std::process::id()));
         let id = start(path.to_str().unwrap()).unwrap();
         std::thread::sleep(Duration::from_millis(600));
         let peak = level(id).unwrap();

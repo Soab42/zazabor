@@ -10,6 +10,15 @@ export interface Probe {
   missing: string[];
 }
 
+/** One of MP4's video encoders. */
+export interface Codec {
+  id: "vaapi" | "x264" | "nvh264" | "x265" | "nvh265";
+  label: string;
+  available: boolean;
+  /** What adds it: a package name, or a sentence. */
+  needs: string;
+}
+
 export interface Encoders {
   h264: boolean;
   mp3: boolean;
@@ -17,6 +26,55 @@ export interface Encoders {
   opus: boolean;
   aac: boolean;
   hevc: boolean;
+  codecs: Codec[];
+  /** Packages "Install codecs" would add. */
+  missing: string[];
+}
+
+/** A captions model (whisper.cpp's ggml files, downloaded on first use). */
+export interface CaptionModel {
+  id: "base" | "small";
+  label: string;
+  note: string;
+  bytes: number;
+  installed: boolean;
+  partial: number;
+  downloading: boolean;
+  error: string | null;
+}
+
+/** A clip's sound to caption: `from`–`to` seconds of `path`, at `at` on the timeline. */
+export interface CaptionSpan {
+  path: string;
+  from: number;
+  to: number;
+  at: number;
+  speed: number;
+  hasAudio: boolean;
+}
+
+/** A caption line, with its words' times from its start. */
+export interface Cue {
+  start: number;
+  end: number;
+  text: string;
+  words: { t: number; text: string }[];
+}
+
+export interface CaptionPoll {
+  progress: number;
+  stage: string;
+  done: boolean;
+  result: { language: string; cues: Cue[] } | null;
+  error: string | null;
+}
+
+/** One of Zazabor's sound effects. */
+export interface SoundEffect {
+  id: string;
+  title: string;
+  seconds: number;
+  path: string;
 }
 
 export interface ExportSpec {
@@ -27,6 +85,8 @@ export interface ExportSpec {
   format: "mp4" | "webm";
   quality: "high" | "standard" | "small";
   audio: boolean;
+  /** MP4's encoder (empty: the best there is). */
+  codec?: Codec["id"] | "";
 }
 
 export interface ExportDone {
@@ -102,4 +162,14 @@ export const editApi = {
   recordLevel: (id: number) => invoke<number>("videoedit_record_level", { id }),
   recordStop: (id: number, keep: boolean) => invoke<{ path: string; seconds: number }>("videoedit_record_stop", { id, keep }),
   openProject: async (path: string) => JSON.parse(await invoke<string>("videoedit_project_open", { path })) as unknown,
+  captionModels: () => invoke<CaptionModel[]>("videoedit_caption_models"),
+  captionModelDownload: (id: CaptionModel["id"]) => invoke<void>("videoedit_caption_model_download", { id }),
+  captionModelCancel: (id: CaptionModel["id"]) => invoke<void>("videoedit_caption_model_cancel", { id }),
+  captionModelRemove: (id: CaptionModel["id"]) => invoke<void>("videoedit_caption_model_remove", { id }),
+  captionsStart: (request: { spans: CaptionSpan[]; model: CaptionModel["id"]; language: string | null; maxChars: number }) =>
+    invoke<number>("videoedit_captions_start", { request }),
+  captionsPoll: (job: number) => invoke<CaptionPoll>("videoedit_captions_poll", { job }),
+  captionsCancel: (job: number) => invoke<void>("videoedit_captions_cancel", { job }),
+  installCodecs: (packages: string[]) => invoke<Encoders>("videoedit_codecs_install", { packages }),
+  sounds: () => invoke<SoundEffect[]>("videoedit_sounds"),
 };

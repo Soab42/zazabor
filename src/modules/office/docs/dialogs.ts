@@ -1,7 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import { h } from "../../../ui/dom";
 import { icon } from "../../../ui/icons";
-import { field, openDialog, textInput } from "../../time/dialog";
+import { field, openDialog, textArea, textInput } from "../../time/dialog";
 import { popover, type Popover } from "../../time/pickers";
 import type { ParagraphAttrs } from "./schema";
 
@@ -37,6 +37,24 @@ export function linkDialog(editor: Editor) {
       h("button", { class: "btn primary", type: "button", onclick: apply }, "OK"),
     ],
     submit: apply,
+  });
+}
+
+/** Picture Format → Alt Text: what the picture shows, read aloud by screen readers. */
+export function altTextDialog(alt: string, apply: (alt: string) => void) {
+  const box = textArea({ value: alt, rows: 3, placeholder: "A short description of the picture", "aria-label": "Alt text", "data-autofocus": "" });
+  const done = () => {
+    apply(box.value.trim());
+    dialog.close();
+  };
+  const dialog = openDialog({
+    title: "Alt Text",
+    subtitle: "Describe the picture for people who can't see it. Word keeps it too.",
+    icon: "image",
+    tone: "work",
+    body: [field("Description", box)],
+    foot: [h("span", { class: "spacer" }), h("button", { class: "btn", type: "button", onclick: () => dialog.close() }, "Cancel"), h("button", { class: "btn primary", type: "button", onclick: done }, "OK")],
+    submit: done,
   });
 }
 

@@ -3,7 +3,8 @@
 *Researched 2026-10-26. Licences, versions and release dates were read from each project's
 repository, crates.io and the npm registry on that day. Target: Tauri 2 + plain TypeScript on
 Linux (WebKitGTK 2.50.4 and Pop!_OS 22.04 on this machine). Status: **P0–P2 built, P3–P4 built
-without PDFium (see What's built).**
+without PDFium, P5 (OCR, certificate signatures) and part of P6 (PDF → Word) built in round 3,
+true redaction and editing existing text with PDFium in round 4 (see What's built).**
 Section 11 lists the decisions only the user can make.*
 
 ## What's built (2026-10-26)
@@ -27,7 +28,7 @@ Checked by hand in the app on a nested display, and the saved files with Poppler
   click); check, cross and dot marks; signatures and initials typed (three letterings), drawn or
   from a picture of a signature (paper made transparent), placed where you click and kept in
   `office/pdf-signatures.json` in the app's data folder (`src-tauri/src/office/pdf_signatures.rs`,
-  refused while CorePro is locked). They're pictures on the page, not certificate signatures.
+  refused while Zazabor is locked). They're pictures on the page, not certificate signatures.
 - **Saving:** Save writes comments and form values as pdf.js does (an incremental update);
   AutoRecover keeps a copy every 20 s while there are unsaved changes.
 - **Organize and Combine (P2):** a page grid (Organize tab): select with click, Ctrl and Shift,
@@ -37,7 +38,7 @@ Checked by hand in the app on a nested display, and the saved files with Poppler
   PDF. Page changes build a new file with pdf.js's `extractPages`, which keeps links, form fields,
   annotations and the bookmarks of pages that stay, and a file built from one source keeps its
   encryption. pdf.js can't set a page's saved rotation, so `pdf/bytes.ts` sets it with an
-  incremental update afterwards (also naming CorePro as the producer).
+  incremental update afterwards (also naming Zazabor as the producer).
 
 **Not done yet, by milestone:** P0's range loading (files are read whole; Office's reader stops at
 256 MB); replies to comments; Replace Pages; a print preview; picture pages are Letter or A4 by
@@ -116,9 +117,165 @@ downloads); certificate signatures (P5, a certificate); conversions to Docs and 
 Quick Look and the Files thumbnails open PDFs through their own pdf.js calls and probably need
 the same OffscreenCanvas switch for big scans (not changed here).
 
+### Round 3 (2026-10-27): OCR, certificate signatures, PDF → Word, still without PDFium
+
+No PDFium, no PDFium wasm and no other prebuilt PDF library (the user decides that separately).
+Redaction stays rasterised; true object-level redaction and editing existing text still wait.
+
+- **Recognize Text (Convert → Scan & OCR):** tesseract.js 7.0.0 and tesseract.js-core 7.0.0
+  (Apache-2.0), bundled by Vite and served from the app, never from a CDN (the SIMD LSTM core,
+  `workerBlobURL: false`). The language data isn't bundled: English and Bangla `tessdata_fast`
+  files (Apache-2.0) are downloaded the first time they're needed, after a dialog that gives the
+  size, from GitHub pinned to commit `87416418657359cb625c412a48b6e1d6d41c29bd` and checked
+  against a pinned SHA-256 (eng 4,113,088 bytes, ben 855,841 bytes), with progress, Cancel and
+  resume (HTTP Range). They're kept in the app's data folder under `office/ocr/`, out of git.
+  Settings → PDF lists them, with Download/Resume and Remove. Each page without text is drawn at
+  300 dpi, read, and Tesseract's text-only PDF of that page goes in as an invisible text layer
+  (a form XObject drawn over the page, placed through the page's rotation and boxes), so the page
+  looks the same and its text can be found, selected and copied (`src-tauri/src/office/pdf_tools/ocr.rs`;
+  downloads in `src-tauri/src/office/pdf_ocr.rs`). The release build's CSP already allows it:
+  the worker and wasm come from `'self'`, `'wasm-unsafe-eval'` is there, and the data reaches the
+  worker through IndexedDB, so the CSP is unchanged (checked with a `custom-protocol` build).
+- **Certificate signatures (Fill & Sign → Certificate):** any .p12/.pfx and its password; the
+  dialog shows who it's for, who issued it and when it expires. Drag the box for a visible
+  signature (name, date, reason, optionally a picture; upright on rotated pages), or sign without
+  one. The signature is added as an incremental update with lopdf (the earlier bytes untouched),
+  then a CMS detached signature over the byte range is made with OpenSSL (`openssl` crate,
+  system OpenSSL 3), SubFilter `ETSI.CAdES.detached` (PAdES basic), SHA-256, signing-certificate
+  attribute. A second signature keeps the first valid. Encrypted files are refused for signing.
+  Signed files are Saved As. **Signatures** (View → Document, Fill & Sign, and a side panel that
+  shows when a file has any) checks each one: intact or changed, the whole file covered or not,
+  and whether the signer is trusted by the system's certificates. Changes that rewrite the file
+  (page edits, tools, redaction, compression) ask first, because they break the signatures.
+- **PDF → Word (Convert → To Word):** "Flowing text" rebuilds the text as Docs paragraphs
+  (headings from font size, bullet and numbered lists, pictures), writes a .docx through Docs'
+  own writer and opens it in Docs. "Keep the layout" runs LibreOffice headless (its PDF import,
+  a throwaway profile, 180 s limit), only when LibreOffice is installed; that .docx is saved but
+  not opened in Docs, which mis-draws its text boxes (it's faithful in LibreOffice and Word).
+  Bank Statement to Excel and Tables to Excel in the same group are the Statements work.
+- **Comment replies:** Reply on a comment in the Comments list adds a reply (`/IRT`, `/RT /R`,
+  as Acrobat writes them); replies are listed under their comment, replies from other apps too,
+  and deleting a comment deletes its replies. A reply's box is a point, so pdf.js (which draws
+  replies as notes of their own) puts nothing over the comment.
+- **Also:** Organize → Insert → Replace Pages… (and on a thumbnail's menu) swaps pages for pages
+  of another PDF; File → Print in the new Office backstage shows a preview of the pages
+  (up to 30) and the document's details.
+
+Checked: `cargo test --lib` (313 passed), including signing round trips with a tampering check
+on classic and cross-reference-stream files, an invisible signature plus a second one, a wrong
+password and a bad file, Poppler's `pdfsig` agreeing, the OCR text layer on 0° and 90° pages
+(checked with `pdftotext`), the pinned language list, and replies. In the app on a nested display:
+
+- Signing with a test certificate made with openssl ("Rahim Test Signer", self-signed): `pdfsig`
+  reports "Signature is Valid", "Total document signed", ETSI.CAdES.detached, SHA-256, and the
+  issuer not trusted (expected for self-signed). The visible signature draws. After an
+  edit was confirmed, the panel shows the signature no longer covers the file.
+- OCR: both languages downloaded in the app and passed the hash check; on a two-page scan
+  (English, and Bangla drawn with HarfBuzz shaping) Find "agreement" gives two hits lined up
+  over the scan, and `pdftotext` gives the English and the Bangla ("বাংলাদেশ একটি সুন্দর দেশ।…",
+  one word misread). Reading an English page with English + Bangla adds stray Bangla digits, so
+  the dialog keeps English as the default. Around 15–20 s a page on a busy machine. Remove and
+  Download in Settings work.
+- PDF → Word (flowing text) opened in Docs with the headings, both lists, the picture and the
+  second page. The LibreOffice option made a faithful .docx (checked in LibreOffice).
+- Replies: a reply listed under its note, nothing extra on the page; Undo removes it.
+
+**Left:** Replace Pages and the print preview are built but weren't tried in the app. Clicking a
+note's icon doesn't open its popup in the viewer (with or without replies; seen while checking
+replies, not looked into). Quick Look and the Files thumbnails still need checking on a big
+scan for the OffscreenCanvas problem. The resume after a cancelled download works by the file's
+hash, but Settings didn't redraw to show "Resume". While Tesseract loads, the progress says
+"Starting…" for a few seconds. Signatures: no timestamps (PAdES B-T) or long-term validation
+data, no revocation checks. Still waiting for PDFium: editing existing text, true object-level
+redaction.
+
+### Round 4 (2026-10-27): PDFium
+
+PDFium chromium/8100 (BSD-3-Clause; the prebuilt library from bblanchon/pdfium-binaries) is
+fetched by `scripts/fetch-pdfium.sh` at a pinned release, checked against its SHA-256, into
+`src-tauri/pdfium/` (not in git). It isn't linked: `pdfium-render` 0.9.4 (MIT OR Apache-2.0,
+`default-features = false`, `pdfium_7881` bindings, `thread_safe`; dynamic loading only) loads
+libpdfium.so the first time a tool needs it, from `ZAZABOR_PDFIUM` (the file or its folder; for
+tests), then `<exe dir>/../lib/zazabor/` (installed: `scripts/install-linux.sh` runs the fetch
+script when the library is missing and puts libpdfium.so and its LICENSE in ~/.local/lib/zazabor;
+`--uninstall` removes that folder), then `pdfium/lib/` in src-tauri found by walking up from the
+executable (dev builds). A failed load isn't remembered; without the library the PDFium tools say
+why and everything else, rasterised redaction included, works as before. All PDFium calls run one
+at a time (`src-tauri/src/office/pdf_tools/pdfium.rs`). The PDFium steps are operations in the same
+`pdf_edit` pipeline as the lopdf ones, so passwords, permissions, Undo and the full rewrite
+(unreferenced objects dropped) apply to them too; `pdf_edit_noted` also returns notes for the page.
+
+- **True redaction (§4.5), now the default** (Protect → Apply Redactions → "Remove what's under the
+  marks"; "Replace marked pages with pictures" is still offered, and is the only choice without
+  PDFium). In `redact.rs`: characters under a mark are taken out; a text object only partly under
+  one is rebuilt from the characters left, a word at a time at each word's own position, in the
+  object's own font, size, colours and render mode (so an OCR layer stays invisible). Pictures
+  wholly under a mark go; one partly under is replaced by a copy with the covered pixels painted
+  black in the picture's own pixels. Paths and shadings wholly under a mark go (those reaching
+  outside stay, under the box). Form XObjects a mark touches are opened up into the page first
+  (PDFium can't rewrite a form's own content: it loses the form's fonts). Each marked page's
+  content streams are joined into one first, because PDFium puts what it adds into a page's first
+  stream, which would draw rebuilt text under the rest. Annotations, links and form fields that a
+  mark touches go (with popups and replies), and so do the page's thumbnail and the document's
+  structure tree (alternate text). A black box is drawn over each mark. Then PDFium reads the new
+  file again and no character may be left under any mark, or nothing is changed and the page asks
+  for the picture method. A signed file gets a warning in the dialog that the signatures will show
+  as invalid.
+- **Edit Text (§4.6, one line at a time)** (Edit → Edit Text): a click picks the text object under
+  it and the ones beside it on the same baseline in the same font and size; an input appears over
+  the line in its size, face and colour; Enter (or clicking away) writes it, Esc doesn't. Runs at
+  either end that the edit leaves alone stay where they were (a list's number and its gap). The
+  new text goes in the line's own font when that font has every letter (its glyph outlines,
+  checked one by one, since embedded fonts are subsets, and the text read back the same).
+  Otherwise the line goes into the closest standard font (Helvetica, Times or Courier; bold and
+  italic kept) and the note says which letters were missing. Letters the standard fonts can't show
+  either, and scripts that need shaping (Bangla, Devanagari, Arabic…), are refused with a pointer
+  to Add Text. Text inside form XObjects, and text whose font has no Unicode mapping, is refused.
+  No reflow: longer text runs past the line's old end. Saved through PDFium, reopened in pdf.js.
+
+Checked: `cargo test --lib` with `ZAZABOR_PDFIUM`. The PDFium tests are ignored only when the
+library is absent (a `has_pdfium` cfg from build.rs). Redaction: "SECRET123" is gone from the
+file's bytes, every inflated stream and string (literal and hex), from PDFium's text and from
+`pdftotext`. "Top" and "here" on the same line are still text. The picture under the line has black
+pixels where the mark was and white elsewhere. A mark over nothing still passes the check. Edit
+Text: a round trip ("Public text" → "Private words" in the same font, read back by PDFium and
+Poppler and clicked again), page 1 untouched, and stale or Bangla edits refused.
+
+In the app on a nested display (dev build, PDFium found in src-tauri/pdfium), with the saved files
+checked in Poppler:
+
+- LibreOffice manual: Find & Mark "Rahim" marked the name in line 1 and the email address in line 2.
+  Applying with the default method boxed both. The rest of each line is still text: it selects in
+  the viewer, and `pdftotext` reads "…reviewed. Contact" and "at 01712-345678 or". Neither word is
+  left in Poppler's text, `strings` or any inflated stream, and the untouched lines render
+  pixel-identical to the original.
+- An OCR'd scan (round 3's invisible layer, in a form XObject over a 200 dpi photo of the page):
+  marking "agreement" opened the form up, took the two words out of the invisible text (the words
+  around them stay searchable), and painted the scan's own pixels black under the marks
+  (`pdfimages`).
+- Edit Text on "1. Check the names of both parties.": the new text went in, in the file's own
+  LiberationSerif, and was read back by Poppler. Typing "Quick" (no "Q" in that subset) put the line
+  in Times-Roman (a standard font, `pdffonts`), while the "1." and the gap after it stayed in place.
+
+Before building on it, PDFium's own behaviour was checked with its C API directly (ctypes):
+regenerating a page keeps kerning (TJ arrays); a word rebuilt in a LibreOffice subset font
+renders like the original; removing objects from a form breaks the form's fonts; objects added to
+a page with several content streams land in the first. Those findings are why the code joins
+streams and opens forms up.
+
+**Left:** a picture partly under a mark is stored again losslessly (Flate), so a scanned page gets
+bigger: the 446 KB scan became 1.2 MB (Reduce Size brings it back down). Such a picture also
+loses its soft mask (transparency), if it had one. Opening up a form drops its clipping to its
+bounding box. Drawings that reach outside a mark stay, under the box (not clipped). Text in a Type 3
+font, or any text PDFium can't read, that a mark touches goes whole. Edit Text: the input sits a
+few pixels below the line (cosmetic). It edits one line at a time, with no paragraph reflow
+(§4.6's P5 step). Clicking a note's icon still doesn't open its popup (seen in round 3). The
+signed-file warning in Apply Redactions wasn't tried in the app.
+
+
 ## 1. Summary
 
-- **pdf.js already does most of Acrobat's everyday work.** CorePro already uses `pdfjs-dist`
+- **pdf.js already does most of Acrobat's everyday work.** Zazabor already uses `pdfjs-dist`
   6.4.299 (Apache-2.0, 2026-10-03) for Quick Look (`src/shared/quicklook/pdf.ts`). Its
   `AnnotationEditorType` now has FreeText, Highlight, Ink, Stamp (images), Signature, Comment and
   Popup editors. `saveDocument()` writes the edits and form values into the file. `extractPages()`
@@ -127,7 +284,7 @@ the same OffscreenCanvas switch for big scans (not changed here).
   digital-signature verification (6.2) and merge and reorganise fixes (5.7–6.0). Firefox 150 and
   151 ship page reordering and merging on top of it
   ([report](https://aphnetworks.com/news/31615-firefox-150-turns-its-pdf-viewer-real-pdf-editor)).
-  CorePro's Acrobat is mostly a UI around these pieces.
+  Zazabor's Acrobat is mostly a UI around these pieces.
 - **PDFium in Rust does what pdf.js can't:** true redaction, editing existing text, an invisible
   OCR text layer, flattening, watermarks, and image recompression. Use
   [pdfium-render](https://github.com/ajrcarey/pdfium-render) 0.9.4 (MIT or Apache-2.0,
@@ -149,10 +306,10 @@ the same OffscreenCanvas switch for big scans (not changed here).
 
 ## 2. Acrobat's tools and where each comes from
 
-| Tool | Acrobat | CorePro, first version | Engine |
+| Tool | Acrobat | Zazabor, first version | Engine |
 |---|---|---|---|
 | View | Single, continuous, two-up, thumbnails, bookmarks, attachments, search, zoom, rotate view | All of these, plus night mode (inverted pages) and Read Aloud later | pdf.js `PDFViewer`, `PDFFindController`, `PDFLinkService` (all in `pdf_viewer.mjs`) |
-| Comment | Highlight, underline, strikethrough, sticky note, text box, freehand, shapes, stamps, a comment list with replies | Highlight (snaps to selected text), free highlight, note, text box, ink, stamps (images and "Approved"-style presets), comment panel with replies and filters | pdf.js editors. Underline, strikethrough and shapes (line, arrow, rectangle, ellipse) aren't pdf.js editors yet, so CorePro adds them as annotations through PDFium (section 4.3) |
+| Comment | Highlight, underline, strikethrough, sticky note, text box, freehand, shapes, stamps, a comment list with replies | Highlight (snaps to selected text), free highlight, note, text box, ink, stamps (images and "Approved"-style presets), comment panel with replies and filters | pdf.js editors. Underline, strikethrough and shapes (line, arrow, rectangle, ellipse) aren't pdf.js editors yet, so Zazabor adds them as annotations through PDFium (section 4.3) |
 | Fill & Sign | Fill fields, type text anywhere, a reusable signature and initials | Same. Signatures are drawn, typed or from an image, and saved in a library | pdf.js forms (`annotationStorage`) and its Signature editor |
 | Organise Pages | Reorder, rotate, delete, insert, extract, split, replace | Same, in a thumbnail grid with drag and drop and multi-select | pdf.js `extractPages()`. Rotation that's saved goes through PDFium |
 | Combine | Merge several files | Same, from Files' right-click menu too | pdf.js `extractPages()` with several documents |
@@ -176,7 +333,7 @@ the same OffscreenCanvas switch for big scans (not changed here).
 | [qpdf](https://github.com/qpdf/qpdf) ([qpdf-rs](https://github.com/ancwrd1/qpdf-rs) 0.3.7) | Apache-2.0 | 12.4.2, 2026-09-27 (10.6.3 here) | Repair, linearise, object streams, encryption, splitting | Optional, through the system's libqpdf when it's there |
 | [@cantoo/pdf-lib](https://github.com/cantoo-scribe/pdf-lib) | MIT | 2.11.1, 2026-09-15 | A maintained fork of pdf-lib: create and modify PDFs in JS | Not needed while pdf.js and PDFium cover writing. Keep it in mind for JS-only tools |
 | [pdf-lib](https://github.com/Hopding/pdf-lib) | MIT | 1.17.1, 2021-11-06 | The same, unmaintained | No |
-| [MuPDF](https://mupdf.com) / [mupdf.js](https://www.npmjs.com/package/mupdf) (`mupdf` crate 0.8.0) | **AGPL-3.0-or-later** or commercial | npm 1.28.1, 2026-09-06 | The best all-rounder: redaction, text editing, conversion | **No.** AGPL would bind CorePro's licence, and the commercial licence costs money |
+| [MuPDF](https://mupdf.com) / [mupdf.js](https://www.npmjs.com/package/mupdf) (`mupdf` crate 0.8.0) | **AGPL-3.0-or-later** or commercial | npm 1.28.1, 2026-09-06 | The best all-rounder: redaction, text editing, conversion | **No.** AGPL would bind Zazabor's licence, and the commercial licence costs money |
 | [Poppler](https://poppler.freedesktop.org) | **GPL** | 22.02 here | Rendering, `pdftoppm` | No as a library. Its tools may be called when installed |
 | [Ghostscript](https://www.ghostscript.com/licensing/) | **AGPL** or commercial | 9.55 here | Strong compression (`-dPDFSETTINGS`) | Only as an optional external program |
 | [hayro](https://github.com/LaurenzV/hayro) 0.8.0 / [krilla](https://github.com/LaurenzV/krilla) 0.8.2 | MIT/Apache-2.0 | 2026-10 / 2026-06 | A young Rust renderer and a Rust PDF writer (from the Typst ecosystem) | Watch them. krilla could make PDFs from scratch later |
@@ -190,7 +347,7 @@ the same OffscreenCanvas switch for big scans (not changed here).
 
 ### 4.1 Layout
 
-Acrobat's current layout, in CorePro's glass:
+Acrobat's current layout, in Zazabor's glass:
 
 - **Title bar:** Save, Undo and Redo, the file's name and saved state, Share (Open in Files and
   Email as Attachment).
@@ -204,7 +361,7 @@ Acrobat's current layout, in CorePro's glass:
 - **Status bar:** page *n* of *m*, zoom and the page-layout buttons.
 
 pdf.js's `PDFViewer` with `PDFRenderingQueue` keeps memory low for long documents: it only renders
-the pages near view. CorePro styles its layers and builds every panel itself.
+the pages near view. Zazabor styles its layers and builds every panel itself.
 
 ### 4.2 Saving and versions
 
@@ -220,7 +377,7 @@ the pages near view. CorePro styles its layers and builds every panel itself.
 
 For underline, strikethrough, squiggly, line, arrow, rectangle, ellipse and polygon:
 
-1. CorePro draws them over the page while they're being edited.
+1. Zazabor draws them over the page while they're being edited.
 2. On save, Rust adds them as real PDF annotations with appearance streams (PDFium
    `FPDFPage_CreateAnnot`).
 3. pdf.js then renders them like any other annotation.
@@ -261,7 +418,7 @@ PDFs hold positioned runs of glyphs in subset fonts, not paragraphs. Acrobat reb
 and reflows them, and that's the hard part. The plan has three steps:
 
 - **P3, one run at a time:** click a line; its text object becomes editable in place. Saving
-  writes the new text when the embedded font has every glyph needed. Otherwise CorePro
+  writes the new text when the embedded font has every glyph needed. Otherwise Zazabor
   substitutes the closest installed font (Liberation for Arial, Times and Courier; Noto Sans
   Bengali for Bangla) and marks the run. There's no reflow.
 - **P5, paragraph editing:** group runs into lines and paragraphs by position and spacing, then
@@ -300,7 +457,7 @@ text unless asked.
   present). Before and after sizes show before saving. When Ghostscript is installed,
   "Maximum compression (Ghostscript)" is offered as a separate process.
 - **Protect:** an open password and permissions (print, copy, edit) with AES-256 (lopdf). Remove
-  a password the user knows. CorePro never tries to break one.
+  a password the user knows. Zazabor never tries to break one.
 
 ### 4.10 Conversions
 
@@ -326,7 +483,7 @@ webview):
 
 - **The GTK print dialog**, through a small FFI to `gtk_print_unix_dialog` and `GtkPrintJob` with
   the file as its source (`gtk+-unix-print-3.0`; the gtk-rs crates don't wrap it).
-- **Or CorePro's own print sheet:** printers from CUPS (`lpstat`), pages, copies, duplex and fit,
+- **Or Zazabor's own print sheet:** printers from CUPS (`lpstat`), pages, copies, duplex and fit,
   then `lp`.
 
 Annotations print as they look; with "Flatten comments", from a temporary flattened copy.
@@ -364,7 +521,7 @@ jobs.
 | # | Milestone | Done when |
 |---|---|---|
 | P0 | **Viewer**: the PDF app in Office, `PDFViewer` with thumbnails, outline, search and zoom, range loading, opening from Files | A 1,000-page manual scrolls smoothly and search finds every hit. A 500 MB scan opens in under 2 seconds |
-| P1 | **Comment and Fill & Sign**: pdf.js editors, comment panel, forms, signature library, save, recovery and versions | Annotations and form values saved in CorePro show correctly in Acrobat Reader, Firefox and Chrome |
+| P1 | **Comment and Fill & Sign**: pdf.js editors, comment panel, forms, signature library, save, recovery and versions | Annotations and form values saved in Zazabor show correctly in Acrobat Reader, Firefox and Chrome |
 | P2 | **Organise and Combine**: thumbnail grid, drag to reorder, rotate, delete, insert, extract, split, merge, images → PDF | Merging three PDFs and reordering their pages gives a file that opens everywhere, with bookmarks kept where pdf.js keeps them |
 | P3 | **Rust engine**: pdfium-render with the shipped PDFium, extra annotation kinds, add text and images, edit one run of text, flatten, watermark, print | Edits survive a round trip through Acrobat Reader. The .deb and AppImage include PDFium |
 | P4 | **Redact, Protect, Compress** | A redaction test corpus (text, images, overlapping runs, form fields) passes the text check, and no redacted string can be found with `strings` or `pdftotext`. An encrypted file opens in Acrobat Reader with its password |
@@ -383,7 +540,7 @@ and P6 1–2.
 |---|---|
 | A redaction leaves recoverable text | The full rewrite, the automatic check, the corpus in P4, and a rasterise option. Never call a black box a redaction |
 | pdf.js editor APIs change between versions (they are newer and less documented than its viewer) | Pin the version; wrap the editor calls in one module; read the changelog before upgrading |
-| Shipping PDFium (one native library per platform) | Bundle it like libVLC: the AppImage carries it, and the .deb installs it under CorePro's own lib folder. The wasm build is the fallback (section 3) |
+| Shipping PDFium (one native library per platform) | Bundle it like libVLC: the AppImage carries it, and the .deb installs it under Zazabor's own lib folder. The wasm build is the fallback (section 3) |
 | Text editing breaks a document's text | Edit only when the font has the glyphs, mark substitutions, keep Undo and versions |
 | Malicious PDFs (JavaScript, exploits in parsers) | pdf.js runs in the page's sandbox with scripting off (`PDFScriptingManager` disabled). PDFium runs in a worker thread with limits; keep it updated weekly as pdfium-binaries is |
 | Digital-signature details (byte ranges, certificate chains) | Test against Acrobat Reader and pdf.js validation with test certificates before release |
@@ -391,7 +548,7 @@ and P6 1–2.
 ## 9. Licensing summary
 
 Everything recommended is Apache-2.0, MIT, BSD or MPL-2.0. AGPL (MuPDF, Ghostscript) and GPL
-(Poppler) stay out of CorePro's code. Ghostscript and Poppler's tools may be run as separate
+(Poppler) stay out of Zazabor's code. Ghostscript and Poppler's tools may be run as separate
 programs when installed, as LibreOffice is, but never shipped with it.
 
 ## 10. What exists today
@@ -403,8 +560,8 @@ and file thumbnails (`src/shared/file-thumbs.ts`). LibreOffice, Ghostscript 9.55
 ## 11. Decisions to make
 
 1. **Where it lives:** a third app in Office (recommended), or its own section on the rail? What
-   should it be called: PDF, CorePro PDF, or another name?
-2. **Default PDF app:** should CorePro offer to become the system's default for PDFs (off by
+   should it be called: PDF, Zazabor PDF, or another name?
+2. **Default PDF app:** should Zazabor offer to become the system's default for PDFs (off by
    default, like the other switches)?
 3. **Ship PDFium** (one native library, about 5–6 MB, in the .deb and AppImage), or use the wasm
    build inside the page and accept its limits on long documents?

@@ -1,4 +1,4 @@
-/* ---- Code editor window: Explorer · tabs · Monaco · status bar, in CorePro's glass ---- */
+/* ---- Code editor window: Explorer · tabs · Monaco · status bar, in Zazabor's glass ---- */
 .ce { display: flex; flex-direction: column; height: 100%; min-height: 0; color: var(--text); }
 .ce-row { display: flex; flex: 1; min-height: 0; }
 

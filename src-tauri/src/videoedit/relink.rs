@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn finds_moved_files_by_name_and_size_and_skips_hidden_folders() {
-        let dir = std::env::temp_dir().join(format!("corepro-relink-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("zazabor-relink-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("moved/deeper")).unwrap();
         std::fs::create_dir_all(dir.join(".trash")).unwrap();

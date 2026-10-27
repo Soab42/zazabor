@@ -284,3 +284,72 @@ export function outlinePath(sel: Selection): Path2D {
   }
   return path;
 }
+
+/** A box mean of radius `r` over a `w` × `h` float map (two sliding passes, edges clamped). */
+function boxMean(src: Float32Array, w: number, h: number, r: number): Float32Array {
+  const tmp = new Float32Array(src.length);
+  const out = new Float32Array(src.length);
+  const n = 2 * r + 1;
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    let sum = 0;
+    for (let i = -r; i <= r; i++) sum += src[row + Math.min(w - 1, Math.max(0, i))];
+    for (let x = 0; x < w; x++) {
+      tmp[row + x] = sum / n;
+      sum += src[row + Math.min(w - 1, x + r + 1)] - src[row + Math.max(0, x - r)];
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    let sum = 0;
+    for (let i = -r; i <= r; i++) sum += tmp[Math.min(h - 1, Math.max(0, i)) * w + x];
+    for (let y = 0; y < h; y++) {
+      out[y * w + x] = sum / n;
+      sum += tmp[Math.min(h - 1, y + r + 1) * w + x] - tmp[Math.max(0, y - r) * w + x];
+    }
+  }
+  return out;
+}
+
+/**
+ * Refine Edge: the selection's edge follows the picture's own edges (hair, fur, leaves), by a
+ * guided filter (He et al.) with the picture's brightness as the guide. Only the area around the
+ * edge within `radius` changes; inside and outside stay as they were.
+ */
+export function refineEdge(sel: Uint8Array, rgba: Uint8Array, width: number, height: number, radius: number, smoothness = 0.002): Uint8Array {
+  const r = Math.max(1, Math.round(radius));
+  const b = maskBounds(sel, width, height);
+  if (!b) return sel.slice();
+  // Work on the selection's box with room for the filter.
+  const x0 = Math.max(0, b.x - 2 * r), y0 = Math.max(0, b.y - 2 * r);
+  const x1 = Math.min(width, b.x + b.w + 2 * r), y1 = Math.min(height, b.y + b.h + 2 * r);
+  const w = x1 - x0, h = y1 - y0;
+  const I = new Float32Array(w * h), p = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const at = (y + y0) * width + x + x0;
+      const i = y * w + x;
+      I[i] = (0.299 * rgba[at * 4] + 0.587 * rgba[at * 4 + 1] + 0.114 * rgba[at * 4 + 2]) / 255;
+      p[i] = sel[at] / 255;
+    }
+  }
+  const II = new Float32Array(w * h), Ip = new Float32Array(w * h);
+  for (let i = 0; i < I.length; i++) (II[i] = I[i] * I[i]), (Ip[i] = I[i] * p[i]);
+  const mI = boxMean(I, w, h, r), mp = boxMean(p, w, h, r), mII = boxMean(II, w, h, r), mIp = boxMean(Ip, w, h, r);
+  const a = new Float32Array(w * h), c = new Float32Array(w * h);
+  for (let i = 0; i < a.length; i++) {
+    const v = mII[i] - mI[i] * mI[i];
+    a[i] = (mIp[i] - mI[i] * mp[i]) / (v + smoothness);
+    c[i] = mp[i] - a[i] * mI[i];
+  }
+  const ma = boxMean(a, w, h, r), mc = boxMean(c, w, h, r);
+  const out = sel.slice();
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      // Only near the edge: where the selection's own neighbourhood is mixed.
+      if (mp[i] <= 0.001 || mp[i] >= 0.999) continue;
+      out[(y + y0) * width + x + x0] = Math.round(Math.min(1, Math.max(0, ma[i] * I[i] + mc[i])) * 255);
+    }
+  }
+  return out;
+}

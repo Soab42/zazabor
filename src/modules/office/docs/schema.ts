@@ -1,6 +1,5 @@
 import { Extension, Node, mergeAttributes, type AnyExtension } from "@tiptap/core";
 import Highlight from "@tiptap/extension-highlight";
-import Image from "@tiptap/extension-image";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
 import Subscript from "@tiptap/extension-subscript";
 import Superscript from "@tiptap/extension-superscript";
@@ -10,6 +9,7 @@ import { TextStyleKit } from "@tiptap/extension-text-style";
 import { CharacterCount } from "@tiptap/extensions";
 import StarterKit from "@tiptap/starter-kit";
 import { FindReplace } from "./find";
+import { Picture } from "./picture";
 
 /**
  * What a Docs document is made of: Tiptap's starter kit (paragraphs, headings, lists, quotes, code,
@@ -281,7 +281,7 @@ export function extensions(hooks: Hooks): AnyExtension[] {
     Highlight.configure({ multicolor: true }),
     Subscript,
     Superscript,
-    Image.configure({ inline: true, allowBase64: true, resize: { enabled: true, directions: ["top-left", "top-right", "bottom-left", "bottom-right"], alwaysPreserveAspectRatio: true, minWidth: 24, minHeight: 24 } }),
+    Picture.configure({ inline: true, allowBase64: true, resize: { enabled: true, directions: ["top-left", "top-right", "bottom-left", "bottom-right"], alwaysPreserveAspectRatio: true, minWidth: 24, minHeight: 24 } }),
     TableKit.configure({ table: { resizable: true, cellMinWidth: 40 } }),
     TaskList,
     TaskItem.configure({ nested: true }),

@@ -18,7 +18,7 @@ const THEMES: [ThemeMode, string][] = [["light", "Light"], ["dark", "Dark"], ["s
 
 /** The first-run wizard: a glass sheet over the app. Theme and accent apply live; features apply at the end. */
 export class Onboarding {
-  readonly el = h("div", { class: "ob-overlay", role: "dialog", "aria-modal": "true", "aria-label": "Welcome to CorePro" });
+  readonly el = h("div", { class: "ob-overlay", role: "dialog", "aria-modal": "true", "aria-label": "Welcome to Zazabor" });
   private body = h("div", { class: "ob-body" });
   private dots = h("div", { class: "ob-dots" });
   private back = h("button", { class: "btn ghost", type: "button" }, icon("chevronLeft", 15), "Back");
@@ -64,7 +64,7 @@ export class Onboarding {
     const last = this.step === this.steps.length - 1;
     this.body.replaceChildren(this.steps[this.step].render());
     this.back.style.visibility = this.step === 0 ? "hidden" : "visible";
-    this.next.replaceChildren(...(last ? [icon("check", 16), "Start using CorePro"] : [this.step === 0 ? "Get started" : "Next", icon("chevronRight", 15)]));
+    this.next.replaceChildren(...(last ? [icon("check", 16), "Start using Zazabor"] : [this.step === 0 ? "Get started" : "Next", icon("chevronRight", 15)]));
     [...this.dots.children].forEach((dot, i) => {
       dot.classList.toggle("active", i === this.step);
       dot.classList.toggle("past", i < this.step);
@@ -90,7 +90,7 @@ export class Onboarding {
       "div",
       { class: "ob-step ob-center" },
       h("img", { class: "ob-logo", src: "/logo.svg", alt: "", width: 96, height: 96 }),
-      h("h1", { class: "ob-hero" }, "Welcome to CorePro"),
+      h("h1", { class: "ob-hero" }, "Welcome to Zazabor"),
       h("p", { class: "ob-lead" }, "Your files, photos and videos in one calm, beautiful place. Let's make it yours in three quick steps."),
     );
   }
@@ -181,7 +181,7 @@ export class Onboarding {
       { class: "ob-step ob-center" },
       h("div", { class: "ob-done" }, icon("sparkles", 40)),
       h("h1", { class: "ob-hero" }, "You're all set"),
-      h("p", { class: "ob-lead" }, "CorePro is ready. Settings, with every choice you just made, is always one click away at the bottom of the rail."),
+      h("p", { class: "ob-lead" }, "Zazabor is ready. Settings, with every choice you just made, is always one click away at the bottom of the rail."),
     );
   }
 }

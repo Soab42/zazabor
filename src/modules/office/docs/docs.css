@@ -80,6 +80,29 @@
 .dc-content [data-resize-container]:hover [data-resize-handle], .dc-content [data-resize-container].ProseMirror-selectednode [data-resize-handle], .dc-content [data-resize-state="true"] [data-resize-handle] { opacity: 1; }
 .dc-content [data-resize-container].ProseMirror-selectednode img { outline: 2px solid #3b82f6; }
 
+/* Pictures' wrapping (picture.ts): the node view's outer box carries it in the editor. */
+/* Its own stacking context: a picture behind the text stays in front of the white paper. */
+.dc-content { isolation: isolate; }
+.dc-content .dc-pic[data-wrap="square"][data-align="left"] { float: left; margin: 2pt 12pt 6pt 0; }
+.dc-content .dc-pic[data-wrap="square"][data-align="right"] { float: right; margin: 2pt 0 6pt 12pt; }
+.dc-content .dc-pic[data-wrap="square"][data-align="center"], .dc-content .dc-pic[data-wrap="topBottom"] { display: flex !important; justify-content: flex-start; width: 100%; margin: 6pt 0; }
+.dc-content .dc-pic[data-wrap="topBottom"][data-align="center"], .dc-content .dc-pic[data-wrap="square"][data-align="center"] { justify-content: center; }
+.dc-content .dc-pic[data-wrap="topBottom"][data-align="right"] { justify-content: flex-end; }
+.dc-content .dc-pic[data-wrap="behind"], .dc-content .dc-pic[data-wrap="front"] { position: absolute; }
+.dc-content .dc-pic[data-wrap="behind"] { z-index: -1; }
+.dc-content .dc-pic[data-wrap="front"] { z-index: 3; }
+.dc-content p:has(> .dc-pic[data-wrap="behind"]), .dc-content p:has(> .dc-pic[data-wrap="front"]) { position: relative; }
+.dc-content .dc-pic[data-wrap="behind"] img, .dc-content .dc-pic[data-wrap="front"] img { cursor: move; }
+/* Word's Layout Options button beside the selected picture. */
+.dc-pic-layout {
+  position: absolute; top: 0; right: -30px; display: none; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 4px; cursor: pointer;
+  background: #fff; color: #2563eb; box-shadow: 0 0 0 1px #b8c7e8, 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+.dc-pic-layout:hover { background: #eef3ff; }
+.dc-pic.ProseMirror-selectednode .dc-pic-layout { display: grid; }
+.dc-pic { position: relative; }
+.dc-pic[data-wrap="behind"], .dc-pic[data-wrap="front"] { position: absolute; }
+
 /* Tables: Word's Table Grid. */
 .dc-content .tableWrapper { margin: 0 0 8pt; overflow-x: auto; }
 .dc-content table { border-collapse: collapse; width: 100%; table-layout: fixed; margin: 0; }

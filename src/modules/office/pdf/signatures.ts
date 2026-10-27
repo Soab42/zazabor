@@ -9,7 +9,7 @@ import { extensionOf, officeApi } from "../api";
 
 /**
  * Fill & Sign's signatures and initials: typed, drawn or taken from a picture, kept (when the
- * user says so) in CorePro's own store, and put on pages as pictures. They aren't certificate
+ * user says so) in Zazabor's own store, and put on pages as pictures. They aren't certificate
  * signatures: anyone can see who signed, nothing proves it.
  */
 

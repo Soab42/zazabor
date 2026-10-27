@@ -49,6 +49,8 @@ const ANIM_SECONDS = 0.45;
 export interface TextLook {
   /** Visible characters (typewriter), −1 for all. */
   chars: number;
+  /** Karaoke: the word being spoken (its index), −1 before the first. */
+  word: number;
   opacity: number;
   scale: number;
   /** Offset in canvas heights. */
@@ -72,7 +74,10 @@ function bounceOut(x: number) {
 
 /** The animation state of a text `local` seconds after it starts. */
 export function textLook(c: TextClip, local: number): TextLook {
-  const look: TextLook = { chars: -1, opacity: 1, scale: 1, dy: 0 };
+  const look: TextLook = { chars: -1, word: -1, opacity: 1, scale: 1, dy: 0 };
+  if (c.words?.length && c.highlight) {
+    for (let i = 0; i < c.words.length && local >= c.words[i].t; i++) look.word = i;
+  }
   const span = Math.min(ANIM_SECONDS, c.duration / 2);
   const inP = span > 0 ? local / span : 1;
   const outP = span > 0 ? (c.duration - local) / span : 1;
@@ -139,9 +144,10 @@ function wrap(ctx: CanvasRenderingContext2D, text: string, width: number): strin
 
 /**
  * Draws a text for a canvas `canvasHeight` pixels tall into `out` (resized to fit), showing
- * `chars` characters (−1 for all). Returns the drawing's size.
+ * `chars` characters (−1 for all), with words up to `word` in the karaoke highlight. Returns the
+ * drawing's size.
  */
-export function drawText(out: HTMLCanvasElement, c: TextClip, canvasWidth: number, canvasHeight: number, chars: number): { width: number; height: number } {
+export function drawText(out: HTMLCanvasElement, c: TextClip, canvasWidth: number, canvasHeight: number, chars: number, word = -1): { width: number; height: number } {
   const s = c.style;
   const px = (s.size / 1000) * canvasHeight;
   const ctx = out.getContext("2d")!;
@@ -180,21 +186,34 @@ export function drawText(out: HTMLCanvasElement, c: TextClip, canvasWidth: numbe
       ctx.fill();
     });
   }
+  // Karaoke: the text's words in order, each one lit once it's been spoken.
+  const karaoke = word >= 0 && !!c.highlight && !!c.words?.length;
+  let wordIndex = 0;
+  const pieces = (line: string): [string, string][] => {
+    if (!karaoke) return [[line, s.color]];
+    return line.split(/(\s+)/).filter(Boolean).map((part) => {
+      if (/^\s+$/.test(part)) return [part, s.color];
+      return [part, wordIndex++ <= word ? c.highlight! : s.color];
+    });
+  };
   lines.forEach((line, i) => {
-    const x = xFor(widths[i]);
+    let x = xFor(widths[i]);
     const y = margin + padY + i * lineHeight + lineHeight / 2;
     if (s.shadow) {
       ctx.shadowColor = s.color === "#ffffff" ? "rgba(0,0,0,0.65)" : s.color;
       ctx.shadowBlur = glow;
       ctx.shadowOffsetY = s.color === "#ffffff" ? px * 0.04 : 0;
     }
-    if (stroke > 0 && s.stroke) {
-      ctx.strokeStyle = s.stroke;
-      ctx.lineWidth = stroke * 2;
-      ctx.strokeText(line, x, y);
+    for (const [part, color] of pieces(line)) {
+      if (stroke > 0 && s.stroke) {
+        ctx.strokeStyle = s.stroke;
+        ctx.lineWidth = stroke * 2;
+        ctx.strokeText(part, x, y);
+      }
+      ctx.fillStyle = color;
+      ctx.fillText(part, x, y);
+      x += ctx.measureText(part).width;
     }
-    ctx.fillStyle = s.color;
-    ctx.fillText(line, x, y);
     ctx.shadowColor = "transparent";
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 0;
@@ -203,6 +222,7 @@ export function drawText(out: HTMLCanvasElement, c: TextClip, canvasWidth: numbe
 }
 
 /** A key that changes whenever the drawing would. */
-export function textKey(c: TextClip, canvasHeight: number, chars: number) {
-  return `${c.text}\u0000${JSON.stringify(c.style)}\u0000${canvasHeight}\u0000${chars}`;
+export function textKey(c: TextClip, canvasHeight: number, chars: number, word = -1) {
+  if (c.sticker) return `sticker\u0000${c.sticker}\u0000${c.style.color}\u0000${c.style.size}\u0000${canvasHeight}`;
+  return `${c.text}\u0000${JSON.stringify(c.style)}\u0000${canvasHeight}\u0000${chars}\u0000${c.highlight ?? ""}\u0000${word}`;
 }

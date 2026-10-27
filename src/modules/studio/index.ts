@@ -16,6 +16,7 @@ import { errorText } from "../time/api";
 import { editApi as videoApi, type Snapshot } from "./video/api";
 import { PHOTO_EXTENSIONS, studioKindOf, VIDEO_PROJECT_EXTENSIONS, type Aspect, type StudioApp, type StudioFactory, type StudioHost, type StudioKind, type StudioStart } from "./app";
 import "./studio.css";
+import type { createRecorderPage } from "./record/page";
 
 const RECENT_MAX = 40;
 
@@ -28,7 +29,7 @@ const LOADERS: Record<StudioKind, () => Promise<StudioFactory>> = {
 const KIND_ICON: Record<StudioKind, IconName> = { photo: "photoEdit", video: "videoEdit" };
 const VIDEO_EXTENSIONS = ["mp4", "m4v", "mov", "mkv", "webm", "avi", "3gp", "mts"];
 
-type View = "home" | StudioKind;
+type View = "home" | StudioKind | "record";
 
 /** Asks about unsaved changes: save them, throw them away, or stay. */
 function askSave(title: string): Promise<"save" | "discard" | "cancel"> {
@@ -67,11 +68,12 @@ export const createStudioModule: ModuleFactory = (shell) => {
   // ---- rail
 
   const railButton = (id: View, glyph: IconName, title: string) =>
-    h("button", { class: `of-rail-btn${id === "home" ? "" : ` tone-${id}`}`, type: "button", title, "aria-label": title, onclick: () => showHome(id) }, icon(glyph, 20));
+    h("button", { class: `of-rail-btn${id === "home" ? "" : ` tone-${id}`}`, type: "button", title, "aria-label": title, onclick: () => (id === "record" ? showRecorder() : showHome(id)) }, icon(glyph, 20));
   const homeButtons: [View, HTMLButtonElement][] = [
     ["home", railButton("home", "home", "Home")],
     ["photo", railButton("photo", "photoEdit", "Photo")],
     ["video", railButton("video", "videoEdit", "Video Editor")],
+    ["record", railButton("record", "recRecord", "Screen Recorder")],
   ];
   const files = h("div", { class: "of-rail-files" });
   const rail = h("nav", { class: "of-rail", "aria-label": "Studio" },
@@ -137,7 +139,7 @@ export const createStudioModule: ModuleFactory = (shell) => {
     }));
   }
 
-  /** Video projects AutoRecover kept when CorePro stopped without saving them. */
+  /** Video projects AutoRecover kept when Zazabor stopped without saving them. */
   function recoveredRows(): HTMLElement {
     const box = h("div", { class: "sd-recovered", hidden: true });
     void videoApi.recoveryList().then((list: Snapshot[]) => {
@@ -161,6 +163,51 @@ export const createStudioModule: ModuleFactory = (shell) => {
     return box;
   }
 
+  /** Screen Recorder: a page of its own (not a project), made the first time it's shown. */
+  let recorder: ReturnType<typeof createRecorderPage> | null = null;
+  const recorderHost = h("div", { class: "sd-recorder", hidden: true });
+  main.append(recorderHost);
+
+  const recordTile = () => h("button", { class: "of-tile tone-record", type: "button", onclick: () => showRecorder() },
+    h("div", { class: "of-tile-page sd-tile r16x9 sd-record-tile" }, h("span", { class: "sd-record-dot" }), h("span", { class: "of-tile-badge" }, icon("recRecord", 15))),
+    h("span", { class: "of-tile-name" }, "Record Screen"),
+    h("span", { class: "of-tile-kind" }, "Screen, window or area"));
+
+  async function showRecorder() {
+    current?.deactivate();
+    current = null;
+    view = "record";
+    hub.hidden = true;
+    appHost.hidden = true;
+    for (const app of apps) app.el.hidden = true;
+    recorderHost.hidden = false;
+    drawRail();
+    retitle();
+    if (!recorder) {
+      const { createRecorderPage } = await import("./record/page");
+      recorder = createRecorderPage({
+        config: shell.config,
+        saveConfig: () => shell.saveConfig(),
+        toast: (text, action) => showToast(text, action, 4000),
+        openInEditor: (path) => void start("video", { paths: [path], aspect: "16:9" }),
+        showInFiles: (path) => shell.open({ kind: "folder", path: dirname(path) }),
+        showFolder: (path) => shell.open({ kind: "folder", path }),
+        play: (path) => shell.open({ kind: "video", path }),
+        finished: () => {
+          shell.showModule("studio");
+          if (view !== "record") void showRecorder();
+        },
+      });
+      recorderHost.append(recorder.el);
+    }
+    recorder.show();
+  }
+
+  function hideRecorder() {
+    recorderHost.hidden = true;
+    recorder?.hide();
+  }
+
   function drawHub() {
     // A function: Home and Photo each need their own tiles (a node has one parent).
     const photoTiles = () => [
@@ -173,10 +220,11 @@ export const createStudioModule: ModuleFactory = (shell) => {
       home: [
         h("h1", null, "Studio"),
         h("p", { class: "of-hub-sub" }, "Edit photos with layers and adjustments, or cut a reel with text, music and transitions."),
-        h("div", { class: "of-new" }, ...photoTiles(), ...videoTiles().slice(0, 2)),
+        h("div", { class: "of-new" }, ...photoTiles(), ...videoTiles().slice(0, 2), recordTile()),
         recoveredRows(),
         head("Recent"), recentRows(),
       ],
+      record: [],
       photo: [
         h("h1", null, "Photo"),
         h("p", { class: "of-hub-sub" }, "Layers, masks, adjustments and filters. The original picture is never overwritten unless you ask."),
@@ -197,6 +245,8 @@ export const createStudioModule: ModuleFactory = (shell) => {
   // ---- showing things
 
   function showHome(next: View = "home") {
+    if (next === "record") return void showRecorder();
+    hideRecorder();
     current?.deactivate();
     current = null;
     view = next;
@@ -209,6 +259,7 @@ export const createStudioModule: ModuleFactory = (shell) => {
   }
 
   function showApp(app: StudioApp) {
+    hideRecorder();
     if (current && current !== app) current.deactivate();
     current = app;
     hub.hidden = true;
@@ -221,7 +272,7 @@ export const createStudioModule: ModuleFactory = (shell) => {
 
   function retitle() {
     if (isMainWindow) return;
-    const title = current ? `${current.title()}${current.dirty() ? " •" : ""} — Studio` : "Studio — CorePro";
+    const title = current ? `${current.title()}${current.dirty() ? " •" : ""} — Studio` : "Studio — Zazabor";
     void getCurrentWindow().setTitle(title).catch(() => undefined);
   }
 
@@ -337,11 +388,13 @@ export const createStudioModule: ModuleFactory = (shell) => {
     activate() {
       visible = true;
       if (current) current.activate();
+      else if (view === "record") recorder?.show();
       else drawHub();
     },
     deactivate() {
       visible = false;
       current?.deactivate();
+      recorder?.hide();
     },
     handleKey(e) {
       const mod = e.ctrlKey || e.metaKey;
@@ -371,8 +424,19 @@ export const createStudioModule: ModuleFactory = (shell) => {
       else void start(request.app, {});
     },
     windowPath: () => current?.path() ?? null,
+    // The user guide: F1 opens the article for the app showing; its Open button shows a page.
+    guideTopic: () => {
+      const kind = current?.kind ?? (view === "home" ? null : view);
+      if (!current && view === "record") return "screen-recorder";
+      return kind === "photo" ? "photo" : kind === "video" ? "video-editor" : "studio";
+    },
+    showGuideTarget(target) {
+      if (target === "home" || target === "photo" || target === "video") showHome(target);
+      else if (target === "record") void showRecorder();
+    },
     dispose() {
       void unlistenClose.then((fn) => fn());
+      recorder?.dispose();
       for (const app of apps) app.dispose();
       el.remove();
     },

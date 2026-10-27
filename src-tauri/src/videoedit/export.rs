@@ -2,7 +2,9 @@
 //! sends it here; the sound mix comes first, as one PCM block. GStreamer encodes and muxes:
 //! MP4 with H.264 from VA-API (constant QP: this driver refuses bitrate modes) and MP3, or WebM
 //! with VP9 and Opus on the CPU. H.264 goes through `h264::Converter` because `mp4mux` needs
-//! length-prefixed access units and `h264parse` isn't installed.
+//! length-prefixed access units and `h264parse` isn't installed. When the user has added more
+//! encoders (gstreamer1.0-plugins-ugly, -libav, -bad, or an NVIDIA driver), MP4 can use x264,
+//! NVENC or HEVC instead, and AAC sound.
 
 use super::h264::Converter;
 use super::media;
@@ -28,6 +30,9 @@ pub struct Spec {
     /// "high", "standard" or "small".
     pub quality: String,
     pub audio: bool,
+    /// MP4's video encoder: "vaapi", "x264", "nvh264", "x265" or "nvh265" (empty: the best one).
+    #[serde(default)]
+    pub codec: String,
 }
 
 #[derive(Serialize)]
@@ -38,8 +43,18 @@ pub struct Done {
     pub frames: u64,
 }
 
+/// One of MP4's video encoders, for the dialog.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Codec {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub available: bool,
+    /// What adds it when it isn't there: a package, or a sentence.
+    pub needs: &'static str,
+}
+
 /// What this system can export, for the dialog.
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct Encoders {
     pub h264: bool,
     pub mp3: bool,
@@ -47,24 +62,75 @@ pub struct Encoders {
     pub opus: bool,
     pub aac: bool,
     pub hevc: bool,
+    pub codecs: Vec<Codec>,
+    /// Packages that would add codecs (decoders included), for "Install codecs".
+    pub missing: Vec<&'static str>,
 }
 
 fn has(name: &str) -> bool {
     gst::ElementFactory::find(name).is_some()
 }
 
-pub fn encoders() -> Result<Encoders, String> {
-    media::init()?;
-    Ok(Encoders {
-        h264: has("vaapih264enc") && has("mp4mux"),
+/// NVIDIA's encoders register only with a driver; this checks one really starts.
+fn starts(name: &str) -> bool {
+    let Ok(element) = gst::ElementFactory::make(name).build() else { return false };
+    let ok = element.set_state(gst::State::Ready).is_ok();
+    let _ = element.set_state(gst::State::Null);
+    ok
+}
+
+/// The encoders, given which GStreamer elements exist (`has`) and which NVIDIA ones start.
+pub fn encoders_with(has: &dyn Fn(&str) -> bool, starts: &dyn Fn(&str) -> bool) -> Encoders {
+    let mux = has("mp4mux");
+    let hevc_parse = has("h265parse");
+    let codecs = vec![
+        // vaapih265enc is present here but fails to start at 1080p, so VA-API is H.264 only.
+        Codec { id: "vaapi", label: "H.264 · graphics card (VA-API)", available: mux && has("vaapih264enc"), needs: "gstreamer1.0-vaapi" },
+        Codec { id: "x264", label: "H.264 · x264 (processor)", available: mux && has("x264enc"), needs: "gstreamer1.0-plugins-ugly" },
+        Codec { id: "nvh264", label: "H.264 · NVIDIA (NVENC)", available: mux && has("nvh264enc") && starts("nvh264enc"), needs: "an NVIDIA graphics card and its driver" },
+        Codec { id: "x265", label: "HEVC · x265 (processor)", available: mux && hevc_parse && has("x265enc"), needs: "gstreamer1.0-plugins-bad" },
+        Codec { id: "nvh265", label: "HEVC · NVIDIA (NVENC)", available: mux && hevc_parse && has("nvh265enc") && starts("nvh265enc"), needs: "an NVIDIA graphics card and its driver" },
+    ];
+    let mut missing = Vec::new();
+    if !has("avenc_aac") || !has("avdec_aac") || !has("avdec_h264") {
+        missing.push("gstreamer1.0-libav");
+    }
+    if !has("x264enc") {
+        missing.push("gstreamer1.0-plugins-ugly");
+    }
+    Encoders {
+        h264: codecs.iter().any(|c| c.available && (c.id == "vaapi" || c.id.ends_with("264"))),
         mp3: has("lamemp3enc") && has("mpegaudioparse"),
         vp9: has("vp9enc") && has("webmmux"),
         opus: has("opusenc"),
         aac: has("avenc_aac") || has("voaacenc") || has("fdkaacenc"),
-        // vaapih265enc is present here but fails to start at 1080p, and mp4mux would need a
-        // HEVC converter too.
-        hevc: false,
-    })
+        hevc: codecs.iter().any(|c| c.available && c.id.ends_with("265")),
+        codecs,
+        missing,
+    }
+}
+
+pub fn encoders() -> Result<Encoders, String> {
+    media::init()?;
+    Ok(encoders_with(&has, &starts))
+}
+
+/// The MP4 encoder to use: the one asked for if it's there, else the first that is.
+fn pick_codec(e: &Encoders, wanted: &str) -> Option<&'static str> {
+    e.codecs.iter().find(|c| c.id == wanted && c.available).or_else(|| e.codecs.iter().find(|c| c.available)).map(|c| c.id)
+}
+
+/// MP4's sound encoder: AAC when there's one, else MP3.
+fn aac_chain(has: &dyn Fn(&str) -> bool) -> Option<&'static str> {
+    if has("avenc_aac") {
+        Some("avenc_aac bitrate=192000 ! aacparse")
+    } else if has("fdkaacenc") {
+        Some("fdkaacenc bitrate=192000 ! aacparse")
+    } else if has("voaacenc") {
+        Some("voaacenc bitrate=192000 ! aacparse")
+    } else {
+        None
+    }
 }
 
 struct Job {
@@ -112,7 +178,7 @@ fn quantizer(quality: &str, vp9: bool) -> u32 {
 /// They're separate because the encoder's appsink only hands out samples once its pipeline
 /// plays, and a pipeline only plays once the file sink has data: in one pipeline that waits on
 /// itself.
-fn description(spec: &Spec) -> (String, Option<String>) {
+fn description(spec: &Spec, codec: &str, aac: Option<&str>) -> (String, Option<String>) {
     let (w, h, fps) = (spec.width, spec.height, spec.fps);
     let raw = format!("video/x-raw,format=I420,width={w},height={h},framerate={fps}/1,pixel-aspect-ratio=1/1");
     let frame = (w * h * 3 / 2) as u64;
@@ -134,15 +200,38 @@ fn description(spec: &Spec) -> (String, Option<String>) {
         (parts.join("  "), None)
     } else {
         parts.push("mp4mux name=mux faststart=true ! filesink name=file".to_string());
-        parts.push("appsrc name=avc format=time ! queue ! mux.video_0".to_string());
         if spec.audio {
-            parts.push(format!("{audio_source} ! lamemp3enc target=bitrate bitrate=192 cbr=true ! mpegaudioparse ! queue ! mux.audio_0"));
+            let sound = aac.unwrap_or("lamemp3enc target=bitrate bitrate=192 cbr=true ! mpegaudioparse");
+            parts.push(format!("{audio_source} ! {sound} ! queue ! mux.audio_0"));
         }
-        let encode = format!(
-            "{source} ! video/x-raw,format=NV12 ! vaapih264enc init-qp={} keyframe-period={gop} max-bframes=0 aud=false ! video/x-h264,stream-format=byte-stream,alignment=au ! appsink name=encoded sync=false",
-            quantizer(&spec.quality, false)
-        );
-        (parts.join("  "), Some(encode))
+        let q = quantizer(&spec.quality, false);
+        let threads = std::thread::available_parallelism().map_or(4, |n| n.get()).min(16);
+        match codec {
+            // Straight into the muxer: x264 writes AVC, and h265parse makes HVC1.
+            "x264" => {
+                parts.push(format!("{source} ! video/x-raw,format=I420 ! x264enc pass=qual quantizer={q} speed-preset=faster threads={threads} key-int-max={gop} bframes=0 ! video/x-h264,stream-format=avc,alignment=au,profile=high ! queue ! mux.video_0"));
+                (parts.join("  "), None)
+            }
+            "x265" => {
+                parts.push(format!("{source} ! video/x-raw,format=I420 ! x265enc speed-preset=faster qp={q} key-int-max={gop} ! h265parse ! video/x-h265,stream-format=hvc1,alignment=au ! queue ! mux.video_0"));
+                (parts.join("  "), None)
+            }
+            "nvh265" => {
+                parts.push(format!("{source} ! nvh265enc rc-mode=constqp qp-const={q} gop-size={gop} bframes=0 ! h265parse ! video/x-h265,stream-format=hvc1,alignment=au ! queue ! mux.video_0"));
+                (parts.join("  "), None)
+            }
+            // Byte-stream H.264 (VA-API, NVENC): through the AVC converter and the bridge.
+            _ => {
+                parts.push("appsrc name=avc format=time ! queue ! mux.video_0".to_string());
+                let encoder = if codec == "nvh264" {
+                    format!("video/x-raw,format=I420 ! nvh264enc rc-mode=constqp qp-const={q} gop-size={gop} bframes=0 aud=false")
+                } else {
+                    format!("video/x-raw,format=NV12 ! vaapih264enc init-qp={q} keyframe-period={gop} max-bframes=0 aud=false")
+                };
+                let encode = format!("{source} ! {encoder} ! video/x-h264,stream-format=byte-stream,alignment=au ! appsink name=encoded sync=false");
+                (parts.join("  "), Some(encode))
+            }
+        }
     }
 }
 
@@ -204,7 +293,8 @@ pub fn begin(spec: Spec) -> Result<u32, String> {
     if spec.format == "webm" && !available.vp9 {
         return Err("This system has no VP9 encoder (GStreamer's vpx plugin).".into());
     }
-    if spec.format != "webm" && !available.h264 {
+    let codec = pick_codec(&available, &spec.codec);
+    if spec.format != "webm" && codec.is_none() {
         return Err("This system has no H.264 encoder. VA-API (gstreamer1.0-vaapi) or x264 (gstreamer1.0-plugins-ugly) adds one.".into());
     }
     let dest = PathBuf::from(&spec.path);
@@ -212,7 +302,7 @@ pub fn begin(spec: Spec) -> Result<u32, String> {
     let parse = |d: &str| -> Result<gst::Pipeline, String> {
         gst::parse_launch(d).map_err(|e| e.to_string())?.downcast::<gst::Pipeline>().map_err(|_| "not a pipeline".to_string())
     };
-    let (main, encode) = description(&spec);
+    let (main, encode) = description(&spec, codec.unwrap_or("vaapi"), aac_chain(&has));
     let pipeline = parse(&main)?;
     let encode = encode.as_deref().map(parse).transpose()?;
     let by = |p: &gst::Pipeline, name: &str| p.by_name(name).ok_or_else(|| format!("no {name}"));
@@ -387,12 +477,17 @@ mod tests {
     use super::*;
 
     fn spec(format: &str, audio: bool) -> Spec {
-        Spec { path: "/tmp/x.mp4".into(), width: 1080, height: 1920, fps: 30, format: format.into(), quality: "standard".into(), audio }
+        Spec { path: "/tmp/x.mp4".into(), width: 1080, height: 1920, fps: 30, format: format.into(), quality: "standard".into(), audio, codec: String::new() }
+    }
+
+    /// A system with exactly these elements (NVIDIA's start only if listed in `nv`).
+    fn system(names: &'static [&'static str], nv: bool) -> Encoders {
+        encoders_with(&|n| names.contains(&n), &move |_| nv)
     }
 
     #[test]
     fn mp4_pipeline_bridges_vaapi_into_mp4mux() {
-        let (mux, encode) = description(&spec("mp4", true));
+        let (mux, encode) = description(&spec("mp4", true), "vaapi", None);
         let encode = encode.unwrap();
         assert!(encode.contains("width=1080,height=1920,framerate=30/1"));
         assert!(encode.contains("vaapih264enc init-qp=25 keyframe-period=60 max-bframes=0"));
@@ -400,17 +495,51 @@ mod tests {
         assert!(mux.contains("appsrc name=avc format=time ! queue ! mux.video_0"));
         assert!(mux.contains("lamemp3enc"));
         assert!(!mux.contains("vaapih264enc"));
-        assert!(!description(&spec("mp4", false)).0.contains("appsrc name=audio"));
+        assert!(!description(&spec("mp4", false), "vaapi", None).0.contains("appsrc name=audio"));
     }
 
     #[test]
     fn webm_pipeline_encodes_vp9_and_opus() {
-        let (d, encode) = description(&spec("webm", true));
+        let (d, encode) = description(&spec("webm", true), "vaapi", None);
         assert!(encode.is_none());
         assert!(d.contains("vp9enc"));
         assert!(d.contains("cq-level=32"));
         assert!(d.contains("opusenc"));
         assert!(!d.contains("vaapih264enc"));
+    }
+
+    #[test]
+    fn this_machine_offers_vaapi_and_names_what_adds_more() {
+        let e = system(&["mp4mux", "vaapih264enc", "lamemp3enc", "mpegaudioparse", "vp9enc", "webmmux", "opusenc", "aacparse"], false);
+        assert!(e.h264 && !e.aac && !e.hevc);
+        assert_eq!(e.missing, vec!["gstreamer1.0-libav", "gstreamer1.0-plugins-ugly"]);
+        assert_eq!(pick_codec(&e, "x264"), Some("vaapi"), "an unavailable choice falls back");
+        assert!(!e.codecs.iter().find(|c| c.id == "nvh264").unwrap().available);
+    }
+
+    #[test]
+    fn after_installing_codecs_x264_aac_and_hevc_appear() {
+        let names: &[&str] = &["mp4mux", "vaapih264enc", "x264enc", "x265enc", "h265parse", "avenc_aac", "avdec_aac", "avdec_h264", "lamemp3enc", "mpegaudioparse", "opusenc"];
+        let e = system(names, false);
+        assert!(e.aac && e.hevc && e.missing.is_empty());
+        assert_eq!(pick_codec(&e, "x264"), Some("x264"));
+        assert_eq!(aac_chain(&|n| names.contains(&n)), Some("avenc_aac bitrate=192000 ! aacparse"));
+        let (mux, encode) = description(&Spec { codec: "x264".into(), ..spec("mp4", true) }, "x264", Some("avenc_aac bitrate=192000 ! aacparse"));
+        assert!(encode.is_none(), "x264 writes AVC itself");
+        assert!(mux.contains("x264enc pass=qual quantizer=25") && mux.contains("stream-format=avc") && mux.contains("avenc_aac"));
+        let (mux, _) = description(&spec("mp4", true), "x265", None);
+        assert!(mux.contains("x265enc") && mux.contains("h265parse") && mux.contains("lamemp3enc"));
+    }
+
+    #[test]
+    fn nvenc_is_offered_only_when_its_driver_starts() {
+        let names: &[&str] = &["mp4mux", "nvh264enc", "nvh265enc", "h265parse"];
+        assert!(!system(names, false).h264);
+        let e = system(names, true);
+        assert!(e.h264 && e.hevc);
+        assert_eq!(pick_codec(&e, ""), Some("nvh264"));
+        let (mux, encode) = description(&spec("mp4", false), "nvh264", None);
+        assert!(encode.unwrap().contains("nvh264enc rc-mode=constqp") && mux.contains("appsrc name=avc"));
     }
 
     #[test]

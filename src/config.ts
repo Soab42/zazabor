@@ -92,9 +92,21 @@ export interface Config {
   office: OfficeSettings;
   clipboard: ClipboardSettings;
   studio: StudioSettings;
+  guide: GuideSettings;
 }
 
 /** The clipboard history's page side (the history and its recording settings live in the backend, see clipboard/mod.rs). */
+/** The user guide (src/guide). */
+export interface GuideSettings {
+  /** The article read last; it opens there next time. */
+  last: string | null;
+}
+
+function normalizeGuide(raw: Partial<GuideSettings> | undefined): GuideSettings {
+  const last = raw?.last;
+  return { last: typeof last === "string" && /^[a-z0-9-]{1,40}$/.test(last) ? last : null };
+}
+
 export interface ClipboardSettings {
   /** Emoji, kaomoji and symbols picked lately in the Win+V popup, most recent first. */
   recent: string[];
@@ -132,12 +144,20 @@ function normalizeClipboard(raw: Partial<ClipboardSettings> | undefined): Clipbo
 export interface WalletSettings {
   /** Amounts show as ••• (for sharing the screen). */
   hideAmounts: boolean;
+  /** An uploaded statement goes straight in when its balance check passes (else it's shown first). */
+  autoImportStatements: boolean;
+  /** Which account a statement goes to, by its bank and the last four digits ("bkash|5678"). */
+  statementAccounts: Record<string, string>;
 }
 
-const DEFAULT_WALLET: WalletSettings = { hideAmounts: false };
+const DEFAULT_WALLET: WalletSettings = { hideAmounts: false, autoImportStatements: false, statementAccounts: {} };
 
 function normalizeWallet(raw: Partial<WalletSettings> | undefined): WalletSettings {
-  return { ...DEFAULT_WALLET, hideAmounts: raw?.hideAmounts === true };
+  const accounts: Record<string, string> = {};
+  if (raw?.statementAccounts && typeof raw.statementAccounts === "object") {
+    for (const [k, v] of Object.entries(raw.statementAccounts)) if (typeof v === "string" && k.length < 120) accounts[k] = v;
+  }
+  return { ...DEFAULT_WALLET, hideAmounts: raw?.hideAmounts === true, autoImportStatements: raw?.autoImportStatements === true, statementAccounts: accounts };
 }
 
 /** Office: Docs and Sheets. */
@@ -157,7 +177,7 @@ function normalizeOffice(raw: Partial<OfficeSettings> | undefined): OfficeSettin
 
 /** Sticky notes (the notes themselves and their sync live in the backend, see notes/mod.rs). */
 export interface NotesSettings {
-  /** Notes that were on the desktop when CorePro last ran open again at the start. */
+  /** Notes that were on the desktop when Zazabor last ran open again at the start. */
   reopen: boolean;
   /** How the Notes section shows them: a board of cards, or Kanban columns by status. */
   layout: "board" | "kanban";
@@ -288,6 +308,7 @@ const DEFAULTS: Config = {
   office: structuredClone(DEFAULT_OFFICE),
   clipboard: structuredClone(DEFAULT_CLIPBOARD),
   studio: structuredClone(DEFAULT_STUDIO),
+  guide: { last: null },
 };
 
 export async function loadConfig(): Promise<Config> {
@@ -325,6 +346,7 @@ export function parseConfig(raw: string): Config {
     office: normalizeOffice(parsed.office),
     clipboard: normalizeClipboard(parsed.clipboard),
     studio: normalizeStudio(parsed.studio),
+    guide: normalizeGuide(parsed.guide),
   };
 }
 

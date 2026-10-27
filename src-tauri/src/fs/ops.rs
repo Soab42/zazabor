@@ -112,7 +112,7 @@ static TEMP: AtomicU64 = AtomicU64::new(0);
 /// A hidden temporary name next to `dst`; the finished item is renamed to `dst`.
 fn temp_sibling(dst: &Path) -> PathBuf {
     let n = TEMP.fetch_add(1, Ordering::SeqCst);
-    let name = format!(".{}.{}-{n}.corepro-part", shown(dst), std::process::id());
+    let name = format!(".{}.{}-{n}.zazabor-part", shown(dst), std::process::id());
     dst.with_file_name(name)
 }
 
@@ -522,7 +522,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     fn scratch(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("corepro-ops-{tag}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("zazabor-ops-{tag}-{}", std::process::id()));
         let _ = force_remove(&dir);
         fs::create_dir_all(&dir).unwrap();
         fs::canonicalize(&dir).unwrap()
@@ -624,7 +624,7 @@ mod tests {
             let _ = force_remove(&root);
             return;
         }
-        let from = shm.join(format!("corepro-xdev-{}", std::process::id()));
+        let from = shm.join(format!("zazabor-xdev-{}", std::process::id()));
         write(&from.join("d/one.txt"), "one");
         write(&from.join("two.txt"), "two");
         fs::create_dir_all(root.join("dest")).unwrap();

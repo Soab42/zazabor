@@ -9,7 +9,7 @@ import { RECEIPT_EXTENSIONS, isReceipt } from "./drops";
 
 const baseName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 
-/** Asks for pictures or PDFs of receipts (CorePro's own picker). */
+/** Asks for pictures or PDFs of receipts (Zazabor's own picker). */
 export async function pickReceipts(): Promise<string[]> {
   const paths = await openFiles({ title: "Attach Receipts", multiple: true, filters: [{ name: "Pictures and PDFs", extensions: RECEIPT_EXTENSIONS }] });
   return (paths ?? []).filter(isReceipt);

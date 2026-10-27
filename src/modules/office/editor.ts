@@ -27,7 +27,7 @@ export interface EditorHost {
   readonly shell: ShellContext;
   /** The title, path or unsaved state changed: the rail and the window title follow. */
   changed(): void;
-  /** File tab: back to Home (or another hub view), the editor stays open in the rail. */
+  /** File tab: the backstage (Home, New, Open, Info, Save As, Print…) over this file; another hub view shows that page. */
   showHub(view?: HubView): void;
   /** Remembers a path in Recent (after opening, saving or Save As). */
   remember(path: string): void;
@@ -50,8 +50,12 @@ export interface OfficeEditor {
   save(as?: boolean): Promise<boolean>;
   /** Prints through the system's print dialog (which can also save a PDF). */
   print?(): void;
+  /** File → Info: facts about the content beyond the file's own ("Pages", "Words", "Sheets"). */
+  info?(): [string, string][];
+  /** File → Print: what will print, drawn as paper (null when there's nothing to print). */
+  printPreview?(): HTMLElement | null;
   /**
-   * AutoRecover: the file as it is now, to keep in case CorePro doesn't close cleanly, and a
+   * AutoRecover: the file as it is now, to keep in case Zazabor doesn't close cleanly, and a
    * number that changes with every edit (no new snapshot while it stays the same).
    */
   snapshot?(): { bytes: Uint8Array; version: number };

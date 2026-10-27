@@ -185,7 +185,7 @@ fn download(url: &str) -> Result<String, String> {
     let output = Command::new("curl")
         .args(["--silent", "--show-error", "--location", "--fail", "--max-time", DOWNLOAD_SECONDS])
         .args(["--max-filesize", MAX_DOWNLOAD_BYTES, "--proto", "=http,https", "--proto-redir", "=http,https"])
-        .args(["--user-agent", "CorePro", "--", url])
+        .args(["--user-agent", "Zazabor", "--", url])
         .stdin(Stdio::null())
         .output()
         .map_err(|_| "Couldn't download the playlist: curl isn't available.".to_string())?;
@@ -355,7 +355,7 @@ mod tests {
 
     #[test]
     fn channels_round_trip_on_disk_and_ids_cannot_escape() {
-        let dir = std::env::temp_dir().join(format!("corepro-streams-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("zazabor-streams-{}", std::process::id()));
         let channels = vec![Channel { name: "A".into(), url: "http://a/1".into(), group: Some("G".into()), ..Channel::default() }];
         save_channels(&dir, "pl_1-a", &channels).unwrap();
         assert_eq!(load_channels(&dir, "pl_1-a").unwrap(), channels);

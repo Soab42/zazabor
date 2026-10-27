@@ -2,17 +2,21 @@ import { api, type BuiltinTrack } from "../../../api";
 import { h } from "../../../ui/dom";
 import { icon, type IconName } from "../../../ui/icons";
 import { LOOKS, TRANSITION_GROUPS, type LookId, type TransitionKind } from "../../gallery/slideshow/settings";
+import { editApi, type SoundEffect } from "./api";
+import type { CaptionsPanel } from "./captions";
 import type { MediaStore } from "./media";
 import type { Media, MediaClip, Project } from "./model";
 import { MEDIA_DRAG, TEXT_DRAG, formatTime } from "./timeline";
 import { TEXT_PRESETS } from "./text";
+import { STICKERS } from "./stickers";
 
 /**
- * The left panel, as in CapCut: Media (the project's files), Audio (music), Text (styles),
- * Transitions and Filters. Items are added with their + button or dragged onto the timeline.
+ * The left panel, as in CapCut: Media (the project's files), Audio (music and sound effects),
+ * Text (styles), Stickers, Captions (auto captions), Transitions and Filters. Items are added
+ * with their + button or dragged onto the timeline.
  */
 
-export type PanelTab = "media" | "audio" | "text" | "transitions" | "filters";
+export type PanelTab = "media" | "audio" | "text" | "templates" | "stickers" | "captions" | "transitions" | "filters";
 
 export interface PanelHost {
   project(): Project;
@@ -26,18 +30,29 @@ export interface PanelHost {
   addMusic(path: string): void;
   removeMedia(id: string): void;
   addText(presetId: string): void;
+  addSticker(id: string): void;
+  /** Adds a sound effect at the playhead. */
+  addSound(path: string): void;
+  captions: CaptionsPanel;
+  /** Offers to install the codecs clips need, then checks those clips again. */
+  installCodecs(): void;
   /** The cut a transition goes on: the selected main clip, or the cut nearest the playhead. */
   transitionTarget(): MediaClip | null;
   applyTransition(kind: TransitionKind | null, duration: number, all: boolean): void;
   /** The look of the selected clips (null when mixed or nothing is selected). */
   currentLook(): LookId | "none" | null;
   applyLook(look: LookId | "none", all: boolean): void;
+  /** The Templates tab (motion/browser.ts). */
+  templates?: { render(): Node[] };
 }
 
 const TABS: [PanelTab, string, IconName][] = [
   ["media", "Media", "film"],
   ["audio", "Audio", "music"],
   ["text", "Text", "textBox"],
+  ["templates", "Templates", "template"],
+  ["stickers", "Stickers", "veSticker"],
+  ["captions", "Captions", "subtitles"],
   ["transitions", "Transitions", "sparkles"],
   ["filters", "Filters", "palette"],
 ];
@@ -59,6 +74,8 @@ export class Panel {
   private tabs: HTMLElement;
   private tab: PanelTab = "media";
   private tracks: BuiltinTrack[] | null = null;
+  private sounds: SoundEffect[] | null = null;
+  private preview: { ctx: AudioContext; node: AudioBufferSourceNode | null } | null = null;
   private transitionLength = 0.6;
 
   constructor(private host: PanelHost) {
@@ -77,7 +94,7 @@ export class Panel {
 
   private drawTabs() {
     this.tabs.replaceChildren(...TABS.map(([id, label, ic]) =>
-      h("button", { class: `ve-panel-tab${id === this.tab ? " active" : ""}`, type: "button", role: "tab", "aria-selected": String(id === this.tab), onclick: () => this.show(id) }, icon(ic, 18), h("span", null, label)),
+      h("button", { class: `ve-panel-tab${id === this.tab ? " active" : ""}`, type: "button", role: "tab", title: label, "aria-selected": String(id === this.tab), onclick: () => this.show(id) }, icon(ic, 18), h("span", null, label)),
     ));
   }
 
@@ -91,6 +108,9 @@ export class Panel {
       media: () => this.mediaTab(),
       audio: () => this.audioTab(),
       text: () => this.textTab(),
+      templates: () => this.host.templates?.render() ?? [],
+      stickers: () => this.stickersTab(),
+      captions: () => this.host.captions.render(),
       transitions: () => this.transitionsTab(),
       filters: () => this.filtersTab(),
     };
@@ -141,12 +161,18 @@ export class Panel {
 
   private mediaTab(): Node[] {
     const media = this.host.project().media.filter((m) => m.kind !== "audio");
+    const needsCodecs = this.host.project().media.some((m) => m.note && !m.missing);
     return [
       h("button", { class: "btn primary ve-import", type: "button", onclick: () => this.host.importFiles("any") }, icon("plus", 16), "Import"),
+      needsCodecs
+        ? h("div", { class: "ve-codec-note" },
+          h("p", { class: "ve-panel-note" }, "Some files need codecs this system lacks (marked !)."),
+          h("button", { class: "btn small", type: "button", onclick: () => this.host.installCodecs() }, icon("download", 14), "Install codecs…"))
+        : null,
       media.length
         ? h("div", { class: "ve-cards" }, ...media.map((m) => this.card(m)))
         : h("p", { class: "ve-empty" }, "Import clips and pictures, then drag them onto the timeline or press +."),
-    ];
+    ].filter(Boolean) as Node[];
   }
 
   private audioTab(): Node[] {
@@ -163,7 +189,8 @@ export class Panel {
       h("button", { class: "btn ve-import ve-voice-btn", type: "button", title: "Records from the microphone at the playhead (R)", onclick: () => this.host.record() }, icon("veMic", 16), "Record a voice-over"),
       media.length ? h("h3", { class: "ve-panel-h" }, "In this project") : null,
       media.length ? h("div", { class: "ve-cards" }, ...media.map((m) => this.card(m))) : null,
-      this.tracks.length ? h("h3", { class: "ve-panel-h" }, "CorePro soundtracks") : null,
+      ...this.soundsList(),
+      this.tracks.length ? h("h3", { class: "ve-panel-h" }, "Zazabor soundtracks") : null,
       ...this.tracks.map((t) =>
         h("div", { class: "ve-track-row" },
           h("div", { class: "ve-track-icon" }, icon("music", 16)),
@@ -171,6 +198,60 @@ export class Panel {
           h("button", { class: "icon-btn small", type: "button", title: "Add at the playhead", "aria-label": `Add ${t.title}`, onclick: () => this.host.addMusic(t.path) }, icon("plus", 16)),
         )),
     ].filter(Boolean) as Node[];
+  }
+
+  /** Zazabor's own sound effects, each with a listen button. */
+  private soundsList(): Node[] {
+    if (!this.sounds) {
+      this.sounds = [];
+      void editApi.sounds().then((s) => {
+        this.sounds = s;
+        if (this.tab === "audio") this.refresh();
+      }).catch(() => undefined);
+    }
+    if (!this.sounds.length) return [];
+    return [
+      h("h3", { class: "ve-panel-h" }, "Sound effects"),
+      h("div", { class: "ve-sfx-grid" }, ...this.sounds.map((s) =>
+        h("div", { class: "ve-sfx" },
+          h("button", { class: "ve-sfx-play", type: "button", title: `Listen to ${s.title}`, "aria-label": `Listen to ${s.title}`, onclick: () => void this.listen(s) }, icon("veSound", 15)),
+          h("span", { class: "ve-sfx-name" }, s.title),
+          h("button", { class: "icon-btn small", type: "button", title: "Add at the playhead", "aria-label": `Add ${s.title}`, onclick: () => this.host.addSound(s.path) }, icon("plus", 15)),
+        ))),
+    ];
+  }
+
+  /** Plays a sound effect once (decoded by the editor's backend, so any format works). */
+  private async listen(s: SoundEffect) {
+    try {
+      const pcm = await editApi.audio(s.path, true);
+      if (!this.preview) this.preview = { ctx: new AudioContext({ sampleRate: 48000 }), node: null };
+      const { ctx } = this.preview;
+      this.preview.node?.stop();
+      const frames = pcm.length / 2;
+      const buffer = ctx.createBuffer(2, Math.max(1, frames), 48000);
+      for (let ch = 0; ch < 2; ch++) {
+        const out = buffer.getChannelData(ch);
+        for (let i = 0; i < frames; i++) out[i] = pcm[i * 2 + ch] / 32768;
+      }
+      const node = ctx.createBufferSource();
+      node.buffer = buffer;
+      node.connect(ctx.destination);
+      node.start();
+      this.preview.node = node;
+    } catch {
+      // Listening is a nicety; adding still works.
+    }
+  }
+
+  private stickersTab(): Node[] {
+    return [
+      h("p", { class: "ve-panel-note" }, "Click one to add it at the playhead; it comes and goes with a pop. Change its colour and size in the inspector."),
+      h("div", { class: "ve-sticker-grid" }, ...STICKERS.map((s) => {
+        const img = h("img", { class: "ve-sticker-img", alt: "", draggable: "false", src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(s.svg("#ffb020"))}` });
+        return h("button", { class: "ve-sticker", type: "button", title: `Add “${s.label}” at the playhead`, onclick: () => this.host.addSticker(s.id) }, img, h("span", null, s.label));
+      })),
+    ];
   }
 
   private textTab(): Node[] {

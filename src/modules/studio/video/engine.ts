@@ -11,6 +11,9 @@ import {
 } from "./model";
 import { PEAK_RATE, type MediaStore } from "./media";
 import { drawText, textKey, textLook } from "./text";
+import { drawSticker, stickerHeight, stickerImage, stickerOf, type Sticker } from "./stickers";
+import { MotionRenderer } from "./motion/render";
+import { familiesLoadedIn, loadFamiliesIn } from "./motion/fonts";
 
 /**
  * Plays a project: the clock (Web Audio's, so sound and picture share it), the sound graph, and
@@ -23,6 +26,8 @@ interface Slot {
   busy: boolean;
   /** The source time wanted while a request was out. */
   pending: number | null;
+  /** The source time `source` was asked for. */
+  time: number | null;
   used: number;
   failed: boolean;
 }
@@ -110,6 +115,8 @@ export interface EngineHost {
 
 export class Engine {
   readonly gfx: Compositor;
+  /** Template clips (motion templates). */
+  readonly motion: MotionRenderer;
   time = 0;
   playing = false;
   private slots = new Map<string, Slot>();
@@ -139,6 +146,7 @@ export class Engine {
 
   constructor(readonly canvas: HTMLCanvasElement, private host: EngineHost) {
     this.gfx = new Compositor(canvas);
+    this.motion = new MotionRenderer(this.gfx, () => this.invalidate());
     this.sweep = window.setInterval(() => this.releaseIdle(), 5000);
   }
 
@@ -281,7 +289,7 @@ export class Engine {
   private slot(key: string): Slot {
     let s = this.slots.get(key);
     if (!s) {
-      s = { source: null, busy: false, pending: null, used: performance.now(), failed: false };
+      s = { source: null, busy: false, pending: null, time: null, used: performance.now(), failed: false };
       this.slots.set(key, s);
     }
     s.used = performance.now();
@@ -314,6 +322,7 @@ export class Engine {
       if (this.disposed) return;
       if (this.playing) this.lead = Math.min(0.12, this.lead * 0.8 + ((performance.now() - asked) / 1000 + 1 / 60) * 0.2);
       if (frame.data || !slot.source) slot.source = this.gfx.uploadFrame(slot.source, frame);
+      slot.time = time;
       this.dirty = true;
       this.kick();
     } catch (err) {
@@ -342,19 +351,53 @@ export class Engine {
     return null;
   }
 
-  private text(c: TextClip, W: number, H: number, chars: number) {
-    const key = textKey(c, H, chars);
+  private text(c: TextClip, W: number, H: number, chars: number, word: number, exact: Promise<void>[] | null) {
+    const key = textKey(c, H, chars, word);
     let t = this.texts.get(c.id);
     if (!t) {
       t = { canvas: document.createElement("canvas"), key: "", source: null, size: { width: 0, height: 0 } };
       this.texts.set(c.id, t);
     }
     if (t.key !== key) {
-      t.size = drawText(t.canvas, c, W, H, chars);
+      if (c.sticker) {
+        const sticker = stickerOf(c.sticker);
+        const img = sticker ? this.stickerReady(sticker, c.style.color, exact) : null;
+        if (!sticker || !img) return t;
+        t.size = drawSticker(t.canvas, sticker, img, stickerHeight(c.style.size, H));
+      } else {
+        if (!familiesLoadedIn(c.style.font)) {
+          // Bundled fonts (texts made from templates) load first; the text is drawn again then.
+          const loading = loadFamiliesIn(c.style.font).then(() => {
+            const held = this.texts.get(c.id);
+            if (held) held.key = "";
+            this.invalidate();
+          });
+          if (exact) exact.push(loading);
+        }
+        t.size = drawText(t.canvas, c, W, H, chars, word);
+      }
       t.source = this.gfx.uploadImage(t.source, t.canvas);
       t.key = key;
     }
     return t;
+  }
+
+  private stickerImages = new Map<string, HTMLImageElement>();
+
+  /** A sticker's picture once it's loaded; until then asks for it (export waits for it). */
+  private stickerReady(s: Sticker, color: string, exact: Promise<void>[] | null): HTMLImageElement | null {
+    const key = `${s.id}\u0000${s.tint ? color : ""}`;
+    const have = this.stickerImages.get(key);
+    if (have) return have;
+    const loading = stickerImage(s, color).then((img) => {
+      this.stickerImages.set(key, img);
+      if (this.disposed) return;
+      this.dirty = true;
+      this.kick();
+    });
+    if (exact) exact.push(loading.catch(() => undefined));
+    loading.catch((err) => this.report(err));
+    return null;
   }
 
   /** The draws for a media clip at timeline time `t`, asking for frames as needed. */
@@ -374,7 +417,13 @@ export class Engine {
       // While playing, ask for the frame that will be due when the answer arrives.
       const time = clampedSource(c, m, this.playing && !exact ? Math.min(t + this.lead, clipEnd(c) - 1e-3) : t);
       const need: [number, number] = [Math.min(place.size[0], W * 1.5), Math.min(place.size[1], H * 1.5)];
-      if (fetch) {
+      // Exporting: a frame already here (asked for ahead by `warm`) needs no second trip. The
+      // time it was asked for counts too: with millisecond timestamps (WebM), 2/30 s falls just
+      // before the frame stamped 0.067.
+      const slot = this.slots.get(key);
+      const held = slot?.source;
+      const covered = !!exact && !!held && !slot.busy && (slot.time === time || (time >= held.pts - 1e-4 && time < held.pts + (held.dur ?? 0) - 1e-4));
+      if (fetch && !covered) {
         const wait = this.request(key, m, time, need);
         if (exact) exact.push(wait);
       }
@@ -483,17 +532,37 @@ export class Engine {
     const over: LayerDraw[] = [];
     for (const layer of scene.layers) {
       if (layer.type === "media") over.push(...this.mediaLayer(layer, t, W, H, keyPrefix, exact, false, fetch));
-      else over.push(...this.textLayer(layer, t, W, H));
+      else if (layer.type === "template") over.push(...this.motion.layer(p, layer, t, W, H, exact, exact !== null || !fetch));
+      else over.push(...this.textLayer(layer, t, W, H, exact));
     }
     this.gfx.drawInto("c", over, null);
     if (!exact && fetch) this.prefetch(t, W, H, keyPrefix);
   }
 
-  private textLayer(c: TextClip, t: number, W: number, H: number): LayerDraw[] {
+  /**
+   * Export: asks for the frames time `t` will need without drawing, so they decode while the
+   * frame before is read back and sent. Resolves when they're all here.
+   */
+  warm(t: number, W: number, H: number, keyPrefix: string): Promise<void> {
+    const p = this.host.project();
+    const scene = sceneAt(p, t);
+    const clips = [scene.a, scene.b, ...scene.layers].filter((c): c is MediaClip => !!c && c.type === "media");
+    const waits: Promise<void>[] = [];
+    for (const c of clips) {
+      const m = mediaOf(p, c.media);
+      if (!m || m.missing || m.kind !== "video") continue;
+      const place = placeMedia(c, m, W, H, t - c.start);
+      if (place.opacity <= 0.001) continue;
+      waits.push(this.request(`${keyPrefix}${c.id}`, m, clampedSource(c, m, t), [Math.min(place.size[0], W * 1.5), Math.min(place.size[1], H * 1.5)]));
+    }
+    return Promise.all(waits).then(() => undefined);
+  }
+
+  private textLayer(c: TextClip, t: number, W: number, H: number, exact: Promise<void>[] | null): LayerDraw[] {
     const look = textLook(c, t - c.start);
     const place = placeAt(c, t - c.start);
     if (look.opacity <= 0.001 || look.scale <= 0.001 || place.opacity <= 0.001) return [];
-    const drawn = this.text(c, W, H, look.chars);
+    const drawn = this.text(c, W, H, c.sticker ? -1 : look.chars, look.word, exact);
     if (!drawn.source) return [];
     const s = place.scale * look.scale;
     return [{
@@ -528,6 +597,8 @@ export class Engine {
         const place = placeAt(layer, t - layer.start);
         const s = place.scale * look.scale;
         if (inside([place.x * W, (place.y + look.dy) * H], [drawn.size.width * s, drawn.size.height * s], (place.rotation * Math.PI) / 180)) return layer;
+      } else if (layer.type === "template") {
+        if (this.motion.hit(layer, t, x, y, W, H)) return layer;
       } else {
         const m = mediaOf(p, layer.media);
         if (!m) continue;
@@ -635,6 +706,7 @@ export class Engine {
     }
     if (stale.length) void editApi.release(stale).catch(() => undefined);
     const p = this.host.project();
+    this.motion.sweep(p);
     for (const [id, t] of this.texts) {
       if (!p.tracks.some((tr) => tr.clips.some((c) => c.id === id))) {
         if (t.source) this.gfx.release(t.source);
@@ -668,6 +740,7 @@ export class Engine {
     void this.ctx?.close().catch(() => undefined);
     void editApi.release([], this.host.prefix).catch(() => undefined);
     for (const lut of this.luts.values()) if (lut) this.gfx.releaseLut(lut);
+    this.motion.dispose();
     this.gfx.dispose();
   }
 }

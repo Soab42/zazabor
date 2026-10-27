@@ -4,7 +4,7 @@
 //! and pastes it where the user was typing (`x11.rs`).
 //!
 //! `watch.rs` follows the system clipboard (GTK, on the main thread). Recording pauses while the
-//! history is off or CorePro is locked, skips what password managers mark as secret, and skips
+//! history is off or Zazabor is locked, skips what password managers mark as secret, and skips
 //! apps the user excluded. Saved in the app's data folder as `clipboard/history.json`, pictures
 //! as PNG files in `clipboard/images/`.
 
@@ -68,13 +68,13 @@ pub struct Item {
 pub struct Settings {
     /// Recording is on (Settings → Clipboard → Clipboard history).
     pub enabled: bool,
-    /// Unpinned items go when CorePro quits (Windows clears them at restart).
+    /// Unpinned items go when Zazabor quits (Windows clears them at restart).
     #[serde(default)]
     pub clear_on_exit: bool,
     /// Window classes whose copies aren't kept (e.g. "keepassxc").
     #[serde(default)]
     pub exclude: Vec<String>,
-    /// CorePro took Super+V from GNOME's notification list; giving the shortcut up hands it back.
+    /// Zazabor took Super+V from GNOME's notification list; giving the shortcut up hands it back.
     #[serde(default)]
     pub took_super_v: bool,
 }
@@ -115,7 +115,7 @@ pub fn init(app: tauri::AppHandle, dir: PathBuf) {
     watch::start();
 }
 
-/// CorePro is quitting: clears the unpinned items when the user asked for that.
+/// Zazabor is quitting: clears the unpinned items when the user asked for that.
 pub fn on_exit() {
     let Some(lock) = STORE.get() else { return };
     let mut store = lock.lock().unwrap_or_else(|e| e.into_inner());
@@ -260,7 +260,7 @@ pub fn blank(kind: &str) -> Item {
 pub struct History {
     items: Vec<Item>,
     settings: Settings,
-    /// CorePro can paste into other apps itself (an X11 session); otherwise the user presses Ctrl+V.
+    /// Zazabor can paste into other apps itself (an X11 session); otherwise the user presses Ctrl+V.
     can_paste: bool,
 }
 
@@ -407,7 +407,7 @@ async fn put_and_paste(app: &tauri::AppHandle, content: watch::Content, paste: b
     Ok(true)
 }
 
-/// Shows or hides the Win+V popup (the Clipboard section's button, and `corepro --clipboard`).
+/// Shows or hides the Win+V popup (the Clipboard section's button, and `zazabor --clipboard`).
 #[tauri::command]
 pub async fn clipboard_popup(app: tauri::AppHandle) -> Result<(), String> {
     popup::toggle(&app)
@@ -474,7 +474,7 @@ pub struct ClipboardShortcut {
     shortcut: crate::notes::quick::Shortcut,
     /// GNOME uses Super+V for its notification list (so Super+V needs taking over first).
     gnome_super_v: bool,
-    /// CorePro took Super+V from GNOME (removing the shortcut gives it back).
+    /// Zazabor took Super+V from GNOME (removing the shortcut gives it back).
     took_super_v: bool,
 }
 
@@ -492,7 +492,7 @@ pub fn clipboard_shortcut() -> ClipboardShortcut {
 }
 
 /// Sets the shortcut that opens the popup (`None` removes it). Super+V while GNOME uses it needs
-/// `take_super_v`: only then is it taken from GNOME's notification list, and removing CorePro's
+/// `take_super_v`: only then is it taken from GNOME's notification list, and removing Zazabor's
 /// shortcut later gives it back. Nothing else of the user's is changed.
 #[tauri::command]
 pub fn clipboard_set_shortcut(binding: Option<String>, take_super_v: bool) -> Result<ClipboardShortcut, String> {

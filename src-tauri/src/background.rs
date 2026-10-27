@@ -1,8 +1,8 @@
-//! Running in the background, like Windows' clipboard service: `corepro --background` starts
-//! CorePro with no window (at login, from an autostart entry), and while that entry exists,
-//! closing the last window leaves CorePro running, so the clipboard history keeps recording and
-//! Super+V, quick notes and the time tracker answer at once. Launching CorePro again shows its
-//! window (see `notes::quick`, which carries the request). Quit (`corepro --quit`, the menu
+//! Running in the background, like Windows' clipboard service: `zazabor --background` starts
+//! Zazabor with no window (at login, from an autostart entry), and while that entry exists,
+//! closing the last window leaves Zazabor running, so the clipboard history keeps recording and
+//! Super+V, quick notes and the time tracker answer at once. Launching Zazabor again shows its
+//! window (see `notes::quick`, which carries the request). Quit (`zazabor --quit`, the menu
 //! entry's action, or Settings) ends it.
 
 use std::path::PathBuf;
@@ -10,19 +10,32 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 pub const FLAG: &str = "--background";
 
-/// This launch only starts CorePro in the background.
+/// This launch only starts Zazabor in the background.
 pub fn requested() -> bool {
     std::env::args().skip(1).any(|a| a == FLAG)
 }
 
-/// The desktop's autostart entry (XDG): `~/.config/autostart/corepro.desktop`.
+/// The desktop's autostart entry (XDG): `~/.config/autostart/zazabor.desktop`.
 fn entry() -> Option<PathBuf> {
     let config = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).filter(|p| p.is_absolute())
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-    Some(config.join("autostart").join("corepro.desktop"))
+    Some(config.join("autostart").join("zazabor.desktop"))
 }
 
-/// CorePro starts at login and stays running when its last window closes.
+/// The first start after the rename from CorePro: a login entry CorePro left becomes Zazabor's
+/// (same choice, the new program), and the old one goes.
+pub fn adopt_old_entry() {
+    let Some(new) = entry() else { return };
+    let old = new.with_file_name("corepro.desktop");
+    if !old.exists() {
+        return;
+    }
+    if new.exists() || app_set_background(true).is_ok() {
+        let _ = std::fs::remove_file(&old);
+    }
+}
+
+/// Zazabor starts at login and stays running when its last window closes.
 pub fn enabled() -> bool {
     entry().is_some_and(|p| p.exists())
 }
@@ -36,8 +49,8 @@ fn entry_text(exe: &str) -> String {
     // The Exec line quotes a path with spaces (desktop entry spec).
     let exe = if exe.contains(' ') { format!("\"{exe}\"") } else { exe.to_string() };
     format!(
-        "[Desktop Entry]\nType=Application\nName=CorePro\nComment=Keeps the clipboard history, quick notes and the time tracker ready\n\
-         Exec={exe} {FLAG}\nIcon=corepro\nTerminal=false\nNoDisplay=true\nX-GNOME-Autostart-enabled=true\n"
+        "[Desktop Entry]\nType=Application\nName=Zazabor\nComment=Keeps the clipboard history, quick notes and the time tracker ready\n\
+         Exec={exe} {FLAG}\nIcon=zazabor\nTerminal=false\nNoDisplay=true\nX-GNOME-Autostart-enabled=true\n"
     )
 }
 
@@ -67,14 +80,14 @@ pub fn app_set_background(on: bool) -> Result<(), String> {
 static QUITTING: AtomicBool = AtomicBool::new(false);
 
 /// Windows that may hold unsaved work and ask before closing: the main window and section
-/// windows (Office files among them). Notes and the clipboard popup simply close with CorePro,
+/// windows (Office files among them). Notes and the clipboard popup simply close with Zazabor,
 /// so the notes left open come back next time.
 fn asks_first(label: &str) -> bool {
     label == "main" || label.starts_with("window-")
 }
 
-/// Quits CorePro, background mode or not. The main and section windows close as if their ×
-/// was pressed, so Office still asks about unsaved files; CorePro exits once they're gone.
+/// Quits Zazabor, background mode or not. The main and section windows close as if their ×
+/// was pressed, so Office still asks about unsaved files; Zazabor exits once they're gone.
 pub fn quit(app: &tauri::AppHandle) {
     use tauri::Manager;
     let open: Vec<_> = app.webview_windows().into_iter().filter(|(label, _)| asks_first(label)).collect();
@@ -87,7 +100,7 @@ pub fn quit(app: &tauri::AppHandle) {
     }
 }
 
-/// A window was destroyed: while quitting, the last one that asks first ends CorePro.
+/// A window was destroyed: while quitting, the last one that asks first ends Zazabor.
 pub fn window_destroyed(app: &tauri::AppHandle, label: &str) {
     use tauri::Manager;
     if QUITTING.load(Ordering::SeqCst) && asks_first(label) && !app.webview_windows().keys().any(|l| l != label && asks_first(l)) {
@@ -95,7 +108,7 @@ pub fn window_destroyed(app: &tauri::AppHandle, label: &str) {
     }
 }
 
-/// CorePro was opened again: a quit the user stopped (by keeping an unsaved file) is over.
+/// Zazabor was opened again: a quit the user stopped (by keeping an unsaved file) is over.
 pub fn cancel_quit() {
     QUITTING.store(false, Ordering::SeqCst);
 }
@@ -118,9 +131,9 @@ mod tests {
     }
 
     #[test]
-    fn the_entry_starts_this_corepro_in_the_background() {
-        let text = entry_text("/home/me/.local/bin/corepro");
-        assert!(text.contains("Exec=/home/me/.local/bin/corepro --background\n"));
+    fn the_entry_starts_this_zazabor_in_the_background() {
+        let text = entry_text("/home/me/.local/bin/zazabor");
+        assert!(text.contains("Exec=/home/me/.local/bin/zazabor --background\n"));
         assert!(text.starts_with("[Desktop Entry]\n"));
     }
 }

@@ -1,6 +1,6 @@
 import { BorderStyle } from "@ironcalc/wasm";
 import type { MenuItem } from "../../../ui/menu";
-import { button, colorButton, combo, custom, divider, menuButton, Ribbon, splitButton, stack, type Control } from "../ribbon";
+import { button, checkbox, colorButton, combo, custom, divider, menuButton, Ribbon, splitButton, stack, type Control } from "../ribbon";
 import { CURRENCIES, NUMBER_KINDS, type BorderChoice, type SheetActions } from "./commands";
 import { FUNCTION_CATEGORIES } from "./functions";
 import { h } from "../../../ui/dom";
@@ -220,9 +220,9 @@ export function buildRibbon(a: SheetActions, onFile: () => void): Ribbon {
     { label: "Themes", controls: [menuButton({ icon: "palette", label: "Themes", size: "large", title: "Themes: the workbook's colours", items: () => a.themes().map((t): MenuItem => ({ label: t.name, action: () => a.setTheme(t) })) })] },
     { label: "Page Setup", controls: [large({ icon: "print", label: "Print", title: "Print", shortcut: "Ctrl+P", run: () => a.print() })] },
     { label: "Sheet Options", controls: [stack(
-      [small({ icon: "gridlines", label: "View Gridlines", title: "View gridlines", run: () => a.setGridlines(!a.gridlines()), active: () => a.gridlines() })],
-      [small({ icon: "print", label: "Print Gridlines", title: "Print gridlines", run: () => a.setPrintGridlines(!a.printGridlines()), active: () => a.printGridlines() })],
-      [small({ icon: "table", label: "Headings", title: "View headings", run: () => a.setHeadings(!a.headings()), active: () => a.headings() })],
+      [checkbox({ label: "View Gridlines", title: "View gridlines", run: () => a.setGridlines(!a.gridlines()), active: () => a.gridlines() })],
+      [checkbox({ label: "Print Gridlines", title: "Print gridlines", run: () => a.setPrintGridlines(!a.printGridlines()), active: () => a.printGridlines() })],
+      [checkbox({ label: "View Headings", title: "View headings", run: () => a.setHeadings(!a.headings()), active: () => a.headings() })],
     )] },
   ]);
 
@@ -272,9 +272,9 @@ export function buildRibbon(a: SheetActions, onFile: () => void): Ribbon {
   const zoomField = custom(h("div", { class: "rb-stack" }), () => {});
   ribbon.tab("view", "View", [
     { label: "Show", controls: [stack(
-      [small({ icon: "gridlines", label: "Gridlines", title: "Gridlines", run: () => a.setGridlines(!a.gridlines()), active: () => a.gridlines() })],
-      [small({ icon: "table", label: "Headings", title: "Headings", run: () => a.setHeadings(!a.headings()), active: () => a.headings() })],
-      [small({ glyph: "fx", glyphClass: "italic", label: "Formula Bar", title: "Formula Bar", run: () => a.setFormulaBar(!a.formulaBar()), active: () => a.formulaBar() })],
+      [checkbox({ label: "Gridlines", title: "Gridlines", run: () => a.setGridlines(!a.gridlines()), active: () => a.gridlines() })],
+      [checkbox({ label: "Headings", title: "Headings", run: () => a.setHeadings(!a.headings()), active: () => a.headings() })],
+      [checkbox({ label: "Formula Bar", title: "Formula Bar", run: () => a.setFormulaBar(!a.formulaBar()), active: () => a.formulaBar() })],
     )] },
     { label: "Zoom", controls: [
       menuButton({ icon: "zoomIn", label: "Zoom", size: "large", title: "Zoom", items: () => [200, 150, 125, 100, 90, 75, 50, 25].map((z): MenuItem => ({ label: `${z}%${Math.round(a.zoom() * 100) === z ? "  ✓" : ""}`, action: () => a.setZoom(z / 100) })) }),

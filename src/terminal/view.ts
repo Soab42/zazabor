@@ -15,7 +15,7 @@ import "./terminal.css";
 /** How often the tab title follows the program in front and the folder. */
 const INFO_EVERY_MS = 1500;
 
-/** ANSI colours that read well on CorePro's dark and light surfaces. */
+/** ANSI colours that read well on Zazabor's dark and light surfaces. */
 const PALETTES: Record<"dark" | "light", Omit<ITheme, "background" | "foreground" | "cursor" | "selectionBackground">> = {
   dark: {
     black: "#1d1f24", red: "#ff6b6b", green: "#5fd39a", yellow: "#f5c451", blue: "#6aa8ff", magenta: "#c792ea", cyan: "#4fd6d6", white: "#d6d8de",

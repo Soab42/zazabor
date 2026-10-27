@@ -86,7 +86,7 @@ mod tests {
 
     #[test]
     fn round_trip() {
-        let dir = std::env::temp_dir().join(format!("corepro-tags-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("zazabor-tags-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("t.txt");
         std::fs::write(&file, b"x").unwrap();

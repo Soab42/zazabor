@@ -65,7 +65,7 @@ export const officeApi = {
   },
 };
 
-/** An AutoRecover snapshot of a file that wasn't saved when CorePro last closed. */
+/** An AutoRecover snapshot of a file that wasn't saved when Zazabor last closed. */
 export interface Recovered {
   id: string;
   kind: OfficeKind;

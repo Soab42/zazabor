@@ -317,7 +317,7 @@ export class SettingsForm {
     this.renderMusic = () => {
       const current = this.settings.music;
       list.replaceChildren(row(null, "No music", ""));
-      list.append(h("div", { class: "ml-head" }, "CorePro soundtracks"));
+      list.append(h("div", { class: "ml-head" }, "Zazabor soundtracks"));
       for (const track of this.tracks) list.append(row(`${BUILTIN_MUSIC}${track.id}`, track.title, track.vibe));
       const own = current && !current.startsWith(BUILTIN_MUSIC) && !this.songs.some((s) => s.path === current) ? [current] : [];
       if (this.songs.length || own.length) {

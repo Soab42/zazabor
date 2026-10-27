@@ -12,7 +12,7 @@ use std::collections::HashSet;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, OnceLock};
 
-const APP_NAME: &str = "CorePro";
+const APP_NAME: &str = "Zazabor";
 
 enum Cookie {
     ScreenSaver(u32),

@@ -5,7 +5,7 @@ import type { PdfLib } from "./engine";
 import type { MarkupTool, OwnTool } from "./markup";
 
 /** The panels of the navigation pane. */
-export type NavId = "pages" | "bookmarks" | "comments" | "attachments";
+export type NavId = "pages" | "bookmarks" | "comments" | "attachments" | "signatures";
 
 /** What the ribbon reads and runs; the editor (index.ts) implements it. */
 export interface PdfCtx {
@@ -66,12 +66,14 @@ export interface PdfCtx {
   mark(kind: "check" | "cross" | "dot"): void;
   addDate(): void;
 
-  // ---- CorePro's own tools (markup.ts, tools.ts)
+  // ---- Zazabor's own tools (markup.ts, tools.ts)
   ownTool(): OwnTool | null;
   setOwnTool(tool: OwnTool | null): void;
   /** Text markup on the selected text, or the tool on when nothing is selected. */
   markText(kind: MarkupTool): void;
   addText(): void;
+  /** Edit Text on or off: a click on the page's own text changes that line (PDFium). */
+  editText(): void;
   addContentPicture(): void;
   watermark(): void;
   headerFooter(bates: boolean): void;
@@ -86,11 +88,27 @@ export interface PdfCtx {
   sanitize(): void;
   compress(): void;
 
+  // ---- certificates, OCR, conversion (round 3)
+  /** Sign with a .p12/.pfx certificate (a digital signature, not a picture). */
+  signCertificate(): void;
+  /** Signatures the file has (for the Signatures panel's button). */
+  signatureCount(): number;
+  /** Scan & OCR: read the pages' text so it can be searched and selected. */
+  recognizeText(): void;
+  /** Convert to a Word document (.docx). */
+  toWord(): void;
+  /** A bank statement in this PDF to an Excel workbook, checked against its balances. */
+  statementToExcel(): void;
+  /** Every table in this PDF to an Excel workbook, a sheet each. */
+  tablesToExcel(): void;
+
   // ---- organize
   orgSelection(): number[];
   rotatePages(delta: number): void;
   deletePages(): void;
   insert(what: "file" | "blank"): void;
+  /** Replace the selected pages with pages of another PDF. */
+  replacePages(): void;
   extract(): void;
   split(): void;
   selectPages(which: "all" | "odd" | "even" | "none"): void;
@@ -265,7 +283,11 @@ export function buildTabs(ribbon: Ribbon, ctx: PdfCtx) {
     },
     {
       label: "Sign",
-      controls: [sign],
+      controls: [
+        sign,
+        button({ icon: "pfCertificate", label: "Certificate", size: "large", title: "Sign with a Certificate: a digital signature from a .p12 or .pfx file…", run: () => ctx.signCertificate(), enabled: reading }),
+        button({ icon: "pfSigned", label: "Signatures", size: "large", title: "Show the file's digital signatures and whether they're valid", run: () => ctx.setNav(ctx.nav() === "signatures" ? null : "signatures"), active: () => ctx.nav() === "signatures" }),
+      ],
     },
     {
       label: "Form",
@@ -293,6 +315,8 @@ export function buildTabs(ribbon: Ribbon, ctx: PdfCtx) {
           items: () => [
             { label: "From File…", icon: "pageAdd", action: () => ctx.insert("file") },
             { label: "Blank Page", icon: "blankPage", action: () => ctx.insert("blank") },
+            "separator",
+            { label: "Replace Pages…", icon: "pageAdd", action: () => ctx.replacePages() },
           ],
         }),
       ],
@@ -325,6 +349,12 @@ export function buildTabs(ribbon: Ribbon, ctx: PdfCtx) {
   // ---- Edit: content written into the pages
 
   ribbon.tab("edit", "Edit", [
+    {
+      label: "Text",
+      controls: [
+        button({ icon: "textCursor", label: "Edit Text", size: "large", title: "Edit Text: click a line of the page's own text to change it (Esc to stop)", run: () => ctx.editText(), active: () => ctx.ownTool() === "editText", enabled: reading }),
+      ],
+    },
     {
       label: "Add",
       controls: [
@@ -384,6 +414,26 @@ export function buildTabs(ribbon: Ribbon, ctx: PdfCtx) {
     },
   ]);
 
+  // ---- Convert: other formats out of the PDF, and text read from scans
+
+  ribbon.tab("convert", "Convert", [
+    {
+      label: "Scan & OCR",
+      controls: [
+        button({ icon: "pfOcr", label: "Recognize Text", size: "large", title: "Recognize Text (OCR): make scanned pages searchable and selectable…", run: () => ctx.recognizeText(), enabled: reading }),
+      ],
+    },
+    {
+      // Exports to other formats. Bank statements and tables to Excel go here too.
+      label: "Convert",
+      controls: [
+        button({ icon: "pfToWord", label: "To Word", size: "large", title: "Convert to a Word Document (.docx)…", run: () => ctx.toWord(), enabled: reading }),
+        button({ icon: "sheetFile", label: "Statement to Excel", size: "large", title: "Bank Statement to Excel: read the transactions, check them against the balances and save a workbook…", run: () => ctx.statementToExcel(), enabled: reading }),
+        button({ icon: "table", label: "Tables to Excel", size: "large", title: "Tables to Excel: every table in this PDF, a sheet each…", run: () => ctx.tablesToExcel(), enabled: reading }),
+      ],
+    },
+  ]);
+
   // ---- View
 
   ribbon.tab("view", "View", [
@@ -423,6 +473,7 @@ export function buildTabs(ribbon: Ribbon, ctx: PdfCtx) {
       controls: [
         button({ icon: "info", label: "Properties", size: "large", title: "Document Properties (Ctrl+D)", run: () => ctx.properties() }),
         button({ icon: "paperclip", label: "Attachments", size: "large", title: "Files Attached to the PDF", run: () => ctx.setNav(ctx.nav() === "attachments" ? null : "attachments"), active: () => ctx.nav() === "attachments", enabled: () => ctx.hasAttachments() }),
+        button({ icon: "pfSigned", label: "Signatures", size: "large", title: "Digital Signatures in the file", run: () => ctx.setNav(ctx.nav() === "signatures" ? null : "signatures"), active: () => ctx.nav() === "signatures" }),
       ],
     },
   ]);

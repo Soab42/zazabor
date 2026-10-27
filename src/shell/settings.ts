@@ -3,6 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "../shared/dialog";
 import { clipboardCategory } from "../clipboard/settings";
 import { walletCategory } from "../modules/wallet/settings";
+import { photoCategory } from "../modules/studio/photo/settings-page";
+import { pdfCategory } from "../modules/office/pdf/settings";
+import { aiCategory } from "../shared/ai/settings";
+import { videoEditorCategory } from "../modules/studio/video/settings";
+import { recorderCategory } from "../modules/studio/record/settings";
 import { notesApi, onSyncStatus, syncText, type SyncStatus } from "../notes/api";
 import { createAppearanceControls, type SettingsGroup, type SettingsRow } from "../appearance";
 import type { Config, FilesView } from "../config";
@@ -28,6 +33,8 @@ export interface SettingsHost {
   lockNow(): void;
   /** Leaves Settings and returns to the module. */
   close(): void;
+  /** The user guide (Help & Guide). */
+  openGuide(): void;
 }
 
 export interface Category {
@@ -99,7 +106,7 @@ const SHORTCUTS: { title: string; rows: [string, string[][]][] }[] = [
     rows: [
       ["Switch module", [["Ctrl", "1"], ["Ctrl", "2"], ["Ctrl", "3"]]],
       ["Open Settings", [["Ctrl", ","]]],
-      ["Lock CorePro (with a privacy lock)", [["Ctrl", "L"]]],
+      ["Lock Zazabor (with a privacy lock)", [["Ctrl", "L"]]],
       ["Close Settings", [["Esc"]]],
     ],
   },
@@ -300,10 +307,11 @@ export class Settings {
   private buildCategories(): Category[] {
     const { config } = this.host;
     return [
-      { id: "general", title: "General", icon: "settings", section: "App", groups: this.appearance.general() },
+      { id: "general", title: "General", icon: "settings", section: "App", groups: [...this.appearance.general(), this.helpGroup()] },
       { id: "appearance", title: "Appearance", icon: "palette", section: "App", groups: this.appearance.appearance() },
       this.featuresCategory(),
       this.privacyCategory(),
+      aiCategory(),
       { id: "keyboard", title: "Keyboard", icon: "terminal", section: "App", groups: keyboardGroups(config) },
       {
         id: "files", title: "Files", icon: "folder", section: "Modules",
@@ -328,6 +336,10 @@ export class Settings {
       },
       this.notesCategory(),
       walletCategory(this.host),
+      pdfCategory(),
+      photoCategory(this.host),
+      videoEditorCategory(),
+      recorderCategory(this.host),
       clipboardCategory(),
       ...videoCategories(this.host),
       this.aboutCategory(),
@@ -432,8 +444,8 @@ export class Settings {
       keys.hidden = shortcutButton.hidden = !s.supported;
       copyCommand.hidden = s.supported;
       removeShortcut.hidden = s.state === "none";
-      shortcutButton.textContent = s.state === "installed" ? "Update" : s.state === "other" ? "Use This CorePro" : "Add Shortcut";
-      shortcutState.textContent = !s.supported ? "" : s.state === "installed" ? "On" : s.state === "other" ? "Opens another CorePro" : "";
+      shortcutButton.textContent = s.state === "installed" ? "Update" : s.state === "other" ? "Use This Zazabor" : "Add Shortcut";
+      shortcutState.textContent = !s.supported ? "" : s.state === "installed" ? "On" : s.state === "other" ? "Opens another Zazabor" : "";
     };
     const setShortcut = async (binding: string | null) => {
       try {
@@ -461,14 +473,14 @@ export class Settings {
         {
           title: "Quick note",
           rows: [
-            wideRow("Keyboard shortcut", "Opens a new note from anywhere, even when CorePro isn’t running. It runs “corepro --new-note”, which you can also bind yourself.",
+            wideRow("Keyboard shortcut", "Opens a new note from anywhere, even when Zazabor isn’t running. It runs “zazabor --new-note”, which you can also bind yourself.",
               h("div", { class: "st-inline" }, shortcutState, keys, removeShortcut, shortcutButton, copyCommand)),
           ],
         },
         {
           title: "Notes",
           rows: [
-            toggleRow("Reopen notes at start", "Notes that were on the desktop when CorePro closed come back when it starts.", () => config.notes.reopen, (on) => (config.notes.reopen = on, this.host.configChanged())).row,
+            toggleRow("Reopen notes at start", "Notes that were on the desktop when Zazabor closed come back when it starts.", () => config.notes.reopen, (on) => (config.notes.reopen = on, this.host.configChanged())).row,
           ],
         },
       ],
@@ -476,15 +488,29 @@ export class Settings {
     };
   }
 
+  /** Help & Guide: the user guide, from General and About. */
+  private helpGroup(): SettingsGroup {
+    const open = h("button", { type: "button", class: "btn small", onclick: () => this.host.openGuide() }, icon("book", 14), "Open Guide");
+    return {
+      title: "Help",
+      rows: [{
+        label: "Help & Guide user guide how to F1",
+        el: h("div", { class: "sf-row plain" },
+          h("div", { class: "st-text" }, h("span", { class: "sf-label" }, "Help & Guide"), h("p", { class: "sf-hint" }, "How to use every part of Zazabor, with steps and shortcuts. F1 opens it on the section you're in.")),
+          open),
+      }],
+    };
+  }
+
   private aboutCategory(): Category {
     return {
-      id: "about", title: "CorePro", icon: "info", section: "About",
+      id: "about", title: "Zazabor", icon: "info", section: "About",
       intro: h("div", { class: "st-about" },
         h("img", { src: "/logo.svg", alt: "", width: 64, height: 64 }),
-        h("h2", null, "CorePro"),
+        h("h2", null, "Zazabor"),
         h("p", { class: "muted" }, "Files, photos and video in one calm place."),
         h("div", { class: "st-about-version" }, "Version ", this.version)),
-      groups: [{
+      groups: [this.helpGroup(), {
         title: "Credits",
         rows: [
           plainRow("Built with", textValue("Tauri 2, TypeScript and WebGL")),

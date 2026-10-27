@@ -115,7 +115,7 @@ export const createClipboardModule: ModuleFactory = (shell) => {
     count.textContent = all.length ? String(all.length) : "";
     clear.disabled = !all.some((i) => !i.pinned);
     if (!history) {
-      content.replaceChildren(empty("lock", "The clipboard is locked", "Unlock CorePro to see what you copied."));
+      content.replaceChildren(empty("lock", "The clipboard is locked", "Unlock Zazabor to see what you copied."));
       return;
     }
     const parts: HTMLElement[] = [];

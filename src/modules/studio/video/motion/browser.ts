@@ -1,0 +1,241 @@
+import { previewUrl } from "../../../../api";
+import { h } from "../../../../ui/dom";
+import { icon } from "../../../../ui/icons";
+import type { Aspect } from "../../app";
+import type { Theme } from "./brand";
+import { CATEGORIES, type Category, type Template } from "./format";
+import { loadFamily } from "./fonts";
+import { SHAPES, type Shape } from "./layout";
+import type { MyTemplates } from "./mine";
+import { drawScene, newMemory, type Memory, type Picture, type Scene } from "./player";
+import { allKits, defaultKit, type SavedTemplate } from "./settings";
+import { TEMPLATES } from "./templates";
+import type { MotionTools } from "./tools";
+
+/**
+ * The Templates tab: shipped templates by category and My Templates, as cards that play when
+ * pointed at, in the project's shape and the default Brand Kit. Search, shape and length
+ * filters, a Bangla preview switch, and whether using one adds its suggested sounds.
+ */
+
+type Lengths = "any" | "short" | "medium" | "long";
+const LENGTHS: [Lengths, string, (s: number) => boolean][] = [
+  ["any", "Any length", () => true],
+  ["short", "Up to 5 s", (s) => s <= 5.01],
+  ["medium", "5–7 s", (s) => s > 5.01 && s <= 7.01],
+  ["long", "Over 7 s", (s) => s > 7.01],
+];
+
+/** Card previews: canvas width in pixels (they're shown about half as wide). */
+const CARD_PX = 280;
+
+interface Card {
+  canvas: HTMLCanvasElement;
+  template: Template;
+  values: Record<string, string>;
+  theme: Theme;
+  pictures: Map<string, Picture | null>;
+  mem: Memory;
+  playing: boolean;
+  started: number;
+}
+
+export class TemplateBrowser {
+  private category: Category | "mine" | "all" = "all";
+  private query = "";
+  private length: Lengths = "any";
+  private shape: Shape | "project" = "project";
+  private grid = h("div", { class: "mo-grid" });
+  private cards: Card[] = [];
+
+  constructor(private tools: MotionTools, private mine: MyTemplates, private aspect: () => Aspect, private openKits: () => void) {}
+
+  render(): Node[] {
+    const s = this.tools.settings();
+    const search = h("input", { type: "search", class: "mo-search", placeholder: "Search templates", value: this.query, "aria-label": "Search templates" });
+    search.addEventListener("input", () => {
+      this.query = search.value;
+      this.drawGrid();
+    });
+    const kinds = [{ id: "all" as const, label: "All" }, ...CATEGORIES];
+    const chipButtons = kinds.map((c) => h("button", {
+      class: `mo-chip${this.category === c.id ? " active" : ""}`, type: "button", role: "tab", "aria-selected": String(this.category === c.id),
+      onclick: () => {
+        this.category = c.id;
+        chipButtons.forEach((b, i) => {
+          b.classList.toggle("active", kinds[i].id === c.id);
+          b.setAttribute("aria-selected", String(kinds[i].id === c.id));
+        });
+        this.drawGrid();
+      },
+    }, c.label));
+    const chips = h("div", { class: "mo-chips", role: "tablist" }, ...chipButtons);
+    const shape = h("select", { "aria-label": "Shape", onchange: () => {
+      this.shape = shape.value as Shape | "project";
+      this.drawGrid();
+    } }, h("option", { value: "project" }, "Project's shape"), ...SHAPES.map((x) => h("option", { value: x }, x)));
+    shape.value = this.shape;
+    const length = h("select", { "aria-label": "Length", onchange: () => {
+      this.length = length.value as Lengths;
+      this.drawGrid();
+    } }, ...LENGTHS.map(([id, label]) => h("option", { value: id }, label)));
+    length.value = this.length;
+    const kit = h("select", { "aria-label": "Brand Kit for new templates", onchange: () => {
+      s.defaultKit = kit.value;
+      this.tools.saveSettings();
+      this.drawGrid();
+    } }, ...allKits(s).map((k) => h("option", { value: k.id }, k.name)));
+    kit.value = defaultKit(s).id;
+    const switchRow = (label: string, get: () => boolean, set: (v: boolean) => void) => {
+      const el = h("input", { type: "checkbox", class: "switch", checked: get(), onchange: () => set(el.checked) });
+      return h("label", { class: "mo-switch" }, el, h("span", null, label));
+    };
+    this.drawGrid();
+    return [
+      h("div", { class: "mo-browser" },
+        h("div", { class: "mo-browser-head" }, search),
+        chips,
+        h("div", { class: "mo-filters" }, shape, length),
+        h("div", { class: "mo-kit-row" }, icon("palette", 15), kit, h("button", { class: "btn small", type: "button", onclick: () => this.openKits() }, "Brand Kits…")),
+        h("div", { class: "mo-switches" },
+          switchRow("Bangla preview", () => s.bangla, (v) => {
+            s.bangla = v;
+            this.tools.saveSettings();
+            this.drawGrid();
+          }),
+          switchRow("Add suggested sounds", () => s.sounds, (v) => {
+            s.sounds = v;
+            this.tools.saveSettings();
+          })),
+        this.grid,
+      ),
+    ];
+  }
+
+  private shapeNow(): Shape {
+    return this.shape === "project" ? (this.aspect() as Shape) : this.shape;
+  }
+
+  private matches(t: Template, name = t.name): boolean {
+    const q = this.query.trim().toLowerCase();
+    const lengthOk = LENGTHS.find(([id]) => id === this.length)![2](t.length);
+    if (!lengthOk || !t.shapes.includes(this.shapeNow())) return false;
+    if (!q) return true;
+    const label = CATEGORIES.find((c) => c.id === t.category)?.label ?? "";
+    return [name, t.description, label, ...t.tags].some((x) => x.toLowerCase().includes(q));
+  }
+
+  private drawGrid() {
+    const s = this.tools.settings();
+    const kit = defaultKit(s);
+    for (const f of [kit.heading.family, kit.body.family, kit.bangla.family]) {
+      void loadFamily(f).then(() => {
+        // Text measured with a stand-in font is measured again.
+        for (const c of this.cards) c.mem = newMemory();
+        this.redrawAll();
+      });
+    }
+    this.cards = [];
+    const items: Node[] = [];
+    if (this.category === "mine" || this.category === "all") {
+      const mine = this.mine.list().filter((e) => this.matches(e.doc, e.name));
+      if (this.category === "mine") {
+        items.push(h("div", { class: "mo-mine-head" },
+          h("span", null, mine.length ? `${mine.length} saved` : "Nothing saved yet. Select a template on the timeline and choose Save to My Templates."),
+          h("button", { class: "btn small", type: "button", onclick: () => void this.mine.importFiles() }, "Import .zaztemplate")));
+      }
+      for (const e of this.category === "mine" ? mine : mine.slice(0, 4)) items.push(this.mineCard(e));
+    }
+    if (this.category !== "mine") {
+      for (const t of TEMPLATES) {
+        if (this.category !== "all" && t.category !== this.category) continue;
+        if (!this.matches(t)) continue;
+        items.push(this.card(t, t.name, {}, kit, () => void this.tools.use(t)));
+      }
+    }
+    if (!items.length) items.push(h("p", { class: "ve-panel-note" }, "No templates match."));
+    this.grid.replaceChildren(...items);
+  }
+
+  private card(template: Template, name: string, values: Record<string, string>, theme: Theme, use: () => void, extra?: Node, pictures = new Map<string, Picture | null>()): HTMLElement {
+    const shape = this.shapeNow();
+    const [a, b] = shape.split(":").map(Number);
+    const canvas = h("canvas", { class: "mo-card-canvas", width: CARD_PX, height: Math.round((CARD_PX * b) / a) });
+    const card: Card = { canvas, template, values, theme, pictures, mem: newMemory(), playing: false, started: 0 };
+    this.cards.push(card);
+    this.drawCard(card, (template.hold[0] + template.hold[1]) / 2);
+    const play = () => {
+      if (card.playing) return;
+      card.playing = true;
+      card.started = performance.now();
+      const step = () => {
+        if (!card.playing || !canvas.isConnected) {
+          card.playing = false;
+          return;
+        }
+        const t = ((performance.now() - card.started) / 1000) % (template.length + 0.4);
+        this.drawCard(card, Math.min(t, template.length));
+        requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    };
+    const stop = () => {
+      card.playing = false;
+      this.drawCard(card, (template.hold[0] + template.hold[1]) / 2);
+    };
+    const el = h("div", { class: "mo-card", title: template.description },
+      h("button", { class: "mo-card-play", type: "button", "aria-label": `Use ${name}`, onclick: use, onpointerenter: play, onpointerleave: stop, onfocus: play, onblur: stop },
+        canvas,
+        h("span", { class: "mo-card-len" }, `${template.length.toFixed(1).replace(/\.0$/, "")} s`),
+        h("span", { class: "mo-card-add" }, icon("plus", 14))),
+      h("div", { class: "mo-card-foot" }, h("span", { class: "mo-card-name" }, name), extra ?? null));
+    return el;
+  }
+
+  private mineCard(e: SavedTemplate): HTMLElement {
+    const pictures = new Map<string, Picture | null>();
+    const tools = h("span", { class: "mo-card-tools" },
+      h("button", { class: "icon-btn small", type: "button", title: "Rename", onclick: () => void this.mine.rename(e) }, icon("pencil", 13)),
+      h("button", { class: "icon-btn small", type: "button", title: "Export .zaztemplate", onclick: () => void this.mine.exportEntry(e) }, icon("download", 13)),
+      h("button", { class: "icon-btn small", type: "button", title: "Delete", onclick: () => void this.mine.remove(e) }, icon("trash", 13)));
+    const el = this.card(e.doc, e.name, e.values, e.theme, () => void this.mine.use(e), tools, pictures);
+    const card = this.cards[this.cards.length - 1];
+    for (const [field, path] of Object.entries(e.pictures)) {
+      if (/\.svg$/i.test(path)) continue;
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        pictures.set(field, img);
+        if (!card.playing) this.drawCard(card, (e.doc.hold[0] + e.doc.hold[1]) / 2);
+      };
+      img.src = previewUrl(path, 0, 512);
+    }
+    return el;
+  }
+
+  private redrawAll() {
+    for (const c of this.cards) if (!c.playing && c.canvas.isConnected) this.drawCard(c, (c.template.hold[0] + c.template.hold[1]) / 2);
+  }
+
+  private drawCard(card: Card, t: number) {
+    const { canvas, template } = card;
+    const g = canvas.getContext("2d");
+    if (!g) return;
+    const W = canvas.width, H = canvas.height;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, W, H);
+    if (template.overlay) {
+      // Lower thirds go over video: a stand-in picture behind them.
+      const bg = g.createLinearGradient(0, 0, W, H);
+      bg.addColorStop(0, "#3b4a5c");
+      bg.addColorStop(1, "#151b24");
+      g.fillStyle = bg;
+      g.fillRect(0, 0, W, H);
+    }
+    const scene: Scene = {
+      template, values: card.values, theme: card.theme, pictures: card.pictures, outlines: new Map(),
+      bangla: this.tools.settings().bangla, placeholders: false,
+    };
+    drawScene(g, W, H, t, t / Math.max(0.1, template.length), scene, card.mem);
+  }
+}

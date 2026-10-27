@@ -83,11 +83,11 @@ pub fn to_disk(project: &mut Value, folder: &Path) {
 /// exists falls back to the stored absolute one; when neither exists the item is `missing`.
 pub fn from_disk(project: &mut Value, folder: &Path, exists: impl Fn(&Path) -> bool) -> Result<(), String> {
     if project.get("app").and_then(Value::as_str) != Some(APP) {
-        return Err("This isn't a CorePro video project.".into());
+        return Err("This isn't a Zazabor video project.".into());
     }
     let version = project.get("version").and_then(Value::as_u64).unwrap_or(0);
     if version > VERSION {
-        return Err("This project was saved by a newer CorePro. Update CorePro to open it.".into());
+        return Err("This project was saved by a newer Zazabor. Update Zazabor to open it.".into());
     }
     for item in media_mut(project) {
         let Some(stored) = item.get("path").and_then(Value::as_str).map(PathBuf::from) else { continue };

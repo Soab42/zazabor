@@ -47,6 +47,7 @@ pub fn add_days(date: &str, n: i64) -> String {
 }
 
 /// Days from `a` to `b` (negative when `b` is earlier).
+#[cfg(test)]
 pub fn days_between(a: &str, b: &str) -> i64 {
     day_number(b) - day_number(a)
 }

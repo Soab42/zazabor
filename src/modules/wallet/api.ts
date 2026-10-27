@@ -219,6 +219,8 @@ export interface Mapping {
   debit: number | null;
   credit: number | null;
   category: number | null;
+  /** A column naming the account (Wallet's own export): rows for another account go there. */
+  account?: number | null;
   dateOrder: "dmy" | "mdy" | "ymd";
   sign: "negative-out" | "positive-out";
   decimalComma: boolean;
@@ -232,6 +234,8 @@ export interface ImportRow {
   categoryId: string | null;
   rule: string | null;
   duplicate: boolean;
+  /** Another account the row goes to (named by the account column). */
+  accountId?: string | null;
   error: string | null;
 }
 
@@ -372,7 +376,7 @@ export const walletApi = {
   attach: (transactionId: string, paths: string[]) => invoke<Receipt[]>("wallet_receipt_attach", { transactionId, paths }),
   removeReceipt: (id: string) => invoke<void>("wallet_receipt_remove", { id }),
   importPreview: (path: string, sheet: number | null, accountId: string, mapping: Mapping | null) => invoke<ImportPreview>("wallet_import_preview", { path, sheet, accountId, mapping }),
-  importCommit: (path: string, sheet: number | null, accountId: string, mapping: Mapping, edits: RowEdit[]) => invoke<Batch>("wallet_import_commit", { path, sheet, accountId, mapping, edits }),
+  importCommit: (path: string, sheet: number | null, accountId: string, mapping: Mapping, edits: RowEdit[], label: string | null = null) => invoke<Batch>("wallet_import_commit", { path, sheet, accountId, mapping, edits, label }),
   importUndo: (id: string) => invoke<number>("wallet_import_undo", { id }),
   batches: () => invoke<Batch[]>("wallet_import_batches"),
   profiles: () => invoke<Profile[]>("wallet_profiles"),

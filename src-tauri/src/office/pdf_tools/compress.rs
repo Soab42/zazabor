@@ -297,7 +297,7 @@ pub fn with_ghostscript(pdf: &[u8], preset: &str) -> Result<Vec<u8>, String> {
     };
     let gs = ghostscript().ok_or("Ghostscript isn't installed.")?;
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-    let dir = std::env::temp_dir().join(format!("corepro-gs-{}-{nanos:x}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("zazabor-gs-{}-{nanos:x}", std::process::id()));
     std::fs::create_dir(&dir).map_err(|e| e.to_string())?;
     #[cfg(unix)]
     {

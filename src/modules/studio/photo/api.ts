@@ -88,7 +88,12 @@ export interface OpenedProject {
 export const photoApi = {
   /** Decodes a picture; `maxDim` (the GPU's texture limit) scales larger ones down. */
   async decode(path: string, maxDim: number): Promise<Decoded> {
-    const bytes = bytesOf(await invoke("photo_decode", { path, maxDim }));
+    return photoApi.unpack(await invoke("photo_decode", { path, maxDim }), path);
+  },
+
+  /** Reads a decoded picture as Rust packs it (a "CPIM" header, the profile, EXIF, then RGBA). */
+  unpack(result: unknown, path: string): Decoded {
+    const bytes = bytesOf(result);
     if (bytes.length < 24 || String.fromCharCode(...bytes.subarray(0, 4)) !== "CPIM") throw new Error(`Couldn’t read ${basename(path)}.`);
     const [width, height, iccLen, exifLen, flags] = [4, 8, 12, 16, 20].map((at) => u32(bytes, at));
     let at = 24;

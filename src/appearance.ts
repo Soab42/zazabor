@@ -17,7 +17,7 @@ export interface Appearance {
   tone: ToneId;
   /** Cubic-bezier control points for zoom steps (wheel, keys, slider). */
   zoomCurve: Curve;
-  /** Extra CSS applied on top of CorePro's own. */
+  /** Extra CSS applied on top of Zazabor's own. */
   customCss: string;
 }
 

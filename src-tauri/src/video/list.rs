@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn lists_only_visible_videos_in_order() {
-        let dir = std::env::temp_dir().join(format!("corepro-vlist-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("zazabor-vlist-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sub.mp4")).unwrap();
         for name in ["b10.mp4", "b2.mp4", ".hidden.mp4", "notes.txt", "a.WEBM"] {

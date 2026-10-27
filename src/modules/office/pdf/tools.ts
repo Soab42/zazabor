@@ -24,6 +24,8 @@ export interface NewAnnot {
   opacity?: number;
   contents?: string;
   author?: string;
+  /** Notes: the comment this one answers (object and generation numbers). */
+  inReplyTo?: [number, number];
 }
 
 export interface Bates {
@@ -45,7 +47,31 @@ export type Op =
   | { op: "unprotect"; owner?: string }
   | { op: "sanitize"; metadata: boolean; attachments: boolean; scripts: boolean; comments: boolean }
   | { op: "redact"; pages: { page: number; blob: number; view: number[] }[] }
-  | { op: "compress"; dpi: number; quality: number };
+  | { op: "compress"; dpi: number; quality: number }
+  /** Scan & OCR: each page's text-only PDF from Tesseract (a blob) laid over it. */
+  | { op: "ocrLayer"; pages: { page: number; blob: number }[] }
+  /** PDFium: takes out what's under the marks ([x0, y0, x1, y1] on the page) and keeps the rest. */
+  | { op: "redactObjects"; pages: { page: number; rects: number[][] }[] }
+  /** PDFium: a line's new text (`objects` and `old` as `textLine` gave them). */
+  | { op: "editText"; page: number; objects: number[]; old: string; text: string };
+
+/** The line of text under a click, from `textLine`. Rect: left, bottom, right, top on the page. */
+export interface TextLine {
+  objects: number[];
+  text: string;
+  rect: [number, number, number, number];
+  /** Where the line's baseline starts, on the page. */
+  baseline: [number, number];
+  font: string;
+  size: number;
+  angle: number;
+  color: string;
+  bold: boolean;
+  italic: boolean;
+  serif: boolean;
+  mono: boolean;
+  refused: string | null;
+}
 
 function bytesOf(result: unknown): Uint8Array {
   return result instanceof ArrayBuffer ? new Uint8Array(result) : result instanceof Uint8Array ? result : new Uint8Array(result as number[]);
@@ -56,15 +82,36 @@ function bytesOf(result: unknown): Uint8Array {
  * file). `password` is the one that opened the file.
  */
 export async function pdfEdit(pdf: Uint8Array, password: string | null, ops: Op[], blobs: Uint8Array[] = []): Promise<Uint8Array> {
-  const job = new TextEncoder().encode(JSON.stringify({ password, ops }));
+  return bytesOf(await invoke("pdf_edit", request({ password, ops }, pdf, blobs)));
+}
+
+/** `pdfEdit` that also says what the person should know about the result (a font substituted…). */
+export async function pdfEditNoted(pdf: Uint8Array, password: string | null, ops: Op[], blobs: Uint8Array[] = []): Promise<{ pdf: Uint8Array; notes: string[] }> {
+  const out = bytesOf(await invoke("pdf_edit_noted", request({ password, ops }, pdf, blobs)));
+  const len = new DataView(out.buffer, out.byteOffset, out.byteLength).getUint32(0, true);
+  const notes = JSON.parse(new TextDecoder().decode(out.subarray(4, 4 + len))) as string[];
+  return { pdf: out.slice(4 + len), notes };
+}
+
+/** Whether PDFium (true redaction, editing text) can run here, and where it is or why not. */
+export const pdfiumStatus = () => invoke<{ available: boolean; detail: string }>("pdf_pdfium").catch((err) => ({ available: false, detail: String(err) }));
+
+/** The line of text at `at` (page coordinates) on page `page` (from 1), if any. */
+export async function textLine(pdf: Uint8Array, password: string | null, page: number, at: [number, number]): Promise<TextLine | null> {
+  return invoke<TextLine | null>("pdf_text_line", request({ password, page, x: at[0], y: at[1] }, pdf, []));
+}
+
+/** The body `pdf_edit` and its kin take: the job as JSON, then the file and the blobs. */
+function request(job: unknown, pdf: Uint8Array, blobs: Uint8Array[]): Uint8Array {
+  const json = new TextEncoder().encode(JSON.stringify(job));
   const parts = [pdf, ...blobs];
-  const size = 8 + job.length + parts.reduce((n, p) => n + 4 + p.length, 0);
+  const size = 8 + json.length + parts.reduce((n, p) => n + 4 + p.length, 0);
   const body = new Uint8Array(size);
   const view = new DataView(body.buffer);
   let at = 0;
-  view.setUint32(at, job.length, true);
-  body.set(job, (at += 4));
-  at += job.length;
+  view.setUint32(at, json.length, true);
+  body.set(json, (at += 4));
+  at += json.length;
   view.setUint32(at, parts.length, true);
   at += 4;
   for (const p of parts) {
@@ -72,7 +119,7 @@ export async function pdfEdit(pdf: Uint8Array, password: string | null, ops: Op[
     body.set(p, (at += 4));
     at += p.length;
   }
-  return bytesOf(await invoke("pdf_edit", body));
+  return body;
 }
 
 /** Whether Ghostscript is installed, for "Maximum compression". */

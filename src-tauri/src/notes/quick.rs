@@ -1,10 +1,10 @@
-//! Quick notes from anywhere: `corepro --new-note` opens one new note on the desktop and nothing
-//! else. A CorePro that is already running takes the request over a socket, so the note opens
+//! Quick notes from anywhere: `zazabor --new-note` opens one new note on the desktop and nothing
+//! else. A Zazabor that is already running takes the request over a socket, so the note opens
 //! at once in that process; otherwise this process starts with only the note (no main window).
-//! `corepro --clipboard` (the Win+V popup, see `clipboard::popup`) travels the same way.
+//! `zazabor --clipboard` (the Win+V popup, see `clipboard::popup`) travels the same way.
 //!
 //! Settings can bind each to a desktop keyboard shortcut (GNOME's custom shortcuts, which Pop!_OS,
-//! Ubuntu and Budgie share), so a note is one key press away even when CorePro isn't running.
+//! Ubuntu and Budgie share), so a note is one key press away even when Zazabor isn't running.
 
 use gio::prelude::*;
 use serde::Serialize;
@@ -18,16 +18,19 @@ pub const CLIPBOARD_FLAG: &str = "--clipboard";
 const CLIPBOARD_REQUEST: &str = "clipboard";
 /// A plain launch: show the main window (and open the file given, if any).
 const SHOW_REQUEST: &str = "show";
-/// `corepro --quit`: the running CorePro quits (it's the only way out of the background mode
+/// `zazabor --quit`: the running Zazabor quits (it's the only way out of the background mode
 /// besides Settings).
 pub const QUIT_FLAG: &str = "--quit";
 const QUIT_REQUEST: &str = "quit";
+/// `zazabor --record`: the screen recorder, or stop the recording that's running.
+pub const RECORD_FLAG: &str = "--record";
+const RECORD_REQUEST: &str = "record";
 
 /// GNOME's custom keyboard shortcuts.
 const KEYS_SCHEMA: &str = "org.gnome.settings-daemon.plugins.media-keys";
 const KEY_SCHEMA: &str = "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding";
 
-/// One desktop shortcut CorePro manages: where GNOME keeps it, its name there, and what it runs.
+/// One desktop shortcut Zazabor manages: where GNOME keeps it, its name there, and what it runs.
 pub struct Slot {
     path: &'static str,
     name: &'static str,
@@ -35,12 +38,18 @@ pub struct Slot {
     pub default: &'static str,
 }
 
-pub const NOTE: Slot = Slot { path: "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/corepro-new-note/", name: "CorePro: New Note", flag: FLAG, default: "<Super><Alt>n" };
-pub const CLIPBOARD: Slot = Slot { path: "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/corepro-clipboard/", name: "CorePro: Clipboard", flag: CLIPBOARD_FLAG, default: "<Super>v" };
+pub const NOTE: Slot = Slot { path: "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/zazabor-new-note/", name: "Zazabor: New Note", flag: FLAG, default: "<Super><Alt>n" };
+pub const RECORD: Slot = Slot { path: "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/zazabor-record/", name: "Zazabor: Screen Recorder", flag: RECORD_FLAG, default: "<Super><Shift>r" };
+pub const CLIPBOARD: Slot = Slot { path: "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/zazabor-clipboard/", name: "Zazabor: Clipboard", flag: CLIPBOARD_FLAG, default: "<Super>v" };
 
 /// This launch asks for a quick note or the clipboard popup (and nothing else).
 pub fn requested() -> bool {
-    std::env::args().skip(1).any(|a| a == FLAG || a == CLIPBOARD_FLAG)
+    std::env::args().skip(1).any(|a| a == FLAG || a == CLIPBOARD_FLAG || a == RECORD_FLAG)
+}
+
+/// This launch asks for the screen recorder.
+pub fn record_requested() -> bool {
+    std::env::args().skip(1).any(|a| a == RECORD_FLAG)
 }
 
 /// This launch asks for the clipboard popup.
@@ -48,12 +57,12 @@ pub fn clipboard_requested() -> bool {
     std::env::args().skip(1).any(|a| a == CLIPBOARD_FLAG)
 }
 
-/// This launch asks the running CorePro to quit.
+/// This launch asks the running Zazabor to quit.
 pub fn quit_requested() -> bool {
     std::env::args().skip(1).any(|a| a == QUIT_FLAG)
 }
 
-/// Asks a running CorePro to quit; false when none is running.
+/// Asks a running Zazabor to quit; false when none is running.
 pub fn forward_quit() -> bool {
     let Ok(mut stream) = UnixStream::connect(socket_path()) else { return false };
     stream.write_all(format!("{QUIT_REQUEST}\n").as_bytes()).is_ok()
@@ -62,21 +71,21 @@ pub fn forward_quit() -> bool {
 fn socket_path() -> PathBuf {
     use std::os::unix::ffi::OsStrExt;
     let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    // One socket per copy of CorePro, so the installed one and a development build don't take
+    // One socket per copy of Zazabor, so the installed one and a development build don't take
     // each other's launches.
     let exe = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok()).unwrap_or_default();
     let copy = xxhash_rust::xxh3::xxh3_64(exe.as_os_str().as_bytes()) as u32;
     // SAFETY: getuid has no preconditions.
-    dir.join(format!("corepro-{}-{copy:08x}.sock", unsafe { libc::getuid() }))
+    dir.join(format!("zazabor-{}-{copy:08x}.sock", unsafe { libc::getuid() }))
 }
 
-/// This CorePro is already running (it answers on its socket).
+/// This Zazabor is already running (it answers on its socket).
 pub fn running() -> bool {
     UnixStream::connect(socket_path()).is_ok()
 }
 
-/// Hands a plain launch to a running CorePro, which shows its window and opens `path`; false
-/// when none answers (within a second), so this launch starts CorePro itself.
+/// Hands a plain launch to a running Zazabor, which shows its window and opens `path`; false
+/// when none answers (within a second), so this launch starts Zazabor itself.
 pub fn forward_show(path: Option<&str>) -> bool {
     let Ok(mut stream) = UnixStream::connect(socket_path()) else { return false };
     let path = path.filter(|p| !p.contains('\n'));
@@ -89,19 +98,19 @@ pub fn forward_show(path: Option<&str>) -> bool {
     BufReader::new(stream).read_line(&mut reply).is_ok() && reply.trim() == "ok"
 }
 
-/// Hands the request to a running CorePro; false when none answers.
+/// Hands the request to a running Zazabor; false when none answers.
 pub fn forward() -> bool {
     let Ok(mut stream) = UnixStream::connect(socket_path()) else { return false };
-    let request = if clipboard_requested() { CLIPBOARD_REQUEST } else { REQUEST };
+    let request = if clipboard_requested() { CLIPBOARD_REQUEST } else if record_requested() { RECORD_REQUEST } else { REQUEST };
     stream.write_all(format!("{request}\n").as_bytes()).is_ok()
 }
 
-/// Takes requests from later launches (`corepro --new-note`) for as long as this CorePro runs.
+/// Takes requests from later launches (`zazabor --new-note`) for as long as this Zazabor runs.
 pub fn serve(app: tauri::AppHandle) {
     let path = socket_path();
     let listener = match UnixListener::bind(&path) {
         Ok(listener) => listener,
-        // A socket nobody answers on is left over from a CorePro that didn't exit cleanly.
+        // A socket nobody answers on is left over from a Zazabor that didn't exit cleanly.
         Err(_) if UnixStream::connect(&path).is_err() => {
             let _ = std::fs::remove_file(&path);
             match UnixListener::bind(&path) {
@@ -109,7 +118,7 @@ pub fn serve(app: tauri::AppHandle) {
                 Err(err) => return eprintln!("Quick notes can't listen on {}: {err}", path.display()),
             }
         }
-        // Another CorePro already listens; it gets the quick notes.
+        // Another Zazabor already listens; it gets the quick notes.
         Err(_) => return,
     };
     let _ = std::thread::Builder::new().name("quick-notes".into()).spawn(move || {
@@ -128,6 +137,7 @@ pub fn serve(app: tauri::AppHandle) {
                 }
                 REQUEST => new_note(&app),
                 QUIT_REQUEST => crate::background::quit(&app),
+                RECORD_REQUEST => crate::recorder::toggle(&app),
                 CLIPBOARD_REQUEST => {
                     if let Err(err) = crate::clipboard::popup::toggle(&app) {
                         eprintln!("Could not open the clipboard: {err}");
@@ -141,7 +151,7 @@ pub fn serve(app: tauri::AppHandle) {
 
 /// A new, empty note in its own window.
 pub fn new_note(app: &tauri::AppHandle) {
-    // Made even while CorePro is locked: its window asks for the password before showing it.
+    // Made even while Zazabor is locked: its window asks for the password before showing it.
     let note = super::create(None, None, None, None);
     if let Err(err) = super::open_window(app, &note.id) {
         eprintln!("Could not open the quick note: {err}");
@@ -153,28 +163,28 @@ pub fn new_note(app: &tauri::AppHandle) {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Shortcut {
-    /// The desktop has GNOME-style custom shortcuts CorePro can add to.
+    /// The desktop has GNOME-style custom shortcuts Zazabor can add to.
     supported: bool,
-    /// "none", "installed", or "other" (bound, but to another CorePro, e.g. before a reinstall).
+    /// "none", "installed", or "other" (bound, but to another Zazabor, e.g. before a reinstall).
     state: &'static str,
     /// GTK accelerator, e.g. `<Super><Alt>n`.
     binding: String,
-    /// What the shortcut should run: this CorePro with `--new-note` (or `--clipboard`).
+    /// What the shortcut should run: this Zazabor with `--new-note` (or `--clipboard`).
     command: String,
 }
 
 /// What the shortcut runs. A dev build loads its pages from the dev server, which is gone once
-/// `tauri dev` stops ("connection refused"), so from one it runs the installed CorePro instead.
+/// `tauri dev` stops ("connection refused"), so from one it runs the installed Zazabor instead.
 fn command(slot: &Slot) -> Result<String, String> {
     let exe = if cfg!(debug_assertions) { installed() } else { std::env::current_exe().ok() };
-    let exe = exe.ok_or("This development build can’t be the shortcut’s target. Install CorePro (scripts/install-linux.sh) and set the shortcut there.")?;
+    let exe = exe.ok_or("This development build can’t be the shortcut’s target. Install Zazabor (scripts/install-linux.sh) and set the shortcut there.")?;
     Ok(format!("\"{}\" {}", exe.to_string_lossy(), slot.flag))
 }
 
-/// The installed CorePro: where `scripts/install-linux.sh` puts it, or else on the PATH.
+/// The installed Zazabor: where `scripts/install-linux.sh` puts it, or else on the PATH.
 fn installed() -> Option<PathBuf> {
-    let local = std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/bin/corepro"));
-    let on_path = std::env::var_os("PATH").and_then(|paths| std::env::split_paths(&paths).map(|dir| dir.join("corepro")).find(|p| p.is_file()));
+    let local = std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/bin/zazabor"));
+    let on_path = std::env::var_os("PATH").and_then(|paths| std::env::split_paths(&paths).map(|dir| dir.join("zazabor")).find(|p| p.is_file()));
     local.filter(|p| p.is_file()).or(on_path)
 }
 
@@ -211,10 +221,37 @@ pub fn notes_set_shortcut(binding: Option<String>) -> Result<Shortcut, String> {
     set_shortcut(&NOTE, binding)
 }
 
-/// Adds, updates or (with `None`) removes one of CorePro's desktop shortcuts.
+/// The first start after the rename from CorePro: its desktop shortcuts (same keys) are moved to
+/// Zazabor's slots and run Zazabor; the old ones go.
+pub fn adopt_old_shortcuts() {
+    if !schema_installed(KEYS_SCHEMA) || !schema_installed(KEY_SCHEMA) {
+        return;
+    }
+    const OLD: &str = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/corepro-";
+    for (old_name, slot) in [("new-note/", &NOTE), ("clipboard/", &CLIPBOARD), ("record/", &RECORD)] {
+        let old_path = format!("{OLD}{old_name}");
+        let list = gio::Settings::new(KEYS_SCHEMA);
+        if !list.strv("custom-keybindings").iter().any(|p| p.as_str() == old_path) {
+            continue;
+        }
+        let old = gio::Settings::with_path(KEY_SCHEMA, &old_path);
+        let binding = old.string("binding").to_string();
+        if !binding.is_empty() && set_shortcut(slot, Some(binding)).is_err() {
+            continue;
+        }
+        let paths: Vec<String> = list.strv("custom-keybindings").iter().map(|p| p.to_string()).filter(|p| *p != old_path).collect();
+        let _ = list.set_strv("custom-keybindings", paths.iter().map(String::as_str).collect::<Vec<_>>());
+        for name in ["name", "command", "binding"] {
+            old.reset(name);
+        }
+        gio::Settings::sync();
+    }
+}
+
+/// Adds, updates or (with `None`) removes one of Zazabor's desktop shortcuts.
 pub fn set_shortcut(slot: &Slot, binding: Option<String>) -> Result<Shortcut, String> {
     if !schema_installed(KEYS_SCHEMA) || !schema_installed(KEY_SCHEMA) {
-        return Err("This desktop doesn’t offer custom keyboard shortcuts CorePro can set. Add one in your desktop’s keyboard settings instead.".into());
+        return Err("This desktop doesn’t offer custom keyboard shortcuts Zazabor can set. Add one in your desktop’s keyboard settings instead.".into());
     }
     let command = if binding.is_some() { command(slot)? } else { String::new() };
     let list = gio::Settings::new(KEYS_SCHEMA);

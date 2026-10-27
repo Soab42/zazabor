@@ -16,7 +16,7 @@ export interface VideoProfile {
 /** The video settings edited on the Settings page (stored as `config.video.ext.media`). */
 export interface MediaSettings {
   // Interface
-  /** The player's accent: follow CorePro's, or the video module's orange preset. */
+  /** The player's accent: follow Zazabor's, or the video module's orange preset. */
   playerAccent: "app" | "orange";
   /** Liquid Glass: the controls float over the video and bend it, as on macOS 26; off docks the bar. */
   glassControls: boolean;

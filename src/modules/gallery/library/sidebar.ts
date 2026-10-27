@@ -42,9 +42,9 @@ export class Sidebar {
     const foot = h(
       "div",
       { class: "sb-foot" },
-      h("button", { class: "sb-foot-btn", title: "Include a folder CorePro didn't find on its own", onclick: () => handlers.addFolder() }, icon("folderPlus", 15), "Add a folder"),
+      h("button", { class: "sb-foot-btn", title: "Include a folder Zazabor didn't find on its own", onclick: () => handlers.addFolder() }, icon("folderPlus", 15), "Add a folder"),
       this.hiddenButton,
-      h("button", { class: "sb-foot-btn", title: "Lock CorePro with a password", onclick: () => handlers.lockSettings() }, icon("lock", 15), "Privacy lock"),
+      h("button", { class: "sb-foot-btn", title: "Lock Zazabor with a password", onclick: () => handlers.lockSettings() }, icon("lock", 15), "Privacy lock"),
     );
     this.list.addEventListener("click", (e) => {
       const target = e.target instanceof Element ? e.target : null;

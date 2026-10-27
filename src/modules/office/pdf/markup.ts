@@ -3,7 +3,7 @@ import { h } from "../../../ui/dom";
 import { rgbOf, type AnnotKind, type Op } from "./tools";
 
 /**
- * CorePro's own tools on the pages, beside pdf.js's editors: text markup (underline,
+ * Zazabor's own tools on the pages, beside pdf.js's editors: text markup (underline,
  * strikethrough, squiggly) on selected text, notes, shapes, redaction marks, and text and pictures
  * placed as page content. Shapes and marks are drawn over the page while they're made; finished
  * ones go to Rust (tools.ts) and come back as part of the file.
@@ -11,11 +11,12 @@ import { rgbOf, type AnnotKind, type Op } from "./tools";
 
 export type ShapeTool = "square" | "circle" | "line" | "arrow" | "polygon";
 export type MarkupTool = "underline" | "strikeOut" | "squiggly";
-export type OwnTool = MarkupTool | ShapeTool | "note" | "redact" | "text" | "picture";
+export type OwnTool = MarkupTool | ShapeTool | "note" | "redact" | "text" | "picture" | "sigbox" | "editText";
 
 export const TOOL_LABEL: Record<OwnTool, string> = {
   underline: "Underline", strikeOut: "Strikethrough", squiggly: "Squiggly", square: "Rectangle", circle: "Oval",
   line: "Line", arrow: "Arrow", polygon: "Polygon", note: "Note", redact: "Mark for Redaction", text: "Add Text", picture: "Add Picture",
+  sigbox: "Place the Signature", editText: "Edit Text",
 };
 
 /** A rectangle in the page's own space: x0 y0 x1 y1. */
@@ -54,6 +55,10 @@ export interface MarkupHost {
   addText(page: number, at: [number, number], client: { x: number; y: number }): Promise<void>;
   /** A picture armed for placing, placed at a click. */
   placePicture(page: number, center: [number, number]): Promise<void>;
+  /** Edit Text: a click on the page's own text (page from 1, page space). */
+  editText(page: number, at: [number, number]): Promise<void>;
+  /** The box dragged for a certificate signature (page from 1, page space). */
+  signatureBox?(page: number, box: Box): void;
   author(): string;
 }
 
@@ -247,6 +252,8 @@ export class Markup {
   private down(e: PointerEvent) {
     const tool = this.tool;
     if (!tool || e.button !== 0 || tool === "underline" || tool === "strikeOut" || tool === "squiggly") return;
+    // Typing in a line being edited.
+    if ((e.target as HTMLElement).closest?.(".pf-line-editor")) return;
     const hit = pageAt(this.host, e.target, e.clientX, e.clientY);
     // Clicking a redaction mark removes it.
     if (tool === "redact" && (e.target as HTMLElement).closest?.(".pf-redact-mark")) {
@@ -262,7 +269,7 @@ export class Markup {
     if (!hit) return;
     e.preventDefault();
     e.stopPropagation();
-    if (tool === "note" || tool === "text" || tool === "picture") return; // placed on pointerup
+    if (tool === "note" || tool === "text" || tool === "picture" || tool === "editText") return; // placed on pointerup
     if (tool === "polygon") {
       if (this.polygon && this.polygon.index !== hit.index) this.cancel();
       if (!this.polygon) {
@@ -279,6 +286,7 @@ export class Markup {
     const el = this.svg(hit.view);
     const shape = document.createElementNS("http://www.w3.org/2000/svg", tool === "circle" ? "ellipse" : tool === "line" || tool === "arrow" ? "line" : "rect");
     if (tool === "redact") shape.setAttribute("class", "pf-redact-draft");
+    else if (tool === "sigbox") shape.setAttribute("class", "pf-sigbox-draft");
     else this.styleShape(shape);
     el.append(shape);
     this.drag = { index: hit.index, view: hit.view, start: hit.point, client: [e.clientX, e.clientY], el, shape };
@@ -304,6 +312,16 @@ export class Markup {
   private async up(e: PointerEvent) {
     const tool = this.tool;
     if (!tool || e.button !== 0) return;
+    if ((e.target as HTMLElement).closest?.(".pf-line-editor")) return;
+    if (tool === "editText") {
+      const hit = pageAt(this.host, e.target, e.clientX, e.clientY);
+      if (!hit) return;
+      e.preventDefault();
+      e.stopPropagation();
+      // The tool stays on, for the next line.
+      await this.host.editText(hit.index + 1, hit.point);
+      return;
+    }
     if (tool === "underline" || tool === "strikeOut" || tool === "squiggly") {
       // Text was selected with the tool on: mark it.
       setTimeout(() => void this.markSelection(tool), 0);
@@ -342,6 +360,11 @@ export class Markup {
     if (!moved) return;
     const page = d.index + 1;
     const color = rgbOf(this.style.color);
+    if (tool === "sigbox") {
+      this.setTool(null);
+      this.host.signatureBox?.(page, normalize([...d.start, ...end]));
+      return;
+    }
     if (tool === "redact") {
       const list = this.marks.get(d.index) ?? [];
       list.push({ box: normalize([...d.start, ...end]) });

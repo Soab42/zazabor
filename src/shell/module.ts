@@ -1,7 +1,7 @@
 import type { Config } from "../config";
 import type { IconName } from "../ui/icons";
 
-/** The features CorePro is made of; each can be turned off in Settings. */
+/** The features Zazabor is made of; each can be turned off in Settings. */
 export type ModuleId = "files" | "gallery" | "video" | "terminal" | "notes" | "time" | "wallet" | "office" | "studio" | "clipboard";
 
 export const MODULE_IDS: readonly ModuleId[] = ["files", "gallery", "video", "terminal", "notes", "time", "wallet", "office", "studio", "clipboard"];
@@ -75,7 +75,7 @@ export interface AppModule {
   open?(request: OpenRequest): void;
   /** True while the module is in a full-screen mode (e.g. a slideshow) that shell shortcuts must not interrupt. */
   readonly modal?: boolean;
-  /** Ctrl+N reaches `handleKey` (a new file, as in Word) instead of opening a new CorePro window. */
+  /** Ctrl+N reaches `handleKey` (a new file, as in Word) instead of opening a new Zazabor window. */
   readonly ownsNewKey?: boolean;
   /** Appearance changed (theme, accent, grid layout, zoom curve); re-apply whatever depends on it. */
   appearanceChanged?(): void;
@@ -89,6 +89,10 @@ export interface AppModule {
   dispose?(): void;
   /** Where a new window of this module should start (Files: the folder it shows). */
   windowPath?(): string | null;
+  /** The user guide's article for what shows now (F1), e.g. "sheets" while Office shows a workbook. */
+  guideTopic?(): string | null;
+  /** The user guide's Open button: shows that part of the module (Office's "sheet" page). */
+  showGuideTarget?(target: string): void;
 }
 
 export type ModuleFactory = (shell: ShellContext) => AppModule | Promise<AppModule>;

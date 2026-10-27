@@ -34,7 +34,7 @@ export interface ClipSettings {
 export interface History {
   items: ClipItem[];
   settings: ClipSettings;
-  /** CorePro can paste into other apps (X11); otherwise the user presses Ctrl+V. */
+  /** Zazabor can paste into other apps (X11); otherwise the user presses Ctrl+V. */
   canPaste: boolean;
 }
 
@@ -94,7 +94,7 @@ export function describe(item: ClipItem): string {
 /** A source window class as people know the app ("firefox" → "Firefox"). */
 export function appName(source?: string): string {
   if (!source) return "";
-  const known: Record<string, string> = { "google-chrome": "Chrome", "code": "VS Code", "org.gnome.nautilus": "Files", "gnome-terminal-server": "Terminal", "corepro": "CorePro" };
+  const known: Record<string, string> = { "google-chrome": "Chrome", "code": "VS Code", "org.gnome.nautilus": "Files", "gnome-terminal-server": "Terminal", "zazabor": "Zazabor" };
   const key = source.toLowerCase();
   return known[key] ?? source.replace(/[-_.]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }

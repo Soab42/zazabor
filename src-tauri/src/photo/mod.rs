@@ -9,9 +9,14 @@
 //! A `.coreimage` file is a zip: `document.json` (written by the page), `layers/<n>.png` (each
 //! pixel layer, RGBA), `profile.icc` when the picture had one, and `preview.jpg` for thumbnails.
 
+pub mod ai;
+pub mod raw;
+
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use tauri::ipc::{InvokeBody, Request, Response};
+use tauri::{Emitter, Manager};
 
 use image::{DynamicImage, ImageDecoder, ImageEncoder, ImageReader};
 
@@ -73,6 +78,9 @@ pub struct Decoded {
 /// Decodes a picture upright; when `max_dim` > 0 and the picture is larger, scales it so its
 /// long edge is `max_dim` (the GPU can't hold more than its maximum texture size).
 pub fn decode(path: &Path, max_dim: u32) -> Result<Decoded, String> {
+    if raw::is_raw(path) {
+        return decode_raw(path, &raw::Develop::default(), max_dim);
+    }
     let shown = shown(path);
     let reader = ImageReader::open(path).map_err(|e| format!("Couldn’t open {shown}: {e}"))?.with_guessed_format().map_err(|e| e.to_string())?;
     let mut decoder = reader.into_decoder().map_err(|e| format!("Couldn’t read {shown}: {e}"))?;
@@ -533,12 +541,207 @@ pub async fn photo_project_open(path: String) -> Result<Response, String> {
     Ok(Response::new(bytes))
 }
 
+// ---- RAW files ----------------------------------------------------------------------------------
+
+/// A RAW file developed with `settings`, at `max_dim` at most (0 = full size).
+fn decode_raw(path: &Path, settings: &raw::Develop, max_dim: u32) -> Result<Decoded, String> {
+    let source = raw::source(path)?;
+    let d = raw::develop(&source, settings, max_dim);
+    let scaled = d.width < source.width;
+    Ok(Decoded { width: d.width, height: d.height, rgba: d.rgba, icc: d.icc, exif: Vec::new(), scaled })
+}
+
+/// What Photo's Develop panel shows about a RAW file (camera, exposure, as-shot white balance).
+#[tauri::command]
+pub async fn photo_raw_info(path: String) -> Result<raw::Info, String> {
+    crate::ensure_unlocked()?;
+    blocking(move || raw::source(Path::new(&path)).map(|s| raw::info(&s))).await
+}
+
+/// Develops a RAW file again with new settings (the decoded file is kept, so this is quick).
+#[tauri::command]
+pub async fn photo_raw_develop(path: String, settings: raw::Develop, max_dim: u32) -> Result<Response, String> {
+    crate::ensure_unlocked()?;
+    let bytes = blocking(move || decode_raw(Path::new(&path), &settings, max_dim).map(pack)).await?;
+    Ok(Response::new(bytes))
+}
+
+/// The JPEG preview a camera stored in its RAW file.
+#[tauri::command]
+pub async fn photo_raw_preview(path: String) -> Result<Response, String> {
+    crate::ensure_unlocked()?;
+    let bytes = blocking(move || raw::embedded_preview(Path::new(&path))).await?;
+    Ok(Response::new(bytes))
+}
+
+// ---- AI tools -----------------------------------------------------------------------------------
+
+fn models_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("photo").join("models"))
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelStatus {
+    id: &'static str,
+    title: &'static str,
+    bytes: u64,
+    licence: &'static str,
+    source: &'static str,
+    installed: bool,
+    /// Bytes of an unfinished download.
+    partial: u64,
+}
+
+#[derive(serde::Serialize)]
+pub struct AiModels {
+    models: Vec<ModelStatus>,
+    /// The models each tool needs.
+    tools: std::collections::BTreeMap<&'static str, &'static [&'static str]>,
+}
+
+/// The AI models, whether each is downloaded, and which tool needs which.
+#[tauri::command]
+pub fn photo_ai_models(app: tauri::AppHandle) -> Result<AiModels, String> {
+    let dir = models_dir(&app)?;
+    let models = ai::MODELS
+        .iter()
+        .map(|m| ModelStatus { id: m.id, title: m.title, bytes: m.bytes, licence: m.licence, source: m.source, installed: ai::installed(&dir, m), partial: ai::partial(&dir, m) })
+        .collect();
+    let tools = ["subject", "subject-fast", "select", "remove"].into_iter().map(|t| (t, ai::models_for(t))).collect();
+    Ok(AiModels { models, tools })
+}
+
+static CANCELS: ai::Cancels = ai::Cancels::new();
+
+#[derive(Clone, serde::Serialize)]
+struct DownloadProgress {
+    id: String,
+    done: u64,
+    total: u64,
+}
+
+/// Downloads a model (resuming a partial one), sending `photo-ai-download` progress events.
+#[tauri::command]
+pub async fn photo_ai_download(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    crate::ensure_unlocked()?;
+    let dir = models_dir(&app)?;
+    let m = ai::model(&id).ok_or("Unknown model.")?;
+    let cancel = CANCELS.start(&id);
+    let result = blocking(move || {
+        let mut last = std::time::Instant::now() - std::time::Duration::from_secs(1);
+        let mut progress = |done: u64, total: u64| {
+            if last.elapsed().as_millis() >= 150 || done == total {
+                last = std::time::Instant::now();
+                let _ = app.emit("photo-ai-download", DownloadProgress { id: m.id.to_string(), done, total });
+            }
+        };
+        ai::download(&dir, m, &cancel, &mut progress)
+    })
+    .await;
+    CANCELS.finish(&id);
+    result
+}
+
+#[tauri::command]
+pub fn photo_ai_cancel(id: String) {
+    CANCELS.cancel(&id);
+}
+
+#[tauri::command]
+pub async fn photo_ai_remove(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let dir = models_dir(&app)?;
+    let m = ai::model(&id).ok_or("Unknown model.")?;
+    CANCELS.cancel(&id);
+    blocking(move || ai::remove(&dir, m)).await
+}
+
+#[derive(serde::Deserialize)]
+struct AiMeta {
+    width: u32,
+    height: u32,
+    #[serde(default)]
+    fast: bool,
+}
+
+fn ai_meta(request: &Request<'_>) -> Result<AiMeta, String> {
+    serde_json::from_str(&header(request, "x-meta")?).map_err(|e| e.to_string())
+}
+
+/// The main subject's mask (one byte a pixel) for RGBA pixels in the body.
+#[tauri::command]
+pub async fn photo_ai_subject(app: tauri::AppHandle, request: Request<'_>) -> Result<Response, String> {
+    crate::ensure_unlocked()?;
+    let dir = models_dir(&app)?;
+    let meta = ai_meta(&request)?;
+    let rgba = body(&request)?.to_vec();
+    let mask = blocking(move || ai::subject_mask(&dir, &rgba, meta.width, meta.height, meta.fast)).await?;
+    Ok(Response::new(mask))
+}
+
+/// The pictures MobileSAM has looked at, by token (the latest few).
+static SAM: Mutex<Vec<(u32, Arc<ai::SamEmbedding>)>> = Mutex::new(Vec::new());
+static SAM_NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
+/// Prepares click selection on RGBA pixels in the body; returns a token for `photo_ai_sam_mask`.
+#[tauri::command]
+pub async fn photo_ai_sam_embed(app: tauri::AppHandle, request: Request<'_>) -> Result<u32, String> {
+    crate::ensure_unlocked()?;
+    let dir = models_dir(&app)?;
+    let meta = ai_meta(&request)?;
+    let rgba = body(&request)?.to_vec();
+    let emb = blocking(move || ai::sam_embed(&dir, &rgba, meta.width, meta.height)).await?;
+    let token = SAM_NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut list = SAM.lock().unwrap_or_else(|e| e.into_inner());
+    list.insert(0, (token, Arc::new(emb)));
+    list.truncate(3);
+    Ok(token)
+}
+
+/// The object the clicks point at, for a picture `photo_ai_sam_embed` prepared.
+#[tauri::command]
+pub async fn photo_ai_sam_mask(app: tauri::AppHandle, token: u32, points: Vec<ai::SamPoint>) -> Result<Response, String> {
+    crate::ensure_unlocked()?;
+    let dir = models_dir(&app)?;
+    let emb = SAM.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(t, _)| *t == token).map(|(_, e)| e.clone());
+    let emb = emb.ok_or("The picture changed: click again.")?;
+    let mask = blocking(move || ai::sam_mask(&dir, &emb, &points)).await?;
+    Ok(Response::new(mask))
+}
+
+/// Fills the marked area: the body is RGBA pixels then a mask (a byte a pixel). The reply is a
+/// 16-byte header (x, y, width, height; u32 little-endian) then the patch's RGBA.
+#[tauri::command]
+pub async fn photo_ai_inpaint(app: tauri::AppHandle, request: Request<'_>) -> Result<Response, String> {
+    crate::ensure_unlocked()?;
+    let dir = models_dir(&app)?;
+    let meta = ai_meta(&request)?;
+    let bytes = body(&request)?;
+    let pixels = meta.width as usize * meta.height as usize;
+    if bytes.len() != pixels * 5 {
+        return Err("The picture arrived incomplete.".into());
+    }
+    let bytes = bytes.to_vec();
+    let out = blocking(move || {
+        let (rgba, mask) = bytes.split_at(pixels * 4);
+        let p = ai::inpaint(&dir, rgba, meta.width, meta.height, mask)?;
+        let mut out = Vec::with_capacity(16 + p.rgba.len());
+        for v in [p.x, p.y, p.width, p.height] {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        out.extend_from_slice(&p.rgba);
+        Ok(out)
+    })
+    .await?;
+    Ok(Response::new(out))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("corepro-photo-test-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("zazabor-photo-test-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir

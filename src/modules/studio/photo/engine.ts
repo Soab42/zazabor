@@ -1,4 +1,5 @@
 import { ADJUST_GLSL, setAdjustUniforms, type Adjustments } from "./adjust";
+import type { RawState } from "./develop";
 import { bytesPerPixel, dropTarget, makeProgram, makeQuad, makeTarget, makeTexture, probeGpu, QUAD_VERTEX, readInto, unpackRaw, type GpuInfo, type Program, type Target, type TexFormat } from "./gl";
 import { lutFor, setSpecUniforms, SPEC_GLSL, type AdjSpec } from "./layeradjust";
 import { LUT_SIZE } from "./tone";
@@ -102,6 +103,8 @@ interface LayerBase {
 export interface PixelLayer extends LayerBase, Surface {
   kind: "pixel";
   source: LayerSource | null;
+  /** Developed from a camera RAW file, which the Develop panel can develop again. */
+  raw?: RawState | null;
 }
 
 /** An adjustment applied to everything below: Light & Colour (`adjust`) or another kind (`spec`). */

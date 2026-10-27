@@ -2,7 +2,7 @@
 //! once and then hidden and shown again, so it opens at once. Opening it remembers which window
 //! had the keyboard, so a picked item can be pasted there (`x11::focus`).
 //!
-//! Started on its own (`corepro --clipboard` with no CorePro running), CorePro stays running in
+//! Started on its own (`zazabor --clipboard` with no Zazabor running), Zazabor stays running in
 //! the background after the popup hides, as Windows' clipboard service does: copies keep being
 //! recorded, and the next press of the shortcut opens the popup at once (through the socket).
 
@@ -11,7 +11,7 @@ use tauri::{Emitter, Manager};
 
 pub const LABEL: &str = "clipboard-popup";
 /// Its title (never shown: it has no frame), which `x11::own_window` looks for.
-const TITLE: &str = "Clipboard — CorePro";
+const TITLE: &str = "Clipboard — Zazabor";
 const WIDTH: f64 = 360.0;
 const HEIGHT: f64 = 470.0;
 
@@ -60,7 +60,7 @@ pub fn show(app: &tauri::AppHandle) -> Result<(), String> {
         .position(at.x, at.y)
         .focused(true)
         .background_color(tauri::webview::Color(0x1c, 0x1d, 0x21, 0xff))
-        .initialization_script(format!("window.__COREPRO_WINDOW__ = {start};"))
+        .initialization_script(format!("window.__ZAZABOR_WINDOW__ = {start};"))
         .build()
         .map_err(|e| e.to_string())?;
     take_keyboard(app);
@@ -68,7 +68,7 @@ pub fn show(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 /// The popup takes the keyboard once it's on screen. A window shown by a process in the
-/// background (the shortcut forwards to a running CorePro) isn't always given it, and without a
+/// background (the shortcut forwards to a running Zazabor) isn't always given it, and without a
 /// window manager nothing gives it; the web view inside needs it too, for the arrow keys.
 fn take_keyboard(app: &tauri::AppHandle) {
     let app = app.clone();

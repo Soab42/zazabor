@@ -6,7 +6,7 @@ import JsonWorker from "monaco-editor/language/json/json.worker?worker";
 import TsWorker from "monaco-editor/language/typescript/ts.worker?worker";
 
 /**
- * Monaco, the editor VS Code is built on, set up for CorePro: its language workers (bundled, so
+ * Monaco, the editor VS Code is built on, set up for Zazabor: its language workers (bundled, so
  * it works offline) and two themes drawn from the app's colours. Loaded only with the editor.
  */
 
@@ -32,13 +32,13 @@ function hex(color: string, fallback: string): string {
   return /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
 }
 
-/** Defines (or redefines) CorePro's dark and light editor themes from the current accent; returns the one to use. */
+/** Defines (or redefines) Zazabor's dark and light editor themes from the current accent; returns the one to use. */
 export function applyTheme(): string {
   const style = getComputedStyle(document.documentElement);
   const accent = hex(style.getPropertyValue("--accent"), "#3fb87a");
   // applyAppearance() marks the page with the theme in use ("System" already resolved).
   const dark = document.documentElement.dataset.theme !== "light";
-  const name = dark ? "corepro-dark" : "corepro-light";
+  const name = dark ? "zazabor-dark" : "zazabor-light";
   monaco.editor.defineTheme(name, {
     base: dark ? "vs-dark" : "vs",
     inherit: true,

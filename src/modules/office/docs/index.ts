@@ -18,6 +18,7 @@ import { buildTabs, type DocsContext } from "./tabs";
 import { templateHtml } from "./templates";
 import { writeDocx, writeHtml, writeMarkdown } from "./write";
 import "./docs.css";
+import { layoutPictures } from "./picture";
 
 type Format = "docx" | "html" | "txt" | "md";
 
@@ -418,6 +419,7 @@ export const createDocEditor: EditorFactory = async (host, file, template, recov
 #dc-print-root { padding: ${m.top}pt ${m.right}pt ${m.bottom}pt ${m.left}pt; -webkit-box-decoration-break: clone; box-decoration-break: clone; }`);
     const area = h("div", { id: "dc-print-root", class: "dc-content" });
     area.innerHTML = editor.getHTML();
+    layoutPictures(area);
     document.body.append(sheet, area);
     const done = () => {
       sheet.remove();
@@ -429,6 +431,22 @@ export const createDocEditor: EditorFactory = async (host, file, template, recov
       // WebKit may not send afterprint; the print dialog is modal, so this runs after it.
       setTimeout(done, 1000);
     }, 50);
+  }
+
+  /** File → Print's preview: the document on paper of its page size, inside its margins. */
+  function printPreview() {
+    const { width, height, orientation, margins: m } = view.setup;
+    const [w, hgt] = orientation === "landscape" ? [height, width] : [width, height];
+    const paper = h("div", { class: "of-paper dc-content", style: `width: ${w}pt; min-height: ${hgt}pt; padding: ${m.top}pt ${m.right}pt ${m.bottom}pt ${m.left}pt` });
+    paper.innerHTML = editor.getHTML();
+    layoutPictures(paper);
+    return paper;
+  }
+
+  /** File → Info's facts about the document. */
+  function info(): [string, string][] {
+    const count = (editor.storage as unknown as Record<string, { words: () => number; characters: () => number }>).characterCount;
+    return [["Pages", view.pageCount.toLocaleString()], ["Words", count.words().toLocaleString()], ["Characters", count.characters().toLocaleString()]];
   }
 
   // ---- saving
@@ -581,6 +599,8 @@ export const createDocEditor: EditorFactory = async (host, file, template, recov
     dirty,
     save,
     print,
+    printPreview,
+    info,
     snapshot: () => {
       const snap: Snapshot = { json: editor.getJSON(), page: view.setup, lost, format };
       return { bytes: new TextEncoder().encode(JSON.stringify(snap)), version: version + (JSON.stringify(view.setup) !== savedPage ? 1 : 0) };

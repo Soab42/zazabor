@@ -8,6 +8,7 @@ import {
   type Clip, type CurvePreset, type Ease, type EffectId, type KeyProp, type MediaClip, type Project, type TextAnim, type TextClip,
 } from "./model";
 import { TEXT_ANIMS, TEXT_FONTS } from "./text";
+import { STICKERS, stickerOf } from "./stickers";
 
 /**
  * The right panel: the selected clip's settings (picture, keyframes, filter and effects, colour
@@ -34,6 +35,8 @@ export interface InspectorHost {
   freezeFrame(): void;
   /** Marks the beats of an audio clip from its sound. */
   markBeats(id: string): void;
+  /** A template clip's sections (motion/fields.ts); the Position section follows them. */
+  templateView?(id: string, syncs: Sync[]): Node[];
 }
 
 type Sync = () => void;
@@ -64,7 +67,8 @@ export class Inspector {
     const p = this.host.project();
     const found = id ? findClip(p, id) : null;
     const c = found?.clip;
-    const shape = c?.type === "media" ? `${c.freeze !== undefined}:${!!c.fx.key}:${!!c.mask}:${!!c.frame}:${!!c.fx.lut}:${c.fx.effect !== "none"}:${!!c.curve}` : "";
+    const shape = c?.type === "media" ? `${c.freeze !== undefined}:${!!c.fx.key}:${!!c.mask}:${!!c.frame}:${!!c.fx.lut}:${c.fx.effect !== "none"}:${!!c.curve}`
+      : c?.type === "template" ? `${c.name}:${c.kit}:${!!c.ungrouped}` : "";
     const key = found ? `${found.clip.id}:${found.track.kind}:${shape}` : `project:${p.canvas.aspect}:${p.media.length}`;
     if (!force && key === this.shown) {
       for (const s of this.syncs) s();
@@ -75,6 +79,7 @@ export class Inspector {
     const scroll = this.el.scrollTop;
     if (!found) this.el.replaceChildren(...this.projectView());
     else if (found.clip.type === "text") this.el.replaceChildren(...this.textView(found.clip));
+    else if (found.clip.type === "template") this.el.replaceChildren(...(this.host.templateView?.(found.clip.id, this.syncs) ?? []), this.placement(found.clip.id, false));
     else this.el.replaceChildren(...this.mediaView(found.clip, found.track.kind, found.index));
     this.el.scrollTop = scroll;
   }
@@ -419,7 +424,35 @@ export class Inspector {
     return out;
   }
 
+  /** A sticker: which one, its colour and size, and how it comes and goes. */
+  private stickerView(clip: TextClip): Node[] {
+    const id = clip.id;
+    const c = () => this.live<TextClip>(id);
+    const style = <K extends keyof TextClip["style"]>(k: K, v: TextClip["style"][K]) => this.edit<TextClip>(id, `style-${String(k)}`, (x) => (x.style[k] = v));
+    const options = STICKERS.map((s) => [s.id, s.label] as [string, string]);
+    return [
+      h("header", { class: "ve-inspector-head" }, icon("sparkles", 16), h("span", null, "Sticker")),
+      this.section("Sticker",
+        this.select("Sticker", options, () => c()?.sticker ?? "arrow", (v) => this.edit<TextClip>(id, "sticker", (x) => {
+          x.sticker = v;
+          x.text = stickerOf(v)?.label ?? x.text;
+        })),
+        stickerOf(clip.sticker)?.tint === false ? null : this.color("Colour", () => c()?.style.color ?? "#ffcc00", (v) => style("color", v ?? "#ffcc00"), false),
+        this.slider("Size", { min: 40, max: 900, step: 5, get: () => c()?.style.size ?? 240, set: (v) => style("size", v), format: (v) => `${Math.round(v / 10)}%` }),
+      ),
+      this.section("Animation",
+        this.select("In", TEXT_ANIMS.filter(([a]) => a !== "typewriter"), () => c()?.animIn ?? "none", (v: TextAnim) => this.edit<TextClip>(id, "animIn", (x) => (x.animIn = v))),
+        this.select("Out", TEXT_ANIMS.filter(([a]) => a !== "typewriter"), () => c()?.animOut ?? "none", (v: TextAnim) => this.edit<TextClip>(id, "animOut", (x) => (x.animOut = v))),
+        this.slider("Duration", { min: 0.3, max: 30, step: 0.1, get: () => c()?.duration ?? 3, set: (v) => this.edit<TextClip>(id, "duration", (x, q) => {
+          trimEnd(q, x.id, x.start + v);
+        }), format: (v) => `${v.toFixed(1)} s` }),
+      ),
+      this.placement(id, false),
+    ];
+  }
+
   private textView(clip: TextClip): Node[] {
+    if (clip.sticker) return this.stickerView(clip);
     const id = clip.id;
     const c = () => this.live<TextClip>(id);
     const area = h("textarea", { class: "ve-textarea", rows: 3, value: clip.text, spellcheck: "true" });
@@ -449,6 +482,9 @@ export class Inspector {
         }), true),
         this.color("Box", () => c()?.style.box ?? null, (v) => style("box", v ? withAlpha(v, 0.7) : null), true),
         this.toggle("Shadow / glow", () => c()?.style.shadow ?? false, (v) => style("shadow", v)),
+        clip.words?.length
+          ? this.color("Spoken words", () => c()?.highlight ?? null, (v) => this.edit<TextClip>(id, "highlight", (x) => (x.highlight = v)), true)
+          : null,
       ),
       this.section("Animation",
         this.select("In", TEXT_ANIMS, () => c()?.animIn ?? "none", (v: TextAnim) => this.edit<TextClip>(id, "animIn", (x) => (x.animIn = v))),

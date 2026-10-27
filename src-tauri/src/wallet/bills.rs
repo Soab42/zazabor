@@ -1,6 +1,6 @@
 //! Bills and other money that repeats (rent, a Netflix plan, a salary): a rule with a schedule,
 //! and the transactions it posts. A rule that posts by itself catches up on every due date it
-//! missed while CorePro was closed (one transaction each); one that only reminds stays due, once,
+//! missed while Zazabor was closed (one transaction each); one that only reminds stays due, once,
 //! until it's marked as paid or skipped.
 
 use rusqlite::{params, Connection, OptionalExtension, Row};
@@ -395,7 +395,7 @@ mod tests {
         let mut conn = fresh();
         let b = save(&conn, input(&conn, "monthly", "2026-08-05", true), "2026-08-01", 1).unwrap();
         assert_eq!(b.next_date.as_deref(), Some("2026-08-05"));
-        // CorePro was closed from 1 August to 26 October: three due dates passed.
+        // Zazabor was closed from 1 August to 26 October: three due dates passed.
         assert_eq!(post_due(&mut conn, "2026-10-26", 2).unwrap(), 3);
         let posted = db::list(&conn, &db::Filter::default()).unwrap();
         assert_eq!(posted.items.iter().map(|t| t.date.as_str()).collect::<Vec<_>>(), ["2026-10-05", "2026-09-05", "2026-08-05"]);

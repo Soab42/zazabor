@@ -54,7 +54,7 @@ pub struct Note {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteWindow {
-    /// The window was open when CorePro last ran, so it opens again at the next start.
+    /// The window was open when Zazabor last ran, so it opens again at the next start.
     #[serde(default)]
     pub open: bool,
     /// Logical pixels.
@@ -374,7 +374,7 @@ fn open_window(app: &tauri::AppHandle, id: &str) -> Result<(), String> {
         .decorations(false)
         .always_on_top(state.on_top)
         .background_color(paper(&note.color))
-        .initialization_script(format!("window.__COREPRO_WINDOW__ = {start};"));
+        .initialization_script(format!("window.__ZAZABOR_WINDOW__ = {start};"));
     if let (Some(x), Some(y)) = (state.x, state.y) {
         builder = builder.position(x, y);
     }
@@ -399,7 +399,7 @@ pub async fn notes_show_list(app: tauri::AppHandle) -> Result<(), String> {
     crate::new_window(&app, "notes", None, None)
 }
 
-/// Opens the notes whose windows were open when CorePro last ran; once per run.
+/// Opens the notes whose windows were open when Zazabor last ran; once per run.
 #[tauri::command]
 pub async fn notes_reopen(app: tauri::AppHandle) -> Result<(), String> {
     static DONE: AtomicBool = AtomicBool::new(false);

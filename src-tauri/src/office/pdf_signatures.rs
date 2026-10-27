@@ -1,6 +1,6 @@
 //! PDF's signatures and initials: the pictures Fill & Sign puts on pages, kept so they can be used
 //! again. One JSON file, `office/pdf-signatures.json` in the app's data folder; each picture is a
-//! PNG data URL the page drew (typed, drawn or from a picture file). Refused while CorePro is locked.
+//! PNG data URL the page drew (typed, drawn or from a picture file). Refused while Zazabor is locked.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -13,7 +13,7 @@ const MAX_KEPT: usize = 20;
 const MAX_IMAGE: usize = 2 * 1024 * 1024;
 const PNG_PREFIX: &str = "data:image/png;base64,";
 
-/// One read-modify-write at a time (every window of CorePro shares this process).
+/// One read-modify-write at a time (every window of Zazabor shares this process).
 static STORE: Mutex<()> = Mutex::new(());
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -89,7 +89,7 @@ pub async fn pdf_signature_add(app: tauri::AppHandle, kind: String, name: String
         let _guard = STORE.lock().map_err(|e| e.to_string())?;
         let mut list = read_all(&path);
         if list.len() >= MAX_KEPT {
-            return Err(format!("CorePro keeps up to {MAX_KEPT} signatures and initials. Delete one to keep another."));
+            return Err(format!("Zazabor keeps up to {MAX_KEPT} signatures and initials. Delete one to keep another."));
         }
         let created = crate::notes::now();
         let signature = Signature { id: format!("sig-{created}-{}", list.len()), kind, name: name.trim().to_string(), image, created };
@@ -137,7 +137,7 @@ mod tests {
 
     #[test]
     fn round_trips_the_file() {
-        let dir = std::env::temp_dir().join(format!("corepro-sig-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("zazabor-sig-test-{}", std::process::id()));
         let path = dir.join("office").join("pdf-signatures.json");
         assert!(read_all(&path).is_empty());
         let one = Signature { id: "sig-1".into(), kind: "signature".into(), name: "Jo".into(), image: "data:image/png;base64,AA==".into(), created: 1 };

@@ -298,7 +298,7 @@ mod tests {
     use super::*;
 
     fn temp_repo(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("corepro-git-{tag}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("zazabor-git-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         run(&dir, &["init", "-q", "-b", "main"]).unwrap();
@@ -353,7 +353,7 @@ u UU N... 100644 100644 100644 100644 a b c conflict.txt\0? notes.md\0";
 
     #[test]
     fn a_folder_outside_any_repository_has_no_status() {
-        let dir = std::env::temp_dir().join(format!("corepro-nogit-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("zazabor-nogit-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         // /tmp is not inside a repository on a normal system.
         assert_eq!(status(&dir).unwrap(), None);

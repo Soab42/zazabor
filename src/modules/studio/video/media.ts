@@ -53,7 +53,7 @@ export async function probeMedia(path: string): Promise<Media> {
     };
   }
   if (p.audio) return { id: uid(), path, name, kind: "audio", duration: p.duration, width: 0, height: 0, fps: 0, audio: true, bytes: p.bytes };
-  throw new Error(p.missing.length ? `${name}: this system has no ${p.missing.join(", ")}.` : `${name} has no picture or sound CorePro can read.`);
+  throw new Error(p.missing.length ? `${name}: this system has no ${p.missing.join(", ")}.` : `${name} has no picture or sound Zazabor can read.`);
 }
 
 export class MediaStore {

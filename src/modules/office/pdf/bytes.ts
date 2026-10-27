@@ -175,7 +175,7 @@ function concat(parts: Uint8Array[]): Uint8Array {
 
 /**
  * Finishes a file `build` made: sets the saved rotation of the pages listed (`refs` are the
- * pages' object numbers, from the built file opened with pdf.js) and names CorePro as the
+ * pages' object numbers, from the built file opened with pdf.js) and names Zazabor as the
  * program that wrote it. Returns `bytes` itself when there's nothing to change.
  */
 export function finish(bytes: Uint8Array, rotations: { ref: { num: number; gen: number }; rotate: number }[]): Uint8Array {
@@ -195,14 +195,14 @@ export function finish(bytes: Uint8Array, rotations: { ref: { num: number; gen: 
     const [num, gen] = trailer.info.split(/\s+/).map(Number);
     const info = objectDict(text, num, gen);
     if (info && /\/Producer\s*\(Firefox\)/.test(info)) {
-      objects.set(`${num} ${gen}`, info.replace(/\/Producer\s*\(Firefox\)/, "/Producer (CorePro)").replace(/\/Creator\s*\(PDF\.js\)/, "/Creator (CorePro PDF)"));
+      objects.set(`${num} ${gen}`, info.replace(/\/Producer\s*\(Firefox\)/, "/Producer (Zazabor)").replace(/\/Creator\s*\(PDF\.js\)/, "/Creator (Zazabor PDF)"));
     } else if (!info) {
       // Packed in an object stream (files built from several): pdf.js wrote only its own three
       // entries there, so a new dictionary replaces it.
       const now = new Date();
       const pad = (n: number) => String(n).padStart(2, "0");
       const stamp = `D:${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}Z`;
-      objects.set(`${num} ${gen}`, `<< /Producer (CorePro) /Creator (CorePro PDF) /CreationDate (${stamp}) >>`);
+      objects.set(`${num} ${gen}`, `<< /Producer (Zazabor) /Creator (Zazabor PDF) /CreationDate (${stamp}) >>`);
     }
   }
   if (!objects.size) return bytes;

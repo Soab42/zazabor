@@ -7,6 +7,8 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
  */
 interface Target {
   el: HTMLElement;
+  /** The files it takes (pictures and PDFs for receipts). */
+  accepts(path: string): boolean;
   /** The part under the pointer that takes the drop (a row in a list); `el` itself without it. */
   pick?(under: Element): HTMLElement | null;
   accept(paths: string[], at: HTMLElement): void;
@@ -25,7 +27,6 @@ export function isReceipt(path: string): boolean {
 }
 
 function targetAt(x: number, y: number): { target: Target; at: HTMLElement } | null {
-  if (!paths.some(isReceipt)) return null;
   const dpr = window.devicePixelRatio || 1;
   const under = document.elementFromPoint(x / dpr, y / dpr);
   if (!under) return null;
@@ -33,6 +34,10 @@ function targetAt(x: number, y: number): { target: Target; at: HTMLElement } | n
   for (let i = targets.length - 1; i >= 0; i--) {
     const t = targets[i];
     if (!t.el.isConnected || !t.el.contains(under)) continue;
+    if (!paths.some((p) => t.accepts(p))) {
+      if (!t.pick) return null;
+      continue;
+    }
     const at = t.pick ? t.pick(under) : t.el;
     if (at) return { target: t, at };
     // A sheet covers what's under it, picked or not.
@@ -61,7 +66,7 @@ function listen() {
     } else if (p.type === "drop") {
       paths = p.paths;
       const hit = targetAt(p.position.x, p.position.y);
-      if (hit) hit.target.accept(p.paths.filter(isReceipt), hit.at);
+      if (hit) hit.target.accept(p.paths.filter((path) => hit.target.accepts(path)), hit.at);
       // The shell reads the claim on this same event; let it go after that.
       setTimeout(() => hover(null), 120);
     } else {
@@ -70,9 +75,9 @@ function listen() {
   });
 }
 
-/** Makes `el` take dropped pictures and PDFs; returns the function that stops it. */
-export function dropTarget(el: HTMLElement, accept: (paths: string[], at: HTMLElement) => void, pick?: (under: Element) => HTMLElement | null): () => void {
-  const target: Target = { el, accept, pick };
+/** Makes `el` take dropped files (pictures and PDFs unless `accepts` says); returns the function that stops it. */
+export function dropTarget(el: HTMLElement, accept: (paths: string[], at: HTMLElement) => void, pick?: (under: Element) => HTMLElement | null, accepts: (path: string) => boolean = isReceipt): () => void {
+  const target: Target = { el, accept, pick, accepts };
   targets.push(target);
   listen();
   return () => {

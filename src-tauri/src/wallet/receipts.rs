@@ -127,7 +127,7 @@ mod tests {
     #[test]
     fn receipts_are_copies_that_outlive_the_original() {
         let mut conn = fresh();
-        let root = std::env::temp_dir().join(format!("corepro-receipts-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("zazabor-receipts-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         let original = root.join("bill.png");

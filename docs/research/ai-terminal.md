@@ -1,10 +1,10 @@
-# AI terminal for CorePro: research and recommendations
+# AI terminal for Zazabor: research and recommendations
 
 *Researched 2026-10-19. Target: Tauri 2 (Rust) + plain TypeScript on Linux (X11, WebKitGTK). Frontend is xterm.js 6, backend is `portable-pty` 0.9. A first `src-tauri/src/term.rs` already exists: it spawns the default shell, streams `term-data` events, and reads the foreground program and cwd from `/proc`.*
 
 ## Summary
 
-- **Blocks come from shell integration, not from the terminal.** The shell's `precmd`/`preexec` hooks print escape sequences that mark where the prompt, the command and the output start and stop. Warp sends a custom DCS carrying JSON and draws a separate grid for each command ([How Warp works](https://www.warp.dev/blog/how-warp-works)). Everyone else (VS Code, Ghostty, kitty, iTerm2, WezTerm) uses the **OSC 133** marks inside one ordinary grid, and adds an explicit command line and the cwd. xterm.js has one buffer, so CorePro should follow **the VS Code model: markers plus decorations**.
+- **Blocks come from shell integration, not from the terminal.** The shell's `precmd`/`preexec` hooks print escape sequences that mark where the prompt, the command and the output start and stop. Warp sends a custom DCS carrying JSON and draws a separate grid for each command ([How Warp works](https://www.warp.dev/blog/how-warp-works)). Everyone else (VS Code, Ghostty, kitty, iTerm2, WezTerm) uses the **OSC 133** marks inside one ordinary grid, and adds an explicit command line and the cwd. xterm.js has one buffer, so Zazabor should follow **the VS Code model: markers plus decorations**.
 - **You can inject integration without editing anyone's rc files.** The pattern is settled: bash `--init-file`, a temporary `ZDOTDIR` for zsh, and `XDG_DATA_DIRS` or `--init-command` for fish. In each case the injected script first sources the user's own files.
 - **The AI work splits into two tiers.** *Command help* is one cheap, stateless call: turn plain English into a command, or explain a failed block. *Agent mode* is a Messages API tool loop. Each command the model proposes is shown, approved, run in the visible terminal, and read back from its block. Every product converges on deny, then ask, then allow rules: the denylist always wins, and only read-only commands may run without asking.
 - **The main platform risk is WebKitGTK WebGL.** It can quietly fall back to a slow software path, and xterm.js 6 **removed the canvas renderer**, so the only fallback is the DOM renderer.
@@ -50,7 +50,7 @@ Sources: [iTerm2](https://iterm2.com/documentation-escape-codes.html), [VS Code]
 - kitty: `133;C;cmdline=`.
 - Wave: base64 in `16162;C`.
 
-**Spoofing:** any program's output can contain these sequences (`cat evil.txt`). VS Code passes `VSCODE_NONCE` to the shell and attaches it to `633;E`. CorePro should do the same, and trust command text for the AI only when it carries the nonce.
+**Spoofing:** any program's output can contain these sequences (`cat evil.txt`). VS Code passes `VSCODE_NONCE` to the shell and attaches it to `633;E`. Zazabor should do the same, and trust command text for the AI only when it carries the nonce.
 
 **Recommendation:** emit `133` A/B/C/D, `633;E` with the nonce, and OSC 7. Accept 133, 633, 7 and `1337;CurrentDir`, so marks from other sources keep working too, such as fish 4's built-in marks.
 
@@ -58,7 +58,7 @@ Sources: [iTerm2](https://iterm2.com/documentation-escape-codes.html), [VS Code]
 
 | Shell | How (VS Code, from [`terminalEnvironment.ts`](https://github.com/microsoft/vscode/blob/main/src/vs/platform/terminal/node/terminalEnvironment.ts)) | What the script must do |
 |---|---|---|
-| bash | `bash --init-file <dir>/corepro.bash`. Ghostty and kitty instead use POSIX mode plus `ENV`; Wave uses `--rcfile` | Source `~/.bashrc`. For a login shell, also source `/etc/profile` and the first of `~/.bash_profile`, `~/.bash_login`, `~/.profile`, because `--init-file` can't be combined with `-l`. Hook in with [bash-preexec](https://github.com/rcaloras/bash-preexec) (DEBUG trap plus `PROMPT_COMMAND`). Reuse it if `bash_preexec_imported` is already set (Atuin, Starship), and give up if `extdebug` is on, as Wave does. Bash 4.4+ `PS0` can print `C` without the DEBUG trap |
+| bash | `bash --init-file <dir>/zazabor.bash`. Ghostty and kitty instead use POSIX mode plus `ENV`; Wave uses `--rcfile` | Source `~/.bashrc`. For a login shell, also source `/etc/profile` and the first of `~/.bash_profile`, `~/.bash_login`, `~/.profile`, because `--init-file` can't be combined with `-l`. Hook in with [bash-preexec](https://github.com/rcaloras/bash-preexec) (DEBUG trap plus `PROMPT_COMMAND`). Reuse it if `bash_preexec_imported` is already set (Atuin, Starship), and give up if `extdebug` is on, as Wave does. Bash 4.4+ `PS0` can print `C` without the DEBUG trap |
 | zsh | `ZDOTDIR` points at a private temp dir (mode `0700`/`1700`) holding `.zshenv`, `.zprofile`, `.zshrc` and `.zlogin`. `USER_ZDOTDIR` remembers the original | Each file restores `ZDOTDIR` and sources the user's matching file. Hooks go in with `add-zsh-hook precmd/preexec`. A `ZDOTDIR` set in `/etc/zshenv` overrides this |
 | fish | `fish --init-command 'source …'`, or put a `fish/vendor_conf.d/` dir first in `XDG_DATA_DIRS` (Ghostty/kitty) | Use the `fish_prompt`, `fish_preexec` and `fish_postexec` events, then remove the added `XDG_DATA_DIRS` entry |
 
@@ -66,7 +66,7 @@ Rules that every implementation follows:
 
 - **Only the first shell gets integration.** Nested shells, `sudo -s`, `ssh` and `docker exec` don't ([Ghostty](https://ghostty.org/docs/features/shell-integration)). When no marks arrive, fall back to a plain terminal.
 - **Turn integration off inside tmux and screen**, as Wave does.
-- **Offer a manual snippet** guarded by `$TERM_PROGRAM == CorePro`, as VS Code does, plus a setting to opt out.
+- **Offer a manual snippet** guarded by `$TERM_PROGRAM == Zazabor`, as VS Code does, plus a setting to opt out.
 
 ### 3. cwd, exit codes, the foreground program, and interactive programs
 
@@ -142,7 +142,7 @@ Rules that every implementation follows:
 - Large `max_tokens` needs streaming.
 - Prompt caching works on an exact prefix, so keep the system prompt and tool definitions byte-stable.
 
-**Tool choice:** Anthropic's built-in `bash_20250124` tool assumes the app owns a persistent bash session. Its docs say to run it isolated, use an allowlist, set `ulimit`, log everything, **redact secrets**, and truncate output. They also note that it can't run interactive commands and that the API never truncates results ([bash tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/bash-tool)). For CorePro, a **custom `run_command` tool** works better:
+**Tool choice:** Anthropic's built-in `bash_20250124` tool assumes the app owns a persistent bash session. Its docs say to run it isolated, use an allowlist, set `ulimit`, log everything, **redact secrets**, and truncate output. They also note that it can't run interactive commands and that the API never truncates results ([bash tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/bash-tool)). For Zazabor, a **custom `run_command` tool** works better:
 
 - Inputs: `{command, reason, expected_effect: read_only|modifies|destructive|network}`. The UI shows `reason`; the risk is the model's own claim and is never trusted.
 - Companion tools: `list_blocks` and `read_block(id, range)`, and later a `read_file` confined to the workspace.
@@ -179,9 +179,9 @@ There's no official Rust SDK, so use `reqwest` with an SSE parser. The alternati
 
 - Move `term.rs` from `emit_to("term-data")` to one `Channel` per terminal. Batch output (about 4 ms or 64 KB) and add flow control: stop reading when unacknowledged bytes pass HIGH, and resume when the frontend acknowledges.
 - Inject integration (§2):
-  - Bundle `corepro.bash`, a zsh `ZDOTDIR` set, and `corepro.fish` as resources.
+  - Bundle `zazabor.bash`, a zsh `ZDOTDIR` set, and `zazabor.fish` as resources.
   - Detect the shell from `$SHELL` or passwd.
-  - Set `COREPRO_NONCE` (the script copies it into a shell variable and unsets the exported one) and `TERM_PROGRAM_VERSION`.
+  - Set `ZAZABOR_NONCE` (the script copies it into a shell variable and unsets the exported one) and `TERM_PROGRAM_VERSION`.
   - Add a setting to turn it off.
 - In the reader thread, add a light OSC scanner (a byte state machine for `ESC ] 133/633/7`, not a full emulator). It tracks each terminal's state (at prompt, running, alternate screen), last exit code and cwd, which P3 and "close while running?" need.
 - Add the termios ECHO check to `term_info`.
@@ -194,7 +194,7 @@ There's no official Rust SDK, so use `reqwest` with an SSE parser. The alternati
 - Block UI from §4: gutter colours, ruler ticks, hover toolbar, sticky header, Ctrl+Up/Down, copy output, rerun.
 - Hide the chrome on the alternate screen.
 - Handle keys with `attachCustomKeyEventHandler`: Ctrl+Shift+C/V/F, and keep Monaco's shortcuts out while the terminal has focus.
-- Map CorePro's colour tokens to an xterm `ITheme` for light and dark.
+- Map Zazabor's colour tokens to an xterm `ITheme` for light and dark.
 - Show the terminal both as the editor window's panel and as its own window, with tabs titled from the foreground program and cwd.
 - When there are no marks, act as a plain terminal.
 
@@ -278,4 +278,4 @@ Around the loop:
 6. **Autonomy:** should anything ever auto-run? Which commands go on the read-only allowlist?
 7. **Shells and remotes:** which shell do you use (bash, zsh or fish)? Do blocks need to work over SSH or in tmux?
 8. **Rendering:** do you have an NVIDIA GPU? Are you OK with DOM as the default and WebGL as an opt-in?
-9. **History and privacy:** may CorePro keep command history (no output) on disk? Should AI requests be logged locally?
+9. **History and privacy:** may Zazabor keep command history (no output) on disk? Should AI requests be logged locally?

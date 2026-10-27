@@ -10,6 +10,7 @@ import { openDialog } from "../time/dialog";
 import "../time/time-module.css";
 import { errorText } from "../time/api";
 import { kindOf, officeApi, pickFiles, type OfficeKind, type Recovered } from "./api";
+import { createBackstage, type BackstagePage } from "./backstage";
 import type { EditorFactory, EditorHost, HubView, OfficeEditor, RecoveredFile } from "./editor";
 import { renderHub, type HubHost } from "./hub";
 import "./office.css";
@@ -63,14 +64,12 @@ export const createOfficeModule: ModuleFactory = (shell) => {
   const editors: OfficeEditor[] = [];
   let current: OfficeEditor | null = null;
   let view: HubView = "home";
-  /** The file whose File tab opened the hub: its Save, Save As, Print and Close show on top. */
-  let backstage: OfficeEditor | null = null;
   let visible = false;
   /** Files being opened, so a double click doesn't open one twice. */
   const opening = new Set<string>();
   /** Each editor's AutoRecover id and the version last kept. */
   const recovery = new Map<OfficeEditor, { id: string; kept: number }>();
-  /** Snapshots a CorePro that didn't close cleanly left behind. */
+  /** Snapshots a Zazabor that didn't close cleanly left behind. */
   let recovered: Recovered[] = [];
 
   const toast = (text: string) => showToast(text, undefined, 3200);
@@ -148,11 +147,37 @@ export const createOfficeModule: ModuleFactory = (shell) => {
     openInWindow: (path) => openWindow("office", path),
   };
 
-  /** Home's "Recovered" list: files CorePro was editing when it last stopped without saving them. */
+  // ---- File: the backstage over a file (Home, New, Open, Info, Save As, Print, Export)
+
+  const backstage = createBackstage({
+    hub: hubHost,
+    back: () => closeBackstage(),
+    close: (ed) => {
+      closeBackstage();
+      void closeEditor(ed);
+    },
+    showInFiles: (path) => showInFiles(path),
+    toast,
+  });
+  main.append(backstage.el);
+
+  function openBackstage(ed: OfficeEditor, page: BackstagePage = "home") {
+    if (current !== ed) showEditor(ed);
+    ed.deactivate();
+    backstage.open(ed, page);
+  }
+
+  function closeBackstage() {
+    if (!backstage.isOpen) return;
+    backstage.hide();
+    if (current && visible) current.activate();
+  }
+
+  /** Home's "Recovered" list: files Zazabor was editing when it last stopped without saving them. */
   function recoveredList(): HTMLElement | null {
     if (view !== "home" || !recovered.length) return null;
     return h("div", { class: "of-recovered" },
-      h("div", { class: "of-hub-head" }, icon("undo", 16), h("h2", null, "Recovered"), h("span", { class: "of-recovered-hint" }, "CorePro closed before these were saved.")),
+      h("div", { class: "of-hub-head" }, icon("undo", 16), h("h2", null, "Recovered"), h("span", { class: "of-recovered-hint" }, "Zazabor closed before these were saved.")),
       h("div", { class: "of-recent" }, ...recovered.map((r) => h("div", { class: `of-recent-row tone-${r.kind}`, title: r.path ?? "Never saved" },
         h("span", { class: "of-kind" }, icon(KIND_ICON[r.kind], 15)),
         h("span", { class: "of-recent-name" }, r.name),
@@ -212,19 +237,9 @@ export const createOfficeModule: ModuleFactory = (shell) => {
   }, () => undefined);
 
   function drawHub() {
-    const ed = backstage && editors.includes(backstage) ? backstage : null;
-    const strip = ed
-      ? h("div", { class: `of-backstage tone-${ed.kind}` },
-        h("button", { class: "btn", type: "button", onclick: () => showEditor(ed) }, icon("back", 15), `Back to ${ed.title()}`),
-        h("span", { class: "spacer" }),
-        h("button", { class: "btn", type: "button", onclick: () => void ed.save().then((ok) => ok && showEditor(ed)) }, icon("save", 15), "Save"),
-        h("button", { class: "btn", type: "button", onclick: () => void ed.save(true).then((ok) => ok && showEditor(ed)) }, icon("saveAs", 15), "Save As"),
-        ed.print ? h("button", { class: "btn", type: "button", onclick: () => (showEditor(ed), ed.print!()) }, icon("print", 15), "Print") : null,
-        ed.path() ? h("button", { class: "btn", type: "button", onclick: () => showInFiles(ed.path()!) }, icon("folder", 15), "Show in Files") : null,
-        h("button", { class: "btn", type: "button", onclick: () => void closeEditor(ed) }, icon("close", 15), "Close"))
-      : null;
     const rescued = recoveredList();
-    hubBody.replaceChildren(...(strip ? [strip] : []), ...(rescued ? [rescued] : []), ...renderHub(view, hubHost, search.value));
+    hubBody.replaceChildren(...(rescued ? [rescued] : []), ...renderHub(view, hubHost, search.value));
+    if (backstage.isOpen) backstage.refresh();
   }
 
   function showInFiles(path: string) {
@@ -238,8 +253,8 @@ export const createOfficeModule: ModuleFactory = (shell) => {
 
   // ---- showing things
 
-  function showHub(next: HubView, from: OfficeEditor | null = null) {
-    backstage = from;
+  function showHub(next: HubView) {
+    backstage.hide();
     if (current) current.deactivate();
     current = null;
     view = next;
@@ -252,6 +267,7 @@ export const createOfficeModule: ModuleFactory = (shell) => {
   }
 
   function showEditor(ed: OfficeEditor) {
+    if (backstage.file !== ed) backstage.hide();
     if (current && current !== ed) current.deactivate();
     current = ed;
     hub.hidden = true;
@@ -265,7 +281,7 @@ export const createOfficeModule: ModuleFactory = (shell) => {
   /** A window of its own carries the file's name, as Word's and Excel's do. */
   function retitle() {
     if (isMainWindow) return;
-    const title = current ? `${current.title()}${current.dirty() ? " •" : ""} — Office` : "Office — CorePro";
+    const title = current ? `${current.title()}${current.dirty() ? " •" : ""} — Office` : "Office — Zazabor";
     void getCurrentWindow().setTitle(title).catch(() => undefined);
   }
 
@@ -273,7 +289,12 @@ export const createOfficeModule: ModuleFactory = (shell) => {
     return {
       shell,
       changed: () => (drawRail(), retitle()),
-      showHub: (v) => showHub(v ?? "home", get()),
+      showHub: (v) => {
+        const ed = get();
+        // The File tab: the backstage over this file (its Home, New or Open page).
+        if (ed && (!v || v === "home" || v === "new" || v === "open")) openBackstage(ed, v ?? "home");
+        else showHub(v ?? "home");
+      },
       remember,
       toast,
       close: () => {
@@ -344,6 +365,7 @@ export const createOfficeModule: ModuleFactory = (shell) => {
       recovery.delete(ed);
       void officeApi.recovery.remove(kept.id).catch(() => undefined);
     }
+    if (backstage.file === ed) backstage.hide();
     ed.deactivate();
     ed.dispose();
     ed.el.remove();
@@ -361,7 +383,7 @@ export const createOfficeModule: ModuleFactory = (shell) => {
     return current?.kind ?? (view === "sheet" || view === "pdf" ? view : "doc");
   }
 
-  // Ctrl+N is a new file of the kind showing, as in Word and Excel, not a new CorePro window
+  // Ctrl+N is a new file of the kind showing, as in Word and Excel, not a new Zazabor window
   // (that stays on the rail button's right-click).
   el.addEventListener("keydown", (e) => {
     if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "n") return;
@@ -396,10 +418,18 @@ export const createOfficeModule: ModuleFactory = (shell) => {
     icon: "office",
     el,
     ownsNewKey: true,
+    // The user guide: F1 opens the article for the app showing; its Open button shows a page.
+    guideTopic: () => {
+      const kind = current?.kind ?? (view === "doc" || view === "sheet" || view === "pdf" ? view : null);
+      return kind === "doc" ? "docs" : kind === "sheet" ? "sheets" : kind === "pdf" ? "pdf" : "office";
+    },
+    showGuideTarget(target) {
+      if (target === "home" || target === "new" || target === "open" || target === "doc" || target === "sheet" || target === "pdf") showHub(target);
+    },
     activate() {
       visible = true;
-      if (current) current.activate();
-      else drawHub();
+      if (current && !backstage.isOpen) current.activate();
+      else if (!current) drawHub();
     },
     deactivate() {
       visible = false;
@@ -408,6 +438,10 @@ export const createOfficeModule: ModuleFactory = (shell) => {
     handleKey(e) {
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
+      if (backstage.isOpen && e.key === "Escape") {
+        closeBackstage();
+        return true;
+      }
       if (mod && key === "o") {
         void browse();
         return true;

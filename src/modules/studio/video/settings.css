@@ -1,0 +1,6 @@
+/* Settings → Video Editor: one row per speech model (name and state, then its buttons) and the codec list. */
+.st-ve-models { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.st-ve-model { display: flex; align-items: center; gap: 10px; }
+.st-ve-model .st-text { flex: 1; }
+.st-ve-codecs { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.st-ve-list { margin: 0; padding-left: 18px; color: var(--muted); font-size: 12.5px; line-height: 1.6; }

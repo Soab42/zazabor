@@ -1,6 +1,6 @@
 /**
  * File dialogs for every module: Open, Choose Folder and Save As. Same options and results as
- * `@tauri-apps/plugin-dialog`, so a call site only changes its import. The dialogs are CorePro's
+ * `@tauri-apps/plugin-dialog`, so a call site only changes its import. The dialogs are Zazabor's
  * own (`filepicker/`, loaded on first use), in the Files look, never the desktop's.
  */
 

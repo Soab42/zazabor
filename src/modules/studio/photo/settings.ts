@@ -4,8 +4,8 @@ import type { SelectMode } from "./selection";
 import { FONTS, SHAPES, type ShapeKind, type TextAlign } from "./vector";
 
 export type Tool =
-  | "move" | "marquee" | "ellipse" | "lasso" | "polyLasso" | "wand" | "crop" | "eyedropper"
-  | "heal" | "brush" | "clone" | "eraser" | "gradient" | "bucket" | "text" | "shape" | "hand" | "zoom";
+  | "move" | "marquee" | "ellipse" | "lasso" | "polyLasso" | "wand" | "objectSelect" | "crop" | "eyedropper"
+  | "heal" | "remove" | "brush" | "clone" | "eraser" | "gradient" | "bucket" | "text" | "shape" | "hand" | "zoom";
 
 export interface BrushSettings {
   /** Diameter in document pixels. */
@@ -32,6 +32,10 @@ export interface PhotoSettings {
   wand: { tolerance: number; contiguous: boolean; allLayers: boolean };
   clone: BrushSettings & { aligned: boolean };
   heal: BrushSettings & { aligned: boolean };
+  /** The Remove tool: paint over something to fill it from around it (AI). */
+  remove: { size: number };
+  /** AI: the subject finder for Remove Background and Select Subject. */
+  ai: { subject: "best" | "fast" };
   text: { font: string; size: number; bold: boolean; italic: boolean; align: TextAlign; lineHeight: number };
   shape: { shape: ShapeKind; fill: boolean; stroke: boolean; strokeWidth: number; radius: number; sides: number };
   filters: FilterSettings;
@@ -42,7 +46,7 @@ export interface PhotoSettings {
   export: { format: SaveFormat; quality: number };
 }
 
-export const TOOLS: Tool[] = ["move", "marquee", "ellipse", "lasso", "polyLasso", "wand", "crop", "eyedropper", "heal", "brush", "clone", "eraser", "gradient", "bucket", "text", "shape", "hand", "zoom"];
+export const TOOLS: Tool[] = ["move", "marquee", "ellipse", "lasso", "polyLasso", "wand", "objectSelect", "crop", "eyedropper", "heal", "remove", "brush", "clone", "eraser", "gradient", "bucket", "text", "shape", "hand", "zoom"];
 
 const DEFAULTS: PhotoSettings = {
   tool: "brush",
@@ -56,6 +60,8 @@ const DEFAULTS: PhotoSettings = {
   wand: { tolerance: 32, contiguous: true, allLayers: false },
   clone: { size: 60, hardness: 50, opacity: 100, flow: 100, aligned: true },
   heal: { size: 40, hardness: 60, opacity: 100, flow: 100, aligned: true },
+  remove: { size: 60 },
+  ai: { subject: "best" },
   text: { font: "Sans", size: 72, bold: false, italic: false, align: "left", lineHeight: 1.2 },
   shape: { shape: "rect", fill: true, stroke: false, strokeWidth: 4, radius: 0, sides: 6 },
   filters: DEFAULT_FILTERS,
@@ -77,7 +83,7 @@ export function normalizePhotoSettings(raw: unknown): PhotoSettings {
     return { size: num(b.size, 1, 2000, d.size), hardness: num(b.hardness, 0, 100, d.hardness), opacity: num(b.opacity, 1, 100, d.opacity), flow: num(b.flow, 1, 100, d.flow) };
   };
   const bucket = obj(r.bucket), gradient = obj(r.gradient), eye = obj(r.eyedropper), canvas = obj(r.newCanvas), exp = obj(r.export), crop = obj(r.crop);
-  const select = obj(r.select), wand = obj(r.wand), text = obj(r.text), shape = obj(r.shape), filters = obj(r.filters);
+  const select = obj(r.select), wand = obj(r.wand), text = obj(r.text), shape = obj(r.shape), filters = obj(r.filters), remove = obj(r.remove), ai = obj(r.ai);
   const cloneLike = (v: unknown, d: BrushSettings & { aligned: boolean }) => ({ ...brush(v, d), aligned: bool(obj(v).aligned, true) });
   const f = (k: keyof FilterSettings) => obj(filters[k]);
   return {
@@ -92,6 +98,8 @@ export function normalizePhotoSettings(raw: unknown): PhotoSettings {
     wand: { tolerance: num(wand.tolerance, 0, 255, 32), contiguous: bool(wand.contiguous, true), allLayers: bool(wand.allLayers, false) },
     clone: cloneLike(r.clone, DEFAULTS.clone),
     heal: cloneLike(r.heal, DEFAULTS.heal),
+    remove: { size: num(remove.size, 1, 2000, DEFAULTS.remove.size) },
+    ai: { subject: ai.subject === "fast" ? "fast" : "best" },
     text: {
       font: typeof text.font === "string" && FONTS.includes(text.font) ? text.font : "Sans",
       size: num(text.size, 1, 2000, 72),

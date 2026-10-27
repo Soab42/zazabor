@@ -77,8 +77,8 @@ const SCRIPTS: [(&str, &str); 6] = [
     ("zsh/.zprofile", include_str!("../shell/zsh/.zprofile")),
     ("zsh/.zshrc", include_str!("../shell/zsh/.zshrc")),
     ("zsh/.zlogin", include_str!("../shell/zsh/.zlogin")),
-    ("corepro.bash", include_str!("../shell/corepro.bash")),
-    ("corepro.fish", include_str!("../shell/corepro.fish")),
+    ("zazabor.bash", include_str!("../shell/zazabor.bash")),
+    ("zazabor.fish", include_str!("../shell/zazabor.fish")),
 ];
 
 /// Writes the scripts to a private folder in the app's cache (once per launch) and returns it.
@@ -127,17 +127,17 @@ fn shell_command(shell: &str, integration: Option<&Path>) -> CommandBuilder {
         ("zsh", Some(dir)) => {
             cmd.arg("-l");
             let user = std::env::var_os("ZDOTDIR").or_else(|| std::env::var_os("HOME")).unwrap_or_default();
-            cmd.env("COREPRO_USER_ZDOTDIR", user);
+            cmd.env("ZAZABOR_USER_ZDOTDIR", user);
             cmd.env("ZDOTDIR", dir.join("zsh"));
         }
         ("bash", Some(dir)) => {
             cmd.arg("--init-file");
-            cmd.arg(dir.join("corepro.bash"));
+            cmd.arg(dir.join("zazabor.bash"));
         }
         ("fish", Some(dir)) => {
             cmd.arg("-l");
             cmd.arg("--init-command");
-            cmd.arg(format!("source '{}'", dir.join("corepro.fish").display()));
+            cmd.arg(format!("source '{}'", dir.join("zazabor.fish").display()));
         }
         ("zsh" | "bash" | "fish", None) => cmd.arg("-l"),
         _ => {}
@@ -199,11 +199,11 @@ pub fn term_spawn(
     let scripts = if integration.unwrap_or(true) { integration_dir(&app) } else { None };
     let mut cmd = shell_command(&shell, scripts.as_deref());
     // The terminal checks command lines against this token; it picks one, or gets a random one.
-    cmd.env("COREPRO_NONCE", nonce.filter(|n| !n.is_empty()).unwrap_or_else(self::nonce));
+    cmd.env("ZAZABOR_NONCE", nonce.filter(|n| !n.is_empty()).unwrap_or_else(self::nonce));
     cmd.cwd(start_dir(cwd));
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
-    cmd.env("TERM_PROGRAM", "CorePro");
+    cmd.env("TERM_PROGRAM", "Zazabor");
     let child = pair.slave.spawn_command(cmd).map_err(|e| format!("Couldn’t start your shell: {e}"))?;
     drop(pair.slave);
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
@@ -321,7 +321,7 @@ mod tests {
         assert_eq!(zsh.get_argv().iter().map(|a| a.to_string_lossy().into_owned()).collect::<Vec<_>>(), ["/usr/bin/zsh", "-l"]);
         assert_eq!(zsh.get_env("ZDOTDIR").map(|v| v.to_string_lossy().into_owned()).as_deref(), Some("/tmp/si/zsh"));
         let bash = shell_command("/bin/bash", Some(dir));
-        assert_eq!(bash.get_argv().iter().map(|a| a.to_string_lossy().into_owned()).collect::<Vec<_>>(), ["/bin/bash", "--init-file", "/tmp/si/corepro.bash"]);
+        assert_eq!(bash.get_argv().iter().map(|a| a.to_string_lossy().into_owned()).collect::<Vec<_>>(), ["/bin/bash", "--init-file", "/tmp/si/zazabor.bash"]);
         let plain = shell_command("/bin/dash", Some(dir));
         assert_eq!(plain.get_argv().len(), 1);
         let off = shell_command("/usr/bin/zsh", None);

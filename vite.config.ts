@@ -7,7 +7,7 @@ const host = process.env.TAURI_DEV_HOST;
  * "%PDF" in its first 1024 bytes for a PDF: a script like that won't load in the release build.
  */
 const noPdfLookalikes: Plugin = {
-  name: "corepro-no-pdf-lookalikes",
+  name: "zazabor-no-pdf-lookalikes",
   generateBundle(_options, bundle) {
     for (const file of Object.values(bundle)) {
       if (file.fileName.endsWith(".pdf")) continue;

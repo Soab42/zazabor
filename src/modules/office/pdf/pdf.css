@@ -235,7 +235,7 @@
 .of-editor.pf-editor .editToolbar .buttons .basic { position: relative; display: block; }
 .of-editor.pf-editor .editToolbar .buttons .basic::before { position: absolute; inset: 0; display: block; }
 
-/* ---- CorePro's own tools on the pages (markup.ts): shapes being drawn, redaction marks */
+/* ---- Zazabor's own tools on the pages (markup.ts): shapes being drawn, redaction marks */
 .pf-draft { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 30; }
 .pf-redact-draft { fill: rgba(229, 72, 77, 0.16); stroke: #e5484d; stroke-width: 1.5; stroke-dasharray: 4 3; }
 .pf-redact-layer { position: absolute; inset: 0; pointer-events: none; z-index: 25; }
@@ -247,6 +247,14 @@
 .pf-own-drawing .textLayer, .pf-own-drawing .annotationLayer { pointer-events: none !important; }
 .pf-own-drawing[data-own-tool="note"] .page, .pf-own-drawing[data-own-tool="picture"] .page { cursor: copy; }
 .pf-own-drawing[data-own-tool="text"] .page { cursor: text; }
+.pf-own-drawing[data-own-tool="editText"] .page { cursor: text; }
+/* Edit Text: the line being changed, typed over the page where it is. */
+.pf-line-editor {
+  position: absolute; z-index: 30; box-sizing: content-box; margin: 0; padding: 0 2px; border: 0; border-radius: 2px;
+  outline: 2px solid var(--accent, #3b82f6); outline-offset: 1px; background: #fff; line-height: 1; white-space: pre;
+  transform-origin: left bottom;
+}
+.pf-warn { color: var(--danger, #e5484d); }
 .pf-own-ghost img { opacity: 0.85; }
 
 /* ---- the Edit and Protect tabs' dialogs */
@@ -281,5 +289,37 @@
 .pf-option-note { color: var(--muted); font-size: 12px; }
 .pf-comment-row { display: flex; align-items: flex-start; gap: 2px; }
 .pf-comment-row > .pf-comment { flex: 1; min-width: 0; }
-.pf-comment-delete { flex: none; margin-top: 4px; opacity: 0; }
-.pf-comment-row:hover .pf-comment-delete, .pf-comment-delete:focus-visible { opacity: 1; }
+.pf-comment-delete, .pf-comment-reply { flex: none; margin-top: 4px; opacity: 0; }
+.pf-comment-row:hover :is(.pf-comment-delete, .pf-comment-reply), :is(.pf-comment-delete, .pf-comment-reply):focus-visible { opacity: 1; }
+.pf-reply { margin-left: 22px; padding-left: 6px; border-left: 2px solid var(--line); }
+.pf-reply .pf-comment-icon { width: 20px; height: 20px; }
+
+/* ---- round 3: certificate signatures, OCR, conversion */
+
+.pf-sigbox-draft { fill: color-mix(in srgb, var(--accent) 14%, transparent); stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 5 3; }
+.pf-sigs { display: flex; flex-direction: column; gap: 4px; }
+.pf-sig {
+  display: flex; gap: 8px; padding: 8px 6px; border: 0; border-radius: 7px; background: none; color: var(--text); font: inherit; font-size: 12px; text-align: left; cursor: pointer;
+}
+.pf-sig:hover:not(:disabled) { background: var(--hover); }
+.pf-sig:disabled { cursor: default; }
+.pf-sig-icon { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: #fff; }
+.pf-sig.good .pf-sig-icon { background: #30a46c; }
+.pf-sig.caution .pf-sig-icon { background: #d9a10f; }
+.pf-sig.bad .pf-sig-icon { background: var(--danger); }
+.pf-sig-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pf-sig-head { display: flex; flex-wrap: wrap; gap: 0 6px; color: var(--muted); font-size: 11px; }
+.pf-sig-head b { color: var(--text); font-weight: 600; font-size: 12px; }
+.pf-sig-text { color: var(--text-2); line-height: 1.4; }
+.pf-sig-meta { color: var(--faint); font-size: 11px; }
+.pf-cert-row { align-items: center; }
+.pf-cert-file { flex: 1; min-width: 0; overflow: hidden; color: var(--text-2); text-overflow: ellipsis; white-space: nowrap; }
+.pf-cert-details:empty { display: none; }
+.pf-cert-details { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 8px; background: var(--control); }
+.pf-cert-line { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.pf-cert-line span { color: var(--muted); }
+.pf-progress { height: 6px; overflow: hidden; border-radius: 3px; background: var(--control); }
+.pf-progress-fill { width: 0; height: 100%; border-radius: 3px; background: var(--app, var(--accent)); transition: width 0.2s; }
+/* File → Print: the pages on paper, one under another. */
+.pf-preview { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.pf-preview-page { display: block; width: 300px; min-height: 120px; background: #fff; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35); }

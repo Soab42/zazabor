@@ -415,7 +415,7 @@ mod tests {
     use crate::fs::jobs::Kind;
 
     fn temp(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("corepro-archive-{tag}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("zazabor-archive-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -556,7 +556,7 @@ mod tests {
 
     #[test]
     fn tar_refuses_traversal_and_absolute_entries() {
-        for (tag, name) in [("dotdot", "../evil.txt"), ("nested", "a/../../evil.txt"), ("abs", "/tmp/corepro-evil.txt")] {
+        for (tag, name) in [("dotdot", "../evil.txt"), ("nested", "a/../../evil.txt"), ("abs", "/tmp/zazabor-evil.txt")] {
             let root = temp(&format!("tar-{tag}"));
             let dest = root.join("dest");
             fs::create_dir(&dest).unwrap();

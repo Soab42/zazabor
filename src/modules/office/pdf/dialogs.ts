@@ -98,6 +98,38 @@ export function extractDialog(count: number, selected: number[]): Promise<{ page
   });
 }
 
+/** Replace Pages: which of this file's pages go, and which pages of `name` take their place. */
+export function replaceDialog(count: number, selected: number[], name: string, otherCount: number): Promise<{ replace: number[]; with: number[] } | null> {
+  return new Promise((resolve) => {
+    let answer: { replace: number[]; with: number[] } | null = null;
+    const mine = textInput({ value: selected.length ? rangeText(selected) : "1", "aria-label": "Pages to replace", "data-autofocus": "" });
+    const n = Math.min(Math.max(1, selected.length), otherCount);
+    const theirs = textInput({ value: n > 1 ? `1-${n}` : "1", "aria-label": `Pages of ${name}` });
+    const ok = () => {
+      const replace = parseRange(mine.value, count);
+      if (!replace?.length) return dialog.error(`Type pages of this file between 1 and ${count}.`);
+      const pages = parseRange(theirs.value, otherCount);
+      if (!pages?.length) return dialog.error(`Type pages of ${name} between 1 and ${otherCount}.`);
+      answer = { replace: [...new Set(replace)].sort((a, b) => a - b), with: pages };
+      dialog.close();
+    };
+    const dialog = openDialog({
+      title: "Replace Pages",
+      subtitle: `Takes pages out of this file and puts pages of ${name} where the first of them was.`,
+      icon: "pageAdd",
+      tone: "work",
+      body: [field("Replace pages", mine, { note: `of ${count} in this file` }), field("With pages", theirs, { note: `of ${otherCount} in ${name}` })],
+      foot: [
+        h("span", { class: "spacer" }),
+        h("button", { class: "btn", type: "button", onclick: () => dialog.close() }, "Cancel"),
+        h("button", { class: "btn primary", type: "button", onclick: ok }, "Replace"),
+      ],
+      submit: ok,
+      onClose: () => resolve(answer),
+    });
+  });
+}
+
 /** Split: every N pages, or at each top-level bookmark; then a folder to save the parts in. */
 export function splitDialog(count: number, hasBookmarks: boolean): Promise<{ by: "pages"; size: number } | { by: "bookmarks" } | null> {
   return new Promise((resolve) => {

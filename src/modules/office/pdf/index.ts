@@ -10,15 +10,21 @@ import { confirmDialog } from "../../time/dialog";
 import { Cancelled, extensionOf, officeApi, pickSavePath, safeLink, stem } from "../api";
 import type { EditorFactory, OfficeEditor } from "../editor";
 import { Ribbon, titleBar } from "../ribbon";
-import { extractDialog, goToDialog, passwordDialog, propertiesDialog, splitDialog } from "./dialogs";
+import { extractDialog, goToDialog, passwordDialog, propertiesDialog, replaceDialog, splitDialog } from "./dialogs";
 import { addTextDialog, compressDialog, faceCss, headerFooterDialog, noteDialog, protectDialog, redactApplyDialog, redactFindDialog, sanitizeDialog, unprotectDialog, watermarkDialog, type TextChoice } from "./edit-dialogs";
 import { Markup, viewportRect, type MarkupTool, type OwnTool } from "./markup";
-import { ghostscript, hasGhostscript, pdfEdit, refOf, rgbOf, standardText, type Op } from "./tools";
+import { ghostscript, hasGhostscript, pdfEdit, pdfEditNoted, pdfiumStatus, refOf, rgbOf, standardText, textLine, type Op, type TextLine } from "./tools";
 import { build, loadEngine, openError, openPdf, paper, type Engine, type Slot, type Source } from "./engine";
+import { convertToExcel } from "./statement";
 import { finish } from "./bytes";
 import { Organizer } from "./organize";
 import { printPdf } from "./print";
-import { markImage, signatureDialog, signatureMenu, type Ink } from "./signatures";
+import { markImage, signatureApi, signatureDialog, signatureMenu, type Ink } from "./signatures";
+import { certApi, signaturesPanel, signDialog, type SigInfo, type SignChoice } from "./certs";
+import { ocrApi, pageHasText, readPages } from "./ocr";
+import { downloadDialog, ocrDialog, progressDialog } from "./ocr-dialogs";
+import { convertApi, pdfToHtml, toWordDialog } from "./convert";
+import { writeDocx } from "../docs/write";
 import { buildTabs, type NavId, type PdfCtx } from "./tabs";
 import { lazyThumbs, Thumbs } from "./thumbs";
 import "./pdf.css";
@@ -178,6 +184,10 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
   let attachments: Map<string, { filename: string; content?: Uint8Array | null }> | null = null;
   /** The file's size on disk (Properties). */
   let fileSize = bytes.length;
+  /** The file's digital signatures, checked (null while checking). */
+  let signatures: SigInfo[] | null = null;
+  /** A certificate signature waiting for its box on the page. */
+  let pendingSign: SignChoice | null = null;
 
   const dirty = () => changed || modified;
   function title(): string {
@@ -195,7 +205,7 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
     override addLinkAttributes(link: HTMLAnchorElement, url: string) {
       const safe = safeLink(url);
       link.href = safe ?? "#";
-      link.title = safe ?? `${url} (CorePro doesn't open this kind of link)`;
+      link.title = safe ?? `${url} (Zazabor doesn't open this kind of link)`;
       link.rel = "noopener noreferrer nofollow";
       link.removeAttribute("target");
       link.onclick = (e) => {
@@ -221,7 +231,7 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
     maxCanvasPixels: 2 ** 25,
   });
   links.setViewer(pdfViewer);
-  // Anything else that's a link in the page (an anchor pdf.js made) must not navigate CorePro.
+  // Anything else that's a link in the page (an anchor pdf.js made) must not navigate Zazabor.
   scroller.addEventListener("click", (e) => {
     const a = (e.target as HTMLElement).closest?.("a[href]");
     if (a && !(a.getAttribute("href") ?? "").startsWith("#")) e.preventDefault();
@@ -298,6 +308,15 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
       encrypted = password !== null || !!(m.info as { EncryptFilterName?: string }).EncryptFilterName;
       schedule();
     }).catch(() => undefined);
+    signatures = null;
+    const checked = bytes;
+    void certApi.verify(checked).then((list) => {
+      if (shown !== doc) return;
+      signatures = list;
+      drawNavStrip();
+      if (nav === "signatures") drawNav();
+      schedule();
+    }, () => (signatures = []));
     drawNav();
   }
 
@@ -367,7 +386,7 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
   const main = h("div", { class: "pf-main" }, scroller, organizer.el, findbar, ghost, busyNote, readBar);
   organizer.el.hidden = true;
 
-  // CorePro's own tools: text markup, notes, shapes, redaction marks, content placed on pages.
+  // Zazabor's own tools: text markup, notes, shapes, redaction marks, content placed on pages.
   let author = "";
   void homeDir().then((d) => (author = basename(d.replace(/\/+$/, "")))).catch(() => undefined);
   /** A picture chosen for Edit → Add Picture, waiting for its click. */
@@ -382,6 +401,12 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
     noteText: () => noteDialog(),
     addText: (n, at, client) => addTextAt(n, at, client),
     placePicture: (n, center) => placeContentPicture(n, center),
+    editText: (n, at) => editTextAt(n, at),
+    signatureBox: (n, box) => {
+      const choice = pendingSign;
+      pendingSign = null;
+      if (choice) void signWith(choice, n, box);
+    },
     author: () => author,
   });
 
@@ -748,7 +773,7 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
     }
   }
 
-  /** A data URL's bytes (fetching data: URLs isn't allowed by CorePro's content policy). */
+  /** A data URL's bytes (fetching data: URLs isn't allowed by Zazabor's content policy). */
   function dataUrlBlob(url: string): Blob {
     const [head, data] = url.split(",", 2);
     const raw = atob(data);
@@ -853,7 +878,7 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
    * in Organize afterwards, `show` the page to show.
    */
   async function restructure(what: string, plan: (source: Source, count: number, rotate: number[]) => Promise<{ slots: Slot[]; select?: number[]; show?: number } | null>) {
-    if (busy) return;
+    if (busy || !(await signedGuard())) return;
     showBusy(`${what}…`);
     try {
       const base = await bake();
@@ -973,6 +998,43 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
     });
   }
 
+  /** Replace Pages: pages of this file swapped for pages of another PDF, at the first one's place. */
+  async function replacePages(pages?: number[]) {
+    if (busy) return;
+    const picked = await open({ title: "Replace With Pages From", multiple: false, filters: [{ name: "PDFs", extensions: ["pdf"] }] }).catch(() => null);
+    if (!picked) return;
+    let other: Awaited<ReturnType<typeof openPdf>>;
+    let raw: Uint8Array;
+    try {
+      raw = await officeApi.read(picked);
+      other = await openPdf(engine, raw, (wrong) => passwordDialog(basename(picked), wrong));
+    } catch (err) {
+      if ((err as Error)?.name !== "Cancelled") host.toast(`Couldn’t open ${basename(picked)}: ${errorText(err)}`);
+      return;
+    }
+    const chosen = await replaceDialog(doc.numPages, pages ?? (organizing ? organizer.selection() : [page() - 1]), basename(picked), other.doc.numPages);
+    if (!chosen) {
+      void other.doc.loadingTask.destroy();
+      return;
+    }
+    const rotations: number[] = [];
+    for (const i of chosen.with) rotations.push((await other.doc.getPage(i + 1)).rotate);
+    void other.doc.loadingTask.destroy();
+    const src: Source = { bytes: raw, password: other.password };
+    void restructure("Replacing pages", async (source, count, rotate) => {
+      const gone = new Set(chosen.replace);
+      const at = chosen.replace[0];
+      const added: Slot[] = chosen.with.map((i, k) => ({ source: src, index: i, rotate: rotations[k] }));
+      const slots: Slot[] = [];
+      for (let i = 0; i < count; i++) {
+        if (i === at) slots.push(...added);
+        if (!gone.has(i)) slots.push({ source, index: i, rotate: rotate[i] });
+      }
+      // No page before `at` goes, so the new pages start there.
+      return { slots, select: added.map((_, k) => at + k), show: at + 1 };
+    });
+  }
+
   /** Saves `pages` as a new PDF (asks where); `remove` takes them out of this one afterwards. */
   async function extract(pages?: number[]) {
     const chosen = await extractDialog(doc.numPages, pages ?? (organizing ? organizer.selection() : [page() - 1]));
@@ -1082,10 +1144,10 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
 
   /**
    * Runs `ops` on the file as it is now and shows the result. `nextPassword` is the password the
-   * new file opens with, when the job changes it.
+   * new file opens with, when the job changes it. `asked`: a signed file's owner already agreed.
    */
-  async function applyTools(what: string, ops: Op[], blobs: Uint8Array[] = [], nextPassword?: string | null): Promise<boolean> {
-    if (busy) return false;
+  async function applyTools(what: string, ops: Op[], blobs: Uint8Array[] = [], nextPassword?: string | null, asked = false): Promise<boolean> {
+    if (busy || (!asked && !(await signedGuard()))) return false;
     showBusy(`${what}…`);
     try {
       const base = await bake();
@@ -1118,8 +1180,100 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
       }
       if (mode() !== T.NONE) pdfViewer.annotationEditorMode = { mode: T.NONE };
     }
+    if (tool !== "editText") closeLineEditor();
     markup.setTool(tool);
     schedule();
+  }
+
+  // ---- PDFium: true redaction and Edit Text
+
+  let pdfium: { available: boolean; detail: string } | null = null;
+  /** Whether PDFium runs here (asked again until it does: it can be installed meanwhile). */
+  async function pdfiumState() {
+    if (!pdfium?.available) pdfium = await pdfiumStatus();
+    return pdfium;
+  }
+
+  async function toggleEditText() {
+    if (markup.tool === "editText") return setOwnTool(null);
+    const status = await pdfiumState();
+    if (!status.available) return host.toast(`Edit Text needs PDFium. ${status.detail}`);
+    setOwnTool("editText");
+    host.toast("Click a line of text to change it (Esc to stop)");
+  }
+
+  let lineEditor: { el: HTMLInputElement; done: (commit: boolean) => void } | null = null;
+  function closeLineEditor() {
+    lineEditor?.done(false);
+  }
+
+  async function editTextAt(n: number, at: [number, number]) {
+    if (busy) return;
+    if (lineEditor) return lineEditor.done(true);
+    let line: TextLine | null;
+    try {
+      line = await textLine(await bake(), password, n, at);
+    } catch (err) {
+      return host.toast(`Couldn’t read the text there: ${errorText(err)}`);
+    }
+    if (!line) return host.toast("There’s no text there. Click on a line of the page’s own text (scans need Recognize Text first, and that text is hidden).");
+    if (line.refused) return host.toast(line.refused);
+    openLineEditor(n, line);
+  }
+
+  /** An input over the line, in its size and a similar face; Enter (or clicking away) keeps it, Esc doesn't. */
+  function openLineEditor(n: number, line: TextLine) {
+    const view = pdfViewer.getPageView(n - 1) as { viewport: { scale: number; convertToViewportPoint(x: number, y: number): number[] }; div: HTMLElement } | undefined;
+    if (!view) return;
+    const wrap = (view.div.querySelector(".canvasWrapper") ?? view.div) as HTMLElement;
+    const [x0, , x1] = viewportRect(view.viewport as never, line.rect);
+    const [bx, by] = view.viewport.convertToViewportPoint(line.baseline[0], line.baseline[1]);
+    const size = line.size * view.viewport.scale;
+    const el = h("input", { class: "pf-line-editor", type: "text", spellcheck: "false", "aria-label": "Text of the line" });
+    el.value = line.text;
+    Object.assign(el.style, {
+      // Its baseline on the line's: in a line 1.2 em tall, the baseline is about 0.95 em down.
+      left: `${bx + wrap.offsetLeft - 2}px`, top: `${by + wrap.offsetTop - size * 0.95}px`, height: `${size * 1.2}px`, lineHeight: `${size * 1.2}px`, minWidth: `${Math.abs(x1 - x0) + 8}px`,
+      font: `${line.italic ? "italic " : ""}${line.bold ? "700 " : ""}${size}px ${line.mono ? "'Liberation Mono', monospace" : line.serif ? "'Liberation Serif', serif" : "'Liberation Sans', sans-serif"}`,
+      color: line.color,
+    });
+    // Wide enough for what's typed.
+    const fit = () => (el.style.width = `${Math.max(Math.abs(x1 - x0) + 8, el.scrollWidth)}px`);
+    el.addEventListener("input", fit);
+    let closed = false;
+    const done = (commit: boolean) => {
+      if (closed) return;
+      closed = true;
+      lineEditor = null;
+      el.remove();
+      if (commit && el.value !== line.text) void commitLine(n, line, el.value);
+    };
+    el.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") done(true);
+      else if (e.key === "Escape") done(false);
+    });
+    el.addEventListener("blur", () => setTimeout(() => done(true), 0));
+    view.div.append(el);
+    lineEditor = { el, done };
+    fit();
+    el.focus();
+    el.select();
+  }
+
+  async function commitLine(n: number, line: TextLine, text: string) {
+    if (busy || !(await signedGuard())) return;
+    showBusy("Changing the text…");
+    try {
+      const base = await bake();
+      const { pdf, notes } = await pdfEditNoted(base, password, [{ op: "editText", page: n, objects: line.objects, old: line.text, text }]);
+      await keep(base, pdf, password);
+      host.toast(notes.length ? `${notes.join(" ")} Save to keep it.` : "Text changed, in the file’s own font. Save to keep it.");
+    } catch (err) {
+      host.toast(`Couldn’t change the text: ${errorText(err)}`);
+    } finally {
+      showBusy(null);
+    }
   }
 
   async function markText(kind: MarkupTool) {
@@ -1252,49 +1406,31 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
   async function applyRedactions() {
     const pages = [...markup.marks].filter(([, list]) => list.length).map(([i]) => i).sort((a, b) => a - b);
     if (!pages.length || busy) return;
-    const choice = await redactApplyDialog(pages, markup.markCount());
+    const choice = await redactApplyDialog(pages, markup.markCount(), await pdfiumState(), !!signatures?.some((s) => s.intact));
     if (!choice) return;
     showBusy("Applying redactions…");
     let check: Awaited<ReturnType<typeof openPdf>> | null = null;
     try {
       const base = await bake();
-      // Each marked page drawn as it shows (comments and form values included), marks in black.
-      const shown = await openPdf(engine, base, ask, password);
-      const blobs: Uint8Array[] = [];
-      const parts: { page: number; blob: number; view: number[] }[] = [];
-      try {
-        for (const i of pages) {
-          const p = await shown.doc.getPage(i + 1);
-          const unit = p.getViewport({ scale: 1, rotation: 0 });
-          const scale = Math.min(choice.dpi / 72, Math.sqrt(40e6 / (unit.width * unit.height)));
-          const vp = p.getViewport({ scale, rotation: 0 });
-          const canvas = h("canvas", { width: Math.ceil(vp.width), height: Math.ceil(vp.height) });
-          const g = canvas.getContext("2d")!;
-          g.fillStyle = "#fff";
-          g.fillRect(0, 0, canvas.width, canvas.height);
-          await p.render({ canvas, viewport: vp, annotationMode: lib.AnnotationMode.ENABLE }).promise;
-          g.fillStyle = "#000";
-          for (const m of markup.marks.get(i) ?? []) {
-            const [x0, y0, x1, y1] = viewportRect(vp, m.box);
-            g.fillRect(Math.floor(Math.min(x0, x1)), Math.floor(Math.min(y0, y1)), Math.ceil(Math.abs(x1 - x0)) + 1, Math.ceil(Math.abs(y1 - y0)) + 1);
-          }
-          const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("The page couldn’t be drawn."))), "image/jpeg", 0.92));
-          blobs.push(new Uint8Array(await blob.arrayBuffer()));
-          parts.push({ page: i + 1, blob: blobs.length, view: [...p.view] });
-          p.cleanup();
-        }
-      } finally {
-        void shown.doc.loadingTask.destroy();
+      const cleanup: Op[] = choice.cleanup ? [{ op: "sanitize", metadata: true, attachments: true, scripts: true, comments: false }] : [];
+      let out: Uint8Array;
+      let notes: string[] = [];
+      if (choice.method === "objects") {
+        const marked = pages.map((i) => ({ page: i + 1, rects: (markup.marks.get(i) ?? []).map((m) => [...m.box]) }));
+        ({ pdf: out, notes } = await pdfEditNoted(base, password, [{ op: "redactObjects", pages: marked }, ...cleanup]));
+      } else {
+        const { parts, blobs } = await pagePictures(base, pages, choice.dpi);
+        out = await pdfEdit(base, password, [{ op: "redact", pages: parts }, ...cleanup], blobs);
       }
-      const ops: Op[] = [{ op: "redact", pages: parts }];
-      if (choice.cleanup) ops.push({ op: "sanitize", metadata: true, attachments: true, scripts: true, comments: false });
-      const out = await pdfEdit(base, password, ops, blobs);
-      // The check: the redacted pages hold no text at all now, and where the found text still
-      // appears (pages without marks) is said.
+      // The check. Removing: Rust read the pages again with PDFium and found no character under a
+      // mark. Pictures: the redacted pages hold no text at all now. Either way, where the found
+      // text still appears (without marks) is said.
       check = await openPdf(engine, out, ask, password);
-      for (const i of pages) {
-        const text = await (await check.doc.getPage(i + 1)).getTextContent();
-        if (text.items.some((it) => "str" in it && it.str.trim())) throw new Error(`page ${i + 1} still has text, so nothing was changed`);
+      if (choice.method === "pictures") {
+        for (const i of pages) {
+          const text = await (await check.doc.getPage(i + 1)).getTextContent();
+          if (text.items.some((it) => "str" in it && it.str.trim())) throw new Error(`page ${i + 1} still has text, so nothing was changed`);
+        }
       }
       const terms = [...new Set([...markup.marks.values()].flat().map((m) => m.term?.toLowerCase()).filter((t): t is string => !!t))];
       const left: number[] = [];
@@ -1305,17 +1441,56 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
         }
       }
       await keep(base, out, password);
+      const count = markup.markCount();
       markup.reset();
       setOwnTool(null);
-      host.toast(left.length
-        ? `Redacted and checked ${pages.length} page${pages.length === 1 ? "" : "s"}. The found text still appears on page${left.length === 1 ? "" : "s"} ${left.join(", ")}, which had no marks.`
-        : `Redaction applied and checked: ${pages.length} page${pages.length === 1 ? "" : "s"} replaced with pictures. Save to keep it.`);
+      const pagesText = `${pages.length} page${pages.length === 1 ? "" : "s"}`;
+      const done = choice.method === "objects"
+        ? `Redaction applied and checked: what was under ${count} mark${count === 1 ? "" : "s"} on ${pagesText} is gone, and the rest is still text.`
+        : `Redaction applied and checked: ${pagesText} replaced with pictures.`;
+      host.toast([
+        left.length ? `${done} The found text still appears on page${left.length === 1 ? "" : "s"} ${left.join(", ")}, which had no marks.` : done,
+        ...notes,
+        "Save to keep it.",
+      ].join(" "));
     } catch (err) {
       host.toast(`Couldn’t apply the redactions: ${errorText(err)}`);
     } finally {
       if (check) void check.doc.loadingTask.destroy();
       showBusy(null);
     }
+  }
+
+  /** Each marked page drawn as it shows (comments and form values included), marks in black, as JPEGs. */
+  async function pagePictures(base: Uint8Array, pages: number[], dpi: number) {
+    const shown = await openPdf(engine, base, ask, password);
+    const blobs: Uint8Array[] = [];
+    const parts: { page: number; blob: number; view: number[] }[] = [];
+    try {
+      for (const i of pages) {
+        const p = await shown.doc.getPage(i + 1);
+        const unit = p.getViewport({ scale: 1, rotation: 0 });
+        const scale = Math.min(dpi / 72, Math.sqrt(40e6 / (unit.width * unit.height)));
+        const vp = p.getViewport({ scale, rotation: 0 });
+        const canvas = h("canvas", { width: Math.ceil(vp.width), height: Math.ceil(vp.height) });
+        const g = canvas.getContext("2d")!;
+        g.fillStyle = "#fff";
+        g.fillRect(0, 0, canvas.width, canvas.height);
+        await p.render({ canvas, viewport: vp, annotationMode: lib.AnnotationMode.ENABLE }).promise;
+        g.fillStyle = "#000";
+        for (const m of markup.marks.get(i) ?? []) {
+          const [x0, y0, x1, y1] = viewportRect(vp, m.box);
+          g.fillRect(Math.floor(Math.min(x0, x1)), Math.floor(Math.min(y0, y1)), Math.ceil(Math.abs(x1 - x0)) + 1, Math.ceil(Math.abs(y1 - y0)) + 1);
+        }
+        const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("The page couldn’t be drawn."))), "image/jpeg", 0.92));
+        blobs.push(new Uint8Array(await blob.arrayBuffer()));
+        parts.push({ page: i + 1, blob: blobs.length, view: [...p.view] });
+        p.cleanup();
+      }
+    } finally {
+      void shown.doc.loadingTask.destroy();
+    }
+    return { parts, blobs };
   }
 
   // ---- security, clean-up and size
@@ -1345,7 +1520,7 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
     const base = await bake();
     gsKnown ??= await hasGhostscript();
     const preset = await compressDialog(base.length, !gsKnown ? "no" : encrypted ? "encrypted" : "yes");
-    if (!preset) return;
+    if (!preset || !(await signedGuard())) return;
     showBusy("Reducing the file size…");
     try {
       const now = await bake();
@@ -1360,6 +1535,146 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
       host.toast(`Couldn’t reduce the size: ${errorText(err)}`);
     } finally {
       showBusy(null);
+    }
+  }
+
+  // ---- certificate signatures
+
+  /** Pages are about to be rebuilt: a signed file asks first (its signatures would break). */
+  async function signedGuard(): Promise<boolean> {
+    if (!signatures?.some((s) => s.intact)) return true;
+    return confirmDialog({
+      title: "Change a Signed Document?",
+      text: "This file is digitally signed. Changing its pages makes the signatures invalid: they'll show as changed after signing. Comments and form values don't (they're added beside the signed part).",
+      confirm: "Change It Anyway",
+      danger: true,
+    });
+  }
+
+  async function signCertificate() {
+    if (busy) return;
+    if (encrypted) return host.toast("Remove Security first (Protect tab): a file with a password can't be signed.");
+    const saved = (await signatureApi.list().catch(() => [])).find((s) => s.kind === "signature")?.image ?? null;
+    const choice = await signDialog(saved);
+    if (!choice) return;
+    if (!choice.visible) return void signWith(choice, 0, null);
+    pendingSign = choice;
+    setOwnTool("sigbox");
+    host.toast("Drag a box on the page where the signature goes (Esc to cancel)");
+  }
+
+  async function signWith(choice: SignChoice, n: number, box: [number, number, number, number] | null) {
+    if (busy) return;
+    showBusy("Signing…");
+    let signed: Uint8Array;
+    let base: Uint8Array;
+    try {
+      base = await bake();
+      const picture = choice.picture ? dataUrlBytes(choice.picture) : null;
+      signed = await certApi.sign(base, choice, n, box, picture);
+      await keep(base, signed, password);
+    } catch (err) {
+      host.toast(`Couldn’t sign: ${errorText(err)}`);
+      return;
+    } finally {
+      showBusy(null);
+    }
+    // The signed file is saved as it is (nothing may rewrite it after the signature).
+    if (await save(true)) host.toast("Signed and saved. The Signatures panel shows it.");
+    else host.toast("Signed. Save the file to keep the signature (Ctrl+S).");
+    setNav("signatures");
+  }
+
+  function dataUrlBytes(url: string): Uint8Array {
+    const b64 = url.slice(url.indexOf(",") + 1);
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  // ---- Scan & OCR
+
+  async function recognizeText() {
+    if (busy) return;
+    if (!(await signedGuard())) return;
+    let langs;
+    try {
+      langs = await ocrApi.languages();
+    } catch (err) {
+      return host.toast(`OCR isn't available: ${errorText(err)}`);
+    }
+    const choice = await ocrDialog(langs, doc.numPages, page() - 1);
+    if (!choice) return;
+    const missing = langs.filter((l) => choice.langs.includes(l.code) && !l.installed);
+    if (missing.length && !(await downloadDialog(missing))) return;
+    const wanted = choice.pages.length ? choice.pages : Array.from({ length: doc.numPages }, (_, i) => i + 1);
+    const pages: number[] = [];
+    for (const n of wanted) if (choice.all || !(await pageHasText(doc, n).catch(() => false))) pages.push(n);
+    if (!pages.length) return host.toast("Those pages already have text. Tick “Also read pages that already have text” to read them again.");
+    const progress = progressDialog("Recognizing Text", `${pages.length} page${pages.length === 1 ? "" : "s"}, ${choice.langs.map((c) => langs.find((l) => l.code === c)?.name).join(" and ")}`);
+    let reads;
+    try {
+      reads = await readPages(doc, pages, choice.langs, (done, fraction, status) => {
+        const n = pages[Math.min(done, pages.length - 1)];
+        progress.set(`${status} page ${n} (${Math.min(done + 1, pages.length)} of ${pages.length})…`, (done + fraction) / pages.length);
+      }, progress.signal);
+    } catch (err) {
+      if ((err as Error)?.name !== "Cancelled") host.toast(`Couldn’t read the pages: ${errorText(err)}`);
+      return;
+    } finally {
+      progress.finish();
+    }
+    const words = reads.reduce((n, r) => n + r.words, 0);
+    if (!words) return host.toast("No text was found on those pages.");
+    const ok = await applyTools("Adding the recognized text", [{ op: "ocrLayer", pages: reads.map((r, i) => ({ page: r.page, blob: i + 1 })) }], reads.map((r) => r.pdf), undefined, true);
+    if (ok) host.toast(`Recognized ${words.toLocaleString()} words on ${reads.length} page${reads.length === 1 ? "" : "s"}. Find (Ctrl+F) and selecting text work there now.`);
+  }
+
+  // ---- PDF → Word
+
+  async function toWord() {
+    if (busy) return;
+    const lo = await convertApi.libreOffice();
+    const how = await toWordDialog(lo);
+    if (!how) return;
+    if (how === "layout" && encrypted) return host.toast("Remove Security first (Protect tab): LibreOffice can't open a file with a password.");
+    const folder = path ? path.replace(/\/[^/]*$/, "") : await documentDir().catch(() => null);
+    const suggested = `${stem(path ?? name)}.docx`;
+    const target = await pickSavePath(folder ? await join(folder, suggested) : suggested, [{ name: "Word Document", extension: "docx" }]);
+    if (!target) return;
+    const progress = progressDialog("Converting to Word", how === "layout" ? "LibreOffice is placing each part of the pages." : "Rebuilding paragraphs, headings, lists and pictures.", "pfToWord");
+    try {
+      let out: Uint8Array;
+      let note = "";
+      if (how === "layout") {
+        progress.set("LibreOffice is converting…", 0.3);
+        out = await convertApi.withLibreOffice(await bake());
+      } else {
+        const result = await pdfToHtml(lib, doc, (done) => progress.set(`Reading page ${done} of ${doc.numPages}…`, (done / doc.numPages) * 0.85), progress.signal);
+        progress.set("Writing the Word document…", 0.92);
+        const landscape = result.width > result.height;
+        const setup = {
+          size: "custom" as const, orientation: landscape ? ("landscape" as const) : ("portrait" as const),
+          width: Math.min(result.width, result.height), height: Math.max(result.width, result.height),
+          margins: { top: 54, right: 54, bottom: 54, left: 54 },
+        };
+        out = (await writeDocx(result.html, setup, stem(path ?? name))).bytes;
+        if (!result.textPages) note = " The pages had no text (scans?): use Recognize Text first.";
+      }
+      await officeApi.write(target, out);
+      progress.finish();
+      host.remember(target);
+      if (how === "layout") {
+        // Positioned text boxes: Word and LibreOffice show them; Docs would show only their text.
+        host.toast(`Saved ${basename(target)}. It keeps the layout as positioned boxes, for Word or LibreOffice; use Flowing text to edit it in Docs.`);
+      } else {
+        host.toast(`Saved ${basename(target)}.${note}`);
+        host.shell.open({ kind: "office", path: target });
+      }
+    } catch (err) {
+      progress.finish();
+      if ((err as Error)?.name !== "Cancelled") host.toast(`Couldn’t convert it: ${errorText(err)}`);
     }
   }
 
@@ -1405,10 +1720,11 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
     { id: "bookmarks", label: "Bookmarks", icon: "bookmark" },
     { id: "comments", label: "Comments", icon: "comment" },
     { id: "attachments", label: "Attachments", icon: "paperclip" },
+    { id: "signatures", label: "Signatures", icon: "pfSigned" },
   ];
 
   function drawNavStrip() {
-    navStrip.replaceChildren(...NAV.filter((n) => n.id !== "attachments" || attachments).map((n) => h("button", {
+    navStrip.replaceChildren(...NAV.filter((n) => (n.id !== "attachments" || attachments) && (n.id !== "signatures" || signatures?.length || nav === "signatures")).map((n) => h("button", {
       class: `pf-nav-btn${nav === n.id ? " active" : ""}`, type: "button", role: "tab", title: n.label, "aria-label": n.label, "aria-selected": String(nav === n.id),
       onclick: () => setNav(nav === n.id ? null : n.id),
     }, icon(n.icon, 18))));
@@ -1430,6 +1746,7 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
     if (nav === "pages") drawThumbs();
     else if (nav === "bookmarks") void drawBookmarks();
     else if (nav === "comments") void drawComments();
+    else if (nav === "signatures") panelBody.replaceChildren(signaturesPanel(signatures, pdfDateShort, go));
     else drawAttachments();
   }
 
@@ -1447,6 +1764,7 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
           "separator",
           { label: "Insert From File…", icon: "pageAdd", action: () => insertAt(i + 1, "file") },
           { label: "Insert Blank Page", icon: "blankPage", action: () => insertAt(i + 1, "blank") },
+          { label: "Replace Page…", icon: "pageAdd", action: () => void replacePages([i]) },
           { label: "Extract…", icon: "pageExtract", action: () => void extract([i]) },
           "separator",
           { label: "Delete Page", icon: "trash", danger: true, action: () => deletePages([i]), disabled: doc.numPages < 2 },
@@ -1519,7 +1837,9 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
 
   async function drawComments() {
     if (nav !== "comments") return;
-    const rows: { page: number; type: string; text: string; author: string; when: string; top: number; id?: string }[] = [];
+    type Row = { page: number; type: string; text: string; author: string; when: string; top: number; id?: string; replies: Row[] };
+    const rows: Row[] = [];
+    const replies: { to: string; row: Row; at: string }[] = [];
     const replaced = new Set<string>();
     // Comments added or changed since the file was opened (pdf.js's editors), then those in the file.
     const edits = doc.annotationStorage.size ? (doc.annotationStorage.serializable.map as Map<string, Record<string, unknown>> | null) : null;
@@ -1528,15 +1848,30 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
       const type = EDITOR_TYPES[String(e.annotationType)];
       if (e.deleted || !type || typeof e.pageIndex !== "number") continue;
       const text = typeof e.value === "string" ? e.value : String((e.accessibilityData as { altText?: string } | undefined)?.altText ?? "");
-      rows.push({ page: e.pageIndex, type, text, author: "", when: "Not saved yet", top: (e.rect as number[] | undefined)?.[3] ?? 0 });
+      rows.push({ page: e.pageIndex, type, text, author: "", when: "Not saved yet", top: (e.rect as number[] | undefined)?.[3] ?? 0, replies: [] });
     }
     for (let i = 1; i <= doc.numPages; i++) {
-      const annots = (await (await doc.getPage(i)).getAnnotations().catch(() => [])) as { id: string; subtype: string; contentsObj?: { str?: string }; titleObj?: { str?: string }; modificationDate?: string; rect: number[] }[];
+      const annots = (await (await doc.getPage(i)).getAnnotations().catch(() => [])) as { id: string; subtype: string; contentsObj?: { str?: string }; titleObj?: { str?: string }; modificationDate?: string; creationDate?: string; rect: number[]; inReplyTo?: string; replyType?: string }[];
       for (const a of annots) {
         if (!COMMENT_TYPES[a.subtype] || replaced.has(a.id)) continue;
-        rows.push({ page: i - 1, type: a.subtype, text: a.contentsObj?.str ?? "", author: a.titleObj?.str ?? "", when: a.modificationDate ? pdfDateShort(a.modificationDate) : "", top: a.rect[3], id: a.id });
+        const row: Row = { page: i - 1, type: a.subtype, text: a.contentsObj?.str ?? "", author: a.titleObj?.str ?? "", when: a.modificationDate ? pdfDateShort(a.modificationDate) : "", top: a.rect[3], id: a.id, replies: [] };
+        // Replies (from here, Acrobat and others) go under the comment they answer; a group's
+        // other parts (/RT /Group) aren't comments of their own.
+        if (a.inReplyTo && a.replyType === "Group") continue;
+        if (a.inReplyTo) replies.push({ to: a.inReplyTo, row, at: a.creationDate ?? a.modificationDate ?? "" });
+        else rows.push(row);
       }
       if (nav !== "comments") return;
+    }
+    // A reply to a reply joins its thread; one whose comment is gone stands alone.
+    const byId = new Map<string, Row>(rows.flatMap((r) => (r.id ? [[r.id, r] as const] : [])));
+    const parentOf = new Map(replies.map((r) => [r.row.id, r.to]));
+    for (const r of replies.sort((a, b) => a.at.localeCompare(b.at))) {
+      let to = r.to;
+      for (let hops = 0; !byId.has(to) && parentOf.has(to) && hops < 50; hops++) to = parentOf.get(to)!;
+      const root = byId.get(to);
+      if (root) root.replies.push(r.row);
+      else rows.push(r.row);
     }
     rows.sort((a, b) => a.page - b.page || b.top - a.top);
     if (!rows.length) return void panelBody.replaceChildren(h("div", { class: "pf-empty" }, "No comments yet. Highlight text or add a text box from the Comment tab."));
@@ -1547,20 +1882,34 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
         lastPage = r.page;
         list.append(h("div", { class: "pf-comments-page" }, `Page ${r.page + 1}`));
       }
-      const t = COMMENT_TYPES[r.type];
-      const ref = r.id ? refOf(r.id) : null;
-      list.append(h("div", { class: "pf-comment-row" },
-        h("button", { class: "pf-comment", type: "button", onclick: () => go(r.page + 1) },
-          h("span", { class: "pf-comment-icon" }, icon(t.icon, 14)),
-          h("span", { class: "pf-comment-main" },
-            h("span", { class: "pf-comment-head" }, h("b", null, r.author || t.label), r.when ? h("span", null, r.when) : null),
-            r.text ? h("span", { class: "pf-comment-text" }, r.text) : null)),
-        ref ? h("button", {
-          class: "icon-btn small pf-comment-delete", type: "button", title: "Delete this comment", "aria-label": "Delete this comment",
-          onclick: () => void applyTools("Deleting the comment", [{ op: "removeAnnots", refs: [ref] }]),
-        }, icon("trash", 13)) : null));
+      const row = (r: Row, reply: boolean) => {
+        const t = COMMENT_TYPES[r.type];
+        const ref = r.id ? refOf(r.id) : null;
+        const what = reply ? "reply" : "comment";
+        return h("div", { class: reply ? "pf-comment-row pf-reply" : "pf-comment-row" },
+          h("button", { class: "pf-comment", type: "button", onclick: () => go(r.page + 1) },
+            h("span", { class: "pf-comment-icon" }, icon(reply ? "comment" : t.icon, reply ? 12 : 14)),
+            h("span", { class: "pf-comment-main" },
+              h("span", { class: "pf-comment-head" }, h("b", null, r.author || (reply ? "Reply" : t.label)), r.when ? h("span", null, r.when) : null),
+              r.text ? h("span", { class: "pf-comment-text" }, r.text) : null)),
+          ref && !reply ? h("button", {
+            class: "icon-btn small pf-comment-reply", type: "button", title: "Reply to this comment", "aria-label": "Reply to this comment",
+            onclick: () => void replyTo(r.page, ref, r.author),
+          }, icon("comment", 13)) : null,
+          ref ? h("button", {
+            class: "icon-btn small pf-comment-delete", type: "button", title: `Delete this ${what}`, "aria-label": `Delete this ${what}`,
+            onclick: () => void applyTools(`Deleting the ${what}`, [{ op: "removeAnnots", refs: [ref] }]),
+          }, icon("trash", 13)) : null);
+      };
+      list.append(row(r, false), ...r.replies.map((x) => row(x, true)));
     }
     panelBody.replaceChildren(list);
+  }
+
+  async function replyTo(page: number, ref: [number, number], who: string) {
+    const text = await noteDialog(who);
+    if (text == null) return;
+    await applyTools("Replying", [{ op: "annotate", page: page + 1, annot: { kind: "note", color: [1, 0.85, 0.3], contents: text, author, inReplyTo: ref } }]);
   }
 
   function pdfDateShort(value: string): string {
@@ -1827,6 +2176,7 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
     setOwnTool,
     markText: (kind) => void markText(kind),
     addText: () => setOwnTool(markup.tool === "text" ? null : "text"),
+    editText: () => void toggleEditText(),
     addContentPicture: () => (markup.tool === "picture" ? setOwnTool(null) : void chooseContentPicture()),
     watermark: () => void addWatermark(),
     headerFooter: (bates) => void addHeaderFooter(bates),
@@ -1840,6 +2190,13 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
     encrypted: () => encrypted,
     sanitize: () => void sanitize(),
     compress: () => void compress(),
+    replacePages: () => void replacePages(),
+    signCertificate: () => void signCertificate(),
+    signatureCount: () => signatures?.length ?? 0,
+    recognizeText: () => void recognizeText(),
+    toWord: () => void toWord(),
+    statementToExcel: () => convertToExcel(path, host, "statement"),
+    tablesToExcel: () => convertToExcel(path, host, "tables"),
     orgSelection: () => (organizing ? organizer.selection() : [page() - 1]),
     rotatePages: (delta) => rotatePages(organizing ? organizer.selection() : [page() - 1], delta),
     deletePages: () => deletePages(organizing ? organizer.selection() : [page() - 1]),
@@ -1855,6 +2212,27 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
   drawNavStrip();
   draw();
 
+  /** File → Print's preview: the pages as they'll print, each on its own sheet. */
+  function printPreview(): HTMLElement {
+    const shown = Math.min(doc.numPages, 30);
+    const sheets = h("div", { class: "pf-preview" });
+    for (let i = 0; i < shown; i++) {
+      const img = h("img", { class: "pf-preview-page", alt: `Page ${i + 1}` });
+      void thumbs.url(i, 420).then((url) => (img.src = url), () => undefined);
+      sheets.append(img);
+    }
+    if (doc.numPages > shown) sheets.append(h("p", { class: "of-bs-note" }, `…and ${doc.numPages - shown} more pages.`));
+    return sheets;
+  }
+
+  /** File → Info's facts about the PDF. */
+  function info(): [string, string][] {
+    const facts: [string, string][] = [["Pages", doc.numPages.toLocaleString()]];
+    if (encrypted) facts.push(["Security", "Password protected"]);
+    if (signatures?.length) facts.push(["Signatures", `${signatures.length} (${signatures.every((s) => s.intact) ? "unchanged since signing" : "one or more changed"})`]);
+    return facts;
+  }
+
   const editor: OfficeEditor = {
     kind: "pdf",
     el: root,
@@ -1863,6 +2241,8 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
     dirty,
     save,
     print,
+    printPreview,
+    info,
     snapshot,
     activate() {
       schedule();

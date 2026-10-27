@@ -3,7 +3,7 @@
 *Researched 2026-10-26. Licences, versions and release dates were read from each project's
 repository, crates.io and the npm registry on that day. Target: Tauri 2 + plain TypeScript on
 Linux. This machine: Pop!_OS 22.04, GStreamer 1.20.3, WebKitGTK 2.50.4, Intel UHD (Tiger Lake)
-with VA-API, and an NVIDIA GTX 1650 Mobile whose driver isn't loaded. Status: **V0, V1, V2 and a first V3 built, with parts of V4 and V5** (see What's built). Section 11 lists the decisions only the user can make.*
+with VA-API, and an NVIDIA GTX 1650 Mobile whose driver isn't loaded. Status: **V0, V1, V2 and a first V3 built, with most of V4 and V5** (see What's built). Section 11 lists the decisions only the user can make.*
 
 ## What's built (2026-10-26)
 
@@ -15,7 +15,7 @@ reopened.
 
 - **Project:** `.corevideo` JSON; media paths are stored relative to the project with the
   absolute path as a fallback, and missing files are flagged on open. Undo/redo (200 steps,
-  slider drags coalesce), dirty state, Save/Save As through CorePro's own picker.
+  slider drags coalesce), dirty state, Save/Save As through Zazabor's own picker.
 - **Timeline** (canvas): magnetic main track, overlay, text and audio tracks (a clash makes a
   new track; empty ones go away), thumbnails, waveforms, cut markers, playhead, ruler,
   zoom (Ctrl+wheel, slider, fit), snapping to edges and the playhead, move/reorder, trim both
@@ -45,9 +45,9 @@ reopened.
 - **Missing files and AutoRecover:** opening a project (or a recovered one) looks for moved files
   by name and size under the project's folder, the folder above it and the nearest existing folder
   of where each file was (`videoedit/relink.rs`, 200,000 entries at most, hidden folders skipped);
-  the rest are listed with Locate… (CorePro's own picker, then that folder is searched for the
+  the rest are listed with Locate… (Zazabor's own picker, then that folder is searched for the
   others) and Search a folder…. Media now records its size. While a project has unsaved changes a
-  snapshot is kept every 20 s (`videoedit/recover.rs`, the app's data folder); one a CorePro left
+  snapshot is kept every 20 s (`videoedit/recover.rs`, the app's data folder); one a Zazabor left
   behind (crash, power cut, killed) shows on Studio's Home under Recovered, opens unsaved as it was,
   and can be discarded. Saving or closing deletes it.
 - **Keyframes (V2):** position, scale, rotation, opacity and volume, with smooth, linear, ease in,
@@ -70,10 +70,10 @@ reopened.
 - **Make a Video (V5):** the Gallery's slideshow dialog has Make a Video: the chosen photos (at most
   200) become a reel in the Video Editor in that theme's style: its look, vignette and grain, a
   picture length of two thirds of the theme's (on the soundtrack's beat when it has a BPM), the
-  theme's weighted transitions, and the slideshow's music (a CorePro soundtrack or the user's file)
+  theme's weighted transitions, and the slideshow's music (a Zazabor soundtrack or the user's file)
   faded out at the end.
 - **Sound (V4 without AI):** voice-overs recorded from the default microphone through GStreamer
-  (`videoedit/record.rs`; WebKitGTK's own microphone access is off in CorePro's webview) into
+  (`videoedit/record.rs`; WebKitGTK's own microphone access is off in Zazabor's webview) into
   `Voice-overs/` beside a saved project, with a level meter; the clips play silently meanwhile and
   the take lands on a Voice track at the playhead (R starts and stops, Esc throws it away). Music
   can go down under voice-overs (Lower under voice-overs, by how much; 0.15 s down, 0.45 s back up,
@@ -83,7 +83,7 @@ reopened.
   to 180 BPM, an even grid nudged onto the onsets); clips snap to the marks.
 - **Captions:** .srt files come in as texts on a track of their own (Caption style); texts go out
   as .srt.
-- **Checked:** Rust tests for relink matching and the search, AutoRecover (only other CorePros'
+- **Checked:** Rust tests for relink matching and the search, AutoRecover (only other Zazabors'
   snapshots, newest first, ids can't leave the folder) and recording a test tone into a WAV with
   the meter; 12 Node tests (`node --test`, kept outside the repo) on keyframe interpolation and
   eases, keyed setters, splits and trims with keyframes, curve maths, reverse and its split, freeze,
@@ -91,7 +91,7 @@ reopened.
   the app on a nested display: keyframes added from the inspector and seen moving; reverse counting
   down; a freeze frame; a .cube table, VHS and a vignette; chroma key over a clip; a circle mask; a
   test-tone voice-over on a Voice track; 60 beats marked on a 120 BPM song; captions with Bangla;
-  a moved file found and a renamed one located; a project recovered after killing CorePro; a reel
+  a moved file found and a renamed one located; a project recovered after killing Zazabor; a reel
   made from six Gallery photos. An exported MP4 showed the keyframed zoom, the keyed ball, the
   captions, the freeze, the reversed clip with the colour table and VHS, and its sound had the music
   at about 20% under the voice-over and back after it.
@@ -109,17 +109,87 @@ reopened.
   stream error": `videoflip` only takes 8-bit formats, so the frame chain converts first. A focused
   slider now takes the arrow keys instead of the playhead.
 
-Not built yet: auto captions (V4; whisper models need the user's OK to download, decision 4),
-HEVC export and AAC sound (codecs are only explained, decision 5), proxies, GIF export and the
-native compositor (V6), NVENC (decision 6), a sticker and sound library (decision 7), masks that
-move with keyframes, more transition and effect packs, speed-curve editing by hand (presets only),
-and Make a Video for clips (the Gallery has photos only).
+### Round 3 (2026-10-27)
+
+- **Auto captions (V4):** the Captions tab captions all clips or the selected one, in a chosen
+  language or Auto, with a model, a caption style and a highlight colour for the spoken word
+  (karaoke). The captions are texts on the captions track with per-word timings, and running it
+  again replaces only the earlier auto captions. Whisper runs in Rust on candle
+  (`videoedit/whisper/`: ggml file reader for f16/f32 files, log-mel, encoder, decoder with a
+  key-value cache, OpenAI's timestamp rules, a temperature fallback of 0, 0.4 and 0.8 when a
+  window repeats itself, and skipping windows without speech) on a worker thread, with progress
+  and Cancel.
+- **Models (decision 4):** Base and Small, pinned to commit `5359861c` of
+  `ggerganov/whisper.cpp` on Hugging Face (MIT): `ggml-base.bin` 147,951,465 bytes, SHA-256
+  `60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe`; `ggml-small.bin`
+  487,601,967 bytes, SHA-256 `1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b`.
+  A prompt with the size comes before the download; it can be paused and resumes with an HTTP
+  range, the file is checked against its size and SHA-256 (and deleted if it doesn't match), and it
+  stays in the app's data folder (`videoedit/models/`). Settings → Video Editor lists the models
+  with Download, Pause, Resume and Remove. `ZAZABOR_WHISPER_BASE_URL` points the download
+  elsewhere (tests).
+- **Bangla:** Auto detects Bangla ("bn") on a LibriVox reading, but Small writes it in the wrong
+  scripts (Telugu-, Khmer- and Gurmukhi-like text). The token bytes were checked against
+  whisper.cpp's vocabulary, so it's the model, not the decoding: Small isn't usable for Bangla
+  here, and the app says so ("Bangla doesn't come out right yet"). Next: `large-v3-turbo`.
+- **Codecs (decision 5):** Install codecs (in Export, the Media tab and Settings) says what
+  `gstreamer1.0-libav` and `gstreamer1.0-plugins-ugly` add, then runs `pkexec apt-get install -y`
+  with them (only allow-listed package names), refreshes GStreamer's registry and probes again.
+  Other systems get the package names. Not run on this machine; tested with a stand-in command
+  (`ZAZABOR_CODEC_INSTALL_COMMAND`). MP4 export then picks the encoder: VA-API H.264 (default
+  here), x264, x265 HEVC (needs `gstreamer1.0-plugins-bad`), and AAC sound (`avenc_aac`,
+  `fdkaacenc` or `voaacenc`) instead of MP3.
+- **NVENC (decision 6):** `nvh264enc` and `nvh265enc` are offered when GStreamer has them and the
+  encoder opens (it gets to Ready, where it opens CUDA; the plugin itself loads without a working
+  driver). Not available here: the NVIDIA driver isn't loaded.
+- **Library (decision 7):** 32 stickers drawn in code (a Stickers tab; they are texts with a
+  sticker, so they animate in and out like text) and 12 sound effects synthesized by
+  `tools/make_sfx.py` into `src-tauri/resources/sfx/` (Ogg Vorbis, 108 KB in all: whoosh, swoosh,
+  pop, click, ding, chime, rise, impact, glitch, shutter, typing, bubbles), listed in the Audio
+  tab with a listen button.
+- **Speed:** a clip's decoder that has been idle for 400 ms is taken over by the next clip of the
+  same file at the same size, so cuts within a file seek instead of opening a pipeline
+  (`ZAZABOR_VIDEOEDIT_NO_ADOPT=1` turns it off, for comparison). Export asks for the next frame's
+  layers while the current one is read back, and skips layers that a full-frame layer above
+  covers.
+- **Checked:** Rust tests for the model download (resume with a range, a server without ranges,
+  a wrong checksum, cancelling, the pinned files), the codec install (only allow-listed packages,
+  the exact command, cancel and failure messages), NVENC and AAC in the encoder choice, caption
+  lines (sentence ends incl. "।", pauses, the time limit, clip position and speed), decoder
+  adoption, and the ggml reader, mel and timestamp rules. In the app on a nested display: the
+  Base model downloaded in the app (18 s) and captioned a 73 s English reading (LibriVox, public
+  domain) with the spoken word lit up; a speech-bubble sticker and the whoosh added; Install
+  codecs with a stand-in command (it got exactly the two packages, then said the codecs still
+  don't show up, since nothing was installed); and a 720p export whose frames show the sticker
+  and the karaoke captions, and whose sound has the whoosh at 0 s (correlation 0.87).
+- **Measured** (Zazabor's crate at opt-level 3, the page from Vite unminified, nested display; the
+  load average from other agents' builds is given):
+  - Captions, Base, 73.5 s of English: 40.5 s in the app (1.81× real time) at a load of 4; 47.5 s
+    (1.55×) in the test harness at a load of 21–31. Small on 88.9 s of Bangla: 0.29–0.32× real
+    time at a load above 20.
+  - Preview, V2's bench (20 cuts of one phone clip with transitions and three overlays, 272×480):
+    185–201 clip frames a second with 7–13% late, the same with decoder adoption on or off (load
+    12–16). Adoption works (one play-through opened 3 MP4 demuxers instead of 23), so the late
+    frames don't come from opening decoders.
+  - Export of the same 30 s at 1080×1920, 30 fps, VA-API: round 2 18.2 fps (0.61× real time);
+    now **31.7 fps (1.06×)** at a load of 4.5. On the way, the first version of this round's
+    look-ahead fetched 537 of 900 frames twice (the "already here" test missed WebM's
+    millisecond timestamps), which made it 8.2 fps; a slot now remembers the time it was asked
+    for, and the next frame decodes during the read-back (16.3 fps with the first fix alone, at a
+    load of 12). A frame from the export at 10 s shows the expected source times.
+
+Not built yet: Bangla captions that are usable (`large-v3-turbo`, and reading quantized model
+files), word times from attention (DTW) instead of spread by length, HEVC through the one-click
+install (x265 is in `gstreamer1.0-plugins-bad`, which the approved command doesn't include), a
+cause for the remaining late preview frames, proxies, GIF export and the native compositor (V6), masks that move
+with keyframes, more transition and effect packs, speed-curve editing by hand (presets only), and
+Make a Video for clips (the Gallery has photos only).
 
 ### V0 results (this machine: i5-11400H, Intel UHD VA-API, GStreamer 1.20.3)
 
 | Probe | Result |
 |---|---|
-| Decoders | VA-API H.264 works without `h264parse` (MP4/MKV hand it whole AUs). VA-API VP9/AV1/VP8 need their parsers (plugins-bad, missing): "no valid frames", so CorePro demotes them and `vaapidecodebin`; software `vp9dec` is used. No AAC decoder at all (no faad, no gst-libav). HEVC decode untested: no HEVC sample could be made (VLC's x265 wrote an audio-only file). |
+| Decoders | VA-API H.264 works without `h264parse` (MP4/MKV hand it whole AUs). VA-API VP9/AV1/VP8 need their parsers (plugins-bad, missing): "no valid frames", so Zazabor demotes them and `vaapidecodebin`; software `vp9dec` is used. No AAC decoder at all (no faad, no gst-libav). HEVC decode untested: no HEVC sample could be made (VLC's x265 wrote an audio-only file). |
 | Accurate seek (540p out) | 1080×1920 H.264, 2 s GOP: median 51 ms, max 103 ms. 1080p landscape: 82/151 ms. 10-minute 1080×1920 H.264 at ~22 Mb/s: median 19 ms, max 31 ms. Software VP9: 341/517 ms. |
 | Sequential decode (540p out) | H.264 portrait 646 fps, landscape 405 fps, 10-minute file 1081 fps; software VP9 51 fps. Through the frame server (debug build, incl. IPC copy): 90 frames in 432 ms. |
 | Encoders | `vaapih264enc`: 81 fps at 1080×1920, but only CQP works here (cbr, vbr, vbr_constrained, icq, qvbr all fail to preroll), and it only writes byte-stream (its MP4/MKV output was corrupt) → own AVC converter. `vaapih265enc` fails to start at 1080p. vp9enc (deadline=1, cpu-used=8, row-mt) and opusenc, lamemp3enc work; no AAC or x264 encoder in GStreamer. |
@@ -131,7 +201,7 @@ GStreamer encodes; libVLC only as the fallback for sound GStreamer can't decode.
 
 ## 1. Summary
 
-- **CorePro's own timeline and compositor, on parts it already has.**
+- **Zazabor's own timeline and compositor, on parts it already has.**
   - GStreamer (already linked: the `gstreamer` crate drives music playback in `music.rs`) decodes
     clips in Rust.
   - Frames go to the page the way the Video player's already do: I420 frames over `cs://`, drawn
@@ -144,24 +214,26 @@ GStreamer encodes; libVLC only as the fallback for sound GStreamer can't decode.
   native GLES in Rust: GLSL ES 3.00 is the same language in WebGL2 and in GLES 3, so the shader
   files are shared. Encoders: VA-API H.264/HEVC (present here), x264 when installed, OpenH264
   as a fallback, AV1 through rav1e or SVT-AV1 where GStreamer has them.
-- **Auto captions on this computer:** [whisper.cpp](https://github.com/ggml-org/whisper.cpp)
-  (MIT, v1.9.5, 2026-10-06) through [whisper-rs](https://codeberg.org/tazz4843/whisper-rs)
-  (Unlicense, 0.16.0). The `base` model (142 MiB) is the default and `small` (466 MiB) is offered
-  for Bangla. Word timestamps drive CapCut-style animated captions.
+- **Auto captions on this computer:** OpenAI's Whisper run in Rust on
+  [candle](https://github.com/huggingface/candle) (MIT/Apache-2.0, 0.11.0), reading
+  [whisper.cpp](https://github.com/ggml-org/whisper.cpp)'s model files (MIT). whisper-rs was the
+  first plan, but it builds whisper.cpp with cmake and libclang, which this machine doesn't have.
+  The `base` model (141 MiB) is the default and `small` (465 MiB) is offered for other languages.
+  Word timings drive karaoke-style captions.
 - **Considered and not chosen as the core:**
-  - GES (LGPL, Pitivi's engine) is solid, but can't run CorePro's own transitions without writing
+  - GES (LGPL, Pitivi's engine) is solid, but can't run Zazabor's own transitions without writing
     GStreamer GL elements.
   - MLT (LGPL with GPL modules; Shotcut and Kdenlive) needs ffmpeg and has no Rust binding.
   - The ffmpeg CLI isn't installed and is LGPL/GPL by build.
   - libVLC only plays.
-  - WebCodecs in WebKitGTK has been listed since 2.44, but is unverified in CorePro's webview.
+  - WebCodecs in WebKitGTK has been listed since 2.44, but is unverified in Zazabor's webview.
     It's tested in milestone V0 as a possible shortcut.
 - **Formats people post:** templates for 9:16 (Reels, TikTok, Shorts), 1:1, 4:5 and 16:9, and
   export presets for each platform.
 
 ## 2. Features
 
-| Area | CapCut | CorePro, first version | Later |
+| Area | CapCut | Zazabor, first version | Later |
 |---|---|---|---|
 | Timeline | Main track plus overlay, text, sticker, effect and audio tracks; magnetic main track; zoomable; snapping | Same: one main video track with magnetic (ripple) behaviour, any number of overlay, text, sticker and audio tracks, snapping to clip edges, playhead and markers, zoom from frames to minutes | Compound clips (nesting), multicam |
 | Editing | Split, trim, delete, ripple delete, duplicate, replace, freeze frame, reverse | All of these, with frame-accurate J/K/L shuttle and arrow-key nudging | Slip and slide tools |
@@ -173,7 +245,7 @@ GStreamer encodes; libVLC only as the fallback for sound GStreamer can't decode.
 | Stickers and overlays | Stickers, GIFs, images, picture in picture | Images, GIFs, PNG with alpha, picture in picture with transform, crop, masks (rectangle, circle, linear) and blend modes | Lottie stickers |
 | Keyframes | Position, scale, rotation, opacity, volume, effect settings | Every numeric setting has keyframes with easing (the same cubic-beziers as the Gallery's zoom curve) | Motion tracking |
 | Chroma key | Green screen | Chroma key shader with similarity, smoothness and spill removal | AI background removal on video |
-| Audio | Music library, sound effects, voice-over, extract audio, fade, volume, noise reduction, beat marks | CorePro's five soundtracks and the user's music, voice-over recorded through GStreamer (PipeWire/PulseAudio), extract audio from video, fades, volume, keyframes, beat marks (the slideshow's beat detection), automatic ducking under speech | Noise reduction, voice effects |
+| Audio | Music library, sound effects, voice-over, extract audio, fade, volume, noise reduction, beat marks | Zazabor's five soundtracks and the user's music, voice-over recorded through GStreamer (PipeWire/PulseAudio), extract audio from video, fades, volume, keyframes, beat marks (the slideshow's beat detection), automatic ducking under speech | Noise reduction, voice effects |
 | Canvas | Ratios, background colour, blur fill | 9:16, 1:1, 4:5, 16:9, 4:3 and custom; background colour, image or blurred fill (as the slideshow fills portrait photos) | — |
 | Templates | Template library with placeholders | "Make a reel" from photos and clips, with the slideshow's 11 themes as templates | User templates |
 | Export | Resolution, frame rate, bitrate, H.264/HEVC | 720p to 4K, 24–60 fps, H.264 or HEVC in MP4, AV1 where available, GIF; presets per platform; queued in the background with progress | — |
@@ -182,7 +254,7 @@ GStreamer encodes; libVLC only as the fallback for sound GStreamer can't decode.
 
 | Option | Licence | Latest | What it gives | Verdict |
 |---|---|---|---|---|
-| [GStreamer](https://gstreamer.freedesktop.org) via [gstreamer-rs](https://gitlab.freedesktop.org/gstreamer/gstreamer-rs) | LGPL-2.1+ (GStreamer), MIT/Apache-2.0 (bindings) | 1.28 series (from 2026-01); 1.20.3 here. Bindings 0.25.4, 2026-09-21; CorePro uses 0.21 | Decoding with seeks, VA-API, encoders, muxers, audio mixing, recording, waveform data | **Yes: decode, audio and encode** |
+| [GStreamer](https://gstreamer.freedesktop.org) via [gstreamer-rs](https://gitlab.freedesktop.org/gstreamer/gstreamer-rs) | LGPL-2.1+ (GStreamer), MIT/Apache-2.0 (bindings) | 1.28 series (from 2026-01); 1.20.3 here. Bindings 0.25.4, 2026-09-21; Zazabor uses 0.21 | Decoding with seeks, VA-API, encoders, muxers, audio mixing, recording, waveform data | **Yes: decode, audio and encode** |
 | [GES](https://gitlab.freedesktop.org/gstreamer/gstreamer/-/tree/main/subprojects/gst-editing-services) (GStreamer Editing Services) | LGPL-2.1+ | `libges-1.0-0` 1.20.1 in the Pop!_OS repositories, not installed; bindings 0.25.4 | A full timeline: layers, clips, trims, transitions (crossfade and SMPTE wipes), effects as GStreamer elements, keyframes, encoding profiles. [Pitivi](https://developer.pitivi.org/GES.html) is built on it | **Plan B.** Custom transitions would need two-input GL elements written in Rust. Worth it if the own compositor's export disappoints |
 | [MLT](https://github.com/mltframework/mlt) | LGPL-2.1 core, some modules **GPL** | 7.42.0, 2026-10-03 | The engine of [Shotcut](https://github.com/mltframework/shotcut) (GPL) and Kdenlive (GPL); XML projects, many filters | No: no Rust binding, needs ffmpeg (not installed), GPL modules to avoid |
 | [libopenshot](https://github.com/OpenShot/libopenshot) | **LGPL-3.0** | v1.0.1, 2026-09-27 | OpenShot's C++ engine | No: C++ with Qt and ffmpeg |
@@ -264,21 +336,24 @@ GStreamer encodes; libVLC only as the fallback for sound GStreamer can't decode.
 4. **Muxing:** `mp4mux` with fast start (MP4 for every platform), `webmmux` for VP9 and AV1, and
    GIF through a palette pass.
 5. **Jobs:** each export is a queued job with progress, an estimate and Cancel, like Files'
-   operations. It can carry on while CorePro is in another section.
+   operations. It can carry on while Zazabor is in another section.
 
 ### 4.5 Captions
 
-1. Audio is extracted to 16 kHz mono with GStreamer.
-2. whisper.cpp runs on a worker thread. The language is chosen or detected, and the result has
-   word timestamps.
-3. The result becomes a captions track: lines split to fit the canvas (max characters per line
-   per ratio), with styles and word highlight.
-4. Results are cached per clip. The user corrects text in a list; the timing stays.
+1. The editor's 48 kHz stereo sound cache is cut to the clip's span and resampled to 16 kHz mono
+   (windowed sinc).
+2. Whisper runs on a worker thread (candle, `videoedit/whisper/`). The language is chosen or
+   detected; segments get times from Whisper's timestamp tokens, and words get times spread over
+   their segment by length (as whisper.cpp does without DTW).
+3. The result becomes texts on the captions track: lines end at sentence ends (including "।"),
+   pauses of 0.6 s or more, 3.5 s, or a characters-per-line limit for the canvas shape, with the
+   chosen style and the spoken word highlighted.
+4. Results are cached per clip span, model, language and engine version. The user corrects text
+   in the inspector; the timing stays.
 
-Model choice: `base` (142 MiB) by default, `small` (466 MiB) for Bangla, `large-v3-turbo` q5
-(547 MiB) when the user wants the best and can wait. All are downloaded on first use. Speed
-depends on the CPU. Phoronix measured a real-time factor of about 0.3 on CPU for a recent build,
-and a few times faster with Vulkan on integrated graphics. V0 measures it here.
+Model choice: `base` (141 MiB) by default and `small` (465 MiB) for other languages, both f16
+and downloaded on first use. Small doesn't caption Bangla usably (round 3); `large-v3-turbo`
+(f16, about 1.6 GB, since the engine doesn't read quantized files yet) is the next to try.
 
 ### 4.6 Ducking and beat sync
 
@@ -302,7 +377,7 @@ Laid out like CapCut desktop:
   the playhead, markers and zoom. Keyboard: Space, J/K/L, Ctrl+B (split), Q/W (trim to the
   playhead), Delete and Shift+Delete (ripple), Ctrl+Z/Y, and +/− to zoom.
 
-## 6. Integration with the rest of CorePro
+## 6. Integration with the rest of Zazabor
 
 - **Video player:** **Edit in Video Editor** from a playing file or the library.
 - **Gallery:** select photos and clips, then **Make a Video**. This opens a template project from
@@ -314,7 +389,7 @@ Laid out like CapCut desktop:
 
 | # | Milestone | Done when |
 |---|---|---|
-| V0 | **Probes**: WebCodecs in CorePro's webview (VideoDecoder/VideoEncoder for H.264, HEVC, VP9 and AV1); GStreamer accurate seeks on common phone files; frame streaming at preview size for three layers; whisper base and small speed here | A short report in this plan with the numbers, and the engine choice confirmed or switched |
+| V0 | **Probes**: WebCodecs in Zazabor's webview (VideoDecoder/VideoEncoder for H.264, HEVC, VP9 and AV1); GStreamer accurate seeks on common phone files; frame streaming at preview size for three layers; whisper base and small speed here | A short report in this plan with the numbers, and the engine choice confirmed or switched |
 | V1 | **Timeline and preview**: media panel with probing, thumbnails and waveforms; one video track and one audio track; split, trim, ripple delete; playback with audio sync; scrubbing | A 10-minute 1080p phone video edits and scrubs without lag; the audio stays in sync to within a frame |
 | V2 | **Layers and effects**: overlay tracks, picture in picture, transforms with keyframes, the slideshow transitions, effects, filters and LUTs, chroma key, text layers with animations | Twenty clips with transitions and three overlays play in real time at preview size on this machine |
 | V3 | **Export**: page compositor read-back, GStreamer encoding with VA-API, presets, the job queue; measure and decide on native GLES | A 1-minute 1080p30 project exports to MP4 that plays in VLC, Chrome and on a phone, and uploads to YouTube without re-encoding warnings |
@@ -333,36 +408,43 @@ V0 takes one session. V1 takes 3–4 (the timeline UI and the frame server are t
 |---|---|
 | Accurate seeking is slow on long-GOP phone video (HEVC from phones) | Proxies (section 4.2), a frame cache, and only accurate seeks when paused; key-unit seeks while dragging fast |
 | GStreamer 1.20 on Pop!_OS 22.04 is old (1.28 is current) | Code against 1.20 features. The AppImage can bundle a newer GStreamer later, at the cost of size |
-| Missing codecs on the user's system (plugins-bad, ugly, libav not installed here) | Say which plugin package is missing and offer the install command (`gstreamer1.0-plugins-ugly`, `gstreamer1.0-libav`); VA-API covers H.264/HEVC on most Intel and AMD machines |
+| Missing codecs on the user's system (plugins-bad, ugly, libav not installed here) | Install codecs runs `pkexec apt-get install -y gstreamer1.0-libav gstreamer1.0-plugins-ugly` after explaining it (round 3); other systems are told the package names; VA-API covers H.264 on most Intel and AMD machines |
 | Export through the page is slow | Measure in V3; the native GLES path shares shader files, so it's a port, not a rewrite |
 | Patent licensing for H.264/HEVC encoding in distributed builds | Use the system's encoders (VA-API, or plugins the user installs) and Cisco's OpenH264 binary; don't bundle x264 or x265. AV1 and VP9 are royalty-free |
 | Scope: CapCut is huge | The milestones put a useful editor (cut, text, music, export) at V3; the rest is incremental |
 
 ## 10. Licensing summary
 
-- CorePro links only LGPL GStreamer libraries (dynamically, from the system) and MIT, Apache or
+- Zazabor links only LGPL GStreamer libraries (dynamically, from the system) and MIT, Apache or
   BSD crates.
-- GPL encoders (x264, x265) are GStreamer plugins the user installs; CorePro loads them at run
+- GPL encoders (x264, x265) are GStreamer plugins the user installs; Zazabor loads them at run
   time and never ships them.
-- whisper.cpp is MIT and its models are MIT (OpenAI's Whisper weights).
+- candle is MIT/Apache-2.0; whisper.cpp's model files are MIT (OpenAI's Whisper weights,
+  converted). ureq (MIT/Apache-2.0) downloads them with rustls.
+- The stickers and sound effects are Zazabor's own (drawn in code, synthesized by
+  `tools/make_sfx.py`).
 - mediabunny, if WebCodecs is used, is MPL-2.0, which is file-level copyleft and fine for a
-  closed or open CorePro.
+  closed or open Zazabor.
 
 ## 11. Decisions to make
 
+Decided 2026-10-27: 4–7 are yes (models on first use, with Bangla captions wanted; one-click
+codecs; NVENC when the NVIDIA driver is there; a small library of Zazabor's own stickers and
+sounds). Round 3 built them.
+
 1. **Where it lives:** a "Studio" section with Photo and Video on its own inner rail
    (recommended); its own rail section; or inside the Video player?
-2. **Name:** Video Editor, CorePro Cut, Studio Video, or another?
+2. **Name:** Video Editor, Zazabor Cut, Studio Video, or another?
 3. **The first version's target:** short vertical reels (9:16, under 3 minutes, captions and
    music first), or longer YouTube-style edits (16:9, many clips, chapters)? The milestones order
    changes with it.
 4. **Captions models:** OK to download `base` (142 MiB) on first use, and `small` (466 MiB) for
    Bangla? Is Bangla captioning important?
-5. **Codecs:** may CorePro offer to install `gstreamer1.0-plugins-ugly` and `gstreamer1.0-libav`
+5. **Codecs:** may Zazabor offer to install `gstreamer1.0-plugins-ugly` and `gstreamer1.0-libav`
    (x264, AAC and more decoders) with one click, or only explain what's missing?
 6. **NVIDIA:** do you use the NVIDIA GPU on this laptop? If so, NVENC export through the nvcodec
    plugin is worth adding; today its driver isn't loaded.
-7. **Stickers, sounds and templates:** CorePro has no content library like CapCut's. Should it
+7. **Stickers, sounds and templates:** Zazabor has no content library like CapCut's. Should it
    ship a small set of its own (as with the five soundtracks), or only use the user's files?
 8. **GES as plan B:** if the own compositor's export is too slow even natively, is building on GES
    (Pitivi's engine) acceptable, with fewer custom transitions at first?

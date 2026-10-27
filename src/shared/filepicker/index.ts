@@ -20,7 +20,7 @@ import { ThumbLoader } from "../thumbs";
 import "./filepicker.css";
 
 /**
- * CorePro's own file chooser: Open, Choose Folder and Save As in the Files look (sidebar of
+ * Zazabor's own file chooser: Open, Choose Folder and Save As in the Files look (sidebar of
  * places and drives, path bar, list and icon views, thumbnails), in a glass sheet over the window
  * that asked. It uses the Files backend and a few of its light parts only, so it works with the
  * Files feature turned off and in every window.
@@ -52,7 +52,7 @@ const RECENT_MAX = 6;
 
 function stored<T>(key: string, fallback: T): T {
   try {
-    const raw = localStorage.getItem(`corepro.picker.${key}`);
+    const raw = localStorage.getItem(`zazabor.picker.${key}`);
     return raw == null ? fallback : (JSON.parse(raw) as T);
   } catch {
     return fallback;
@@ -61,7 +61,7 @@ function stored<T>(key: string, fallback: T): T {
 
 function store(key: string, value: unknown) {
   try {
-    localStorage.setItem(`corepro.picker.${key}`, JSON.stringify(value));
+    localStorage.setItem(`zazabor.picker.${key}`, JSON.stringify(value));
   } catch {
     // Private mode or blocked storage: nothing to remember.
   }
@@ -418,7 +418,7 @@ class FilePicker {
       h("div", { class: "fs-state-card plain" }, h("div", { class: "fs-state-icon" }, icon(glyph, 28)), h("h2", null, title), h("p", null, text));
     let content: HTMLElement | null = null;
     if (this.loading) content = h("span", { class: "spinner large" });
-    else if (this.problem?.kind === "locked") content = card("lock", "CorePro is locked", "Unlock CorePro to browse your files.");
+    else if (this.problem?.kind === "locked") content = card("lock", "Zazabor is locked", "Unlock Zazabor to browse your files.");
     else if (this.problem) content = card("info", "Can't open this folder", this.problem.text);
     else if (!this.shown.length) {
       content = this.search.value.trim()

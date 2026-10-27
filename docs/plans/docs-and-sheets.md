@@ -7,19 +7,19 @@ built.** Section 10 lists the decisions only the user can make.*
 
 ## 1. Summary
 
-- **Sheets: IronCalc for the engine and the xlsx files, with CorePro's own grid on top.**
+- **Sheets: IronCalc for the engine and the xlsx files, with Zazabor's own grid on top.**
   [IronCalc](https://github.com/ironcalc/IronCalc) is a Rust spreadsheet engine, MIT or
   Apache-2.0. It has an xlsx reader and writer and WASM bindings, and its latest release is v0.9.1
   (2026-10-21). Formulas, styles, merged cells, conditional formatting, undo and xlsx round trips
-  all go through one model. CorePro draws the grid itself, so it follows `docs/DESIGN.md`. IronCalc
+  all go through one model. Zazabor draws the grid itself, so it follows `docs/DESIGN.md`. IronCalc
   is young: it calls itself "in its infancy", and charts and pivot tables are not supported yet.
 - **Docs: Tiptap (ProseMirror) for the editor.** .docx comes in through mammoth and goes out
   through the `docx` package. All three are MIT or BSD, actively released, and work without a
   framework. Docx import is semantic, not pixel-perfect, so a **fidelity guard** saves a copy
-  instead of overwriting a file whose parts CorePro can't keep.
+  instead of overwriting a file whose parts Zazabor can't keep.
 - **LibreOffice as an optional helper**, when it is installed (it is on this machine:
   `/usr/bin/soffice`). It converts .doc, .xls, .odt, .ods and .rtf in and out, and gives
-  high-fidelity PDFs. CorePro never depends on it.
+  high-fidelity PDFs. Zazabor never depends on it.
 - **Not recommended:** embedding ONLYOFFICE or Collabora (server-based, AGPL), Univer's paid
   conversion server, Handsontable (proprietary) and HyperFormula (GPL-3.0-only). The reasons are in
   sections 2 and 4.
@@ -35,7 +35,7 @@ built.** Section 10 lists the decisions only the user can make.*
 | [Fortune-sheet](https://github.com/ruilisi/fortune-sheet) | MIT | v1.0.4, 2025-11-06 | Luckysheet's successor, React only. xlsx through a third-party plugin ([fortuneexcel](https://github.com/corbe30/fortuneexcel)). | No: React only, quiet for a year, and xlsx support sits outside the project. |
 | [x-spreadsheet](https://github.com/myliang/x-spreadsheet) | MIT | v1.1.7, 2020-09-13 | A light canvas grid. | No: unmaintained. |
 | [Handsontable](https://handsontable.com/docs/javascript-data-grid/software-license/) | Proprietary (non-commercial or commercial) | 18.1.2, 2026-10-07 | A data grid. "The last version available under permissive terms was 6.2.2" (2018). | No: not open source. |
-| [HyperFormula](https://github.com/handsontable/hyperformula) | GPL-3.0-only or commercial | 3.5.0, 2026-10-09 | A formula engine with over 400 functions, but no file formats. | No: GPL would bind CorePro's licence (CorePro has none yet, section 10), and it duplicates IronCalc. |
+| [HyperFormula](https://github.com/handsontable/hyperformula) | GPL-3.0-only or commercial | 3.5.0, 2026-10-09 | A formula engine with over 400 functions, but no file formats. | No: GPL would bind Zazabor's licence (Zazabor has none yet, section 10), and it duplicates IronCalc. |
 | [SheetJS CE](https://docs.sheetjs.com/docs/getting-started/installation/nodejs) | Apache-2.0 | 0.20.3 from cdn.sheetjs.com (npm is stuck at 0.18.5) | Reads and writes many formats. | Not for editing: the Community Edition doesn't write styles ([maintainer](https://git.sheetjs.com/sheetjs/sheetjs/issues/2936)). It could still serve exotic import formats. |
 | [ExcelJS](https://github.com/exceljs/exceljs) | MIT | v4.4.0, 2023-10-19 | Reads and writes xlsx with styles. | No: no releases for three years. |
 | [calamine](https://github.com/tafia/calamine) (Rust) | MIT | v0.37.0, 2026-10-18 | Fast **read-only** xls, xlsx, xlsb and ods: values and formulas, no formatting. | **Yes, for Quick Look previews** and for Money's statement imports. |
@@ -50,9 +50,9 @@ sheet opens. Rust reads and writes the bytes, using the same safe save as the co
 (section 6.3). The `ironcalc` crate can also run headless in Rust later, for example to recalculate
 or export without a window.
 
-**CorePro's own grid.** The cell area is a canvas: one draw per frame, only visible cells, and
+**Zazabor's own grid.** The cell area is a canvas: one draw per frame, only visible cells, and
 100,000 rows scroll smoothly, as the Files views do. Headers, the selection, the in-cell editor,
-the formula bar and the menus are DOM in CorePro's glass classes. The model already provides
+the formula bar and the menus are DOM in Zazabor's glass classes. The model already provides
 navigation (`onArrowDown`, `onPageDown`, `onNavigateToEdgeInDirection`), selection ranges, formula
 completion and clipboard helpers, so the grid mostly draws and forwards input.
 
@@ -68,16 +68,16 @@ completion and clipboard helpers, so the grid mostly draws and forwards input.
 
 **Later:**
 
-- Sort and filter: no sort call appears in the WASM API, so this is CorePro code over ranges.
+- Sort and filter: no sort call appears in the WASM API, so this is Zazabor code over ranges.
 - A conditional-formatting editor (the model supports the rules already).
-- Charts: CorePro's own SVG charts kept beside the file, until IronCalc writes charts.
+- Charts: Zazabor's own SVG charts kept beside the file, until IronCalc writes charts.
 
 **Formats:**
 
 | Format | Open | Save | What is lost |
 |---|---|---|---|
 | .xlsx | IronCalc | IronCalc | Charts, pivot tables, and anything else IronCalc drops: drawings, images, comments and data validation must be confirmed with a test corpus (section 9). The fidelity guard protects the original. |
-| .xlsm | IronCalc, read-only | As .xlsx, without macros | Macros (CorePro never runs VBA). |
+| .xlsm | IronCalc, read-only | As .xlsx, without macros | Macros (Zazabor never runs VBA). |
 | .csv, .tsv | Parsed in Rust (`csv` crate: delimiter, encoding, BOM) | First sheet, values only | Everything but values. Saving warns if there are other sheets or formulas. |
 | .xls, .ods | LibreOffice converts to .xlsx when installed. Otherwise a read-only calamine view (values and formulas, no styles). | .xlsx, or .ods through LibreOffice | Whatever the conversion drops. |
 
@@ -85,14 +85,14 @@ completion and clipboard helpers, so the grid mostly draws and forwards input.
 
 | Option | Licence | Latest release | Verdict |
 |---|---|---|---|
-| [Tiptap](https://github.com/ueberdosis/tiptap) 3 on ProseMirror | MIT | v3.32.0, 2026-10-13 (`prosemirror-view` 1.42.8, 2026-10-24) | **Recommended.** `@tiptap/core` takes a plain element, with no framework needed. Free extensions cover tables, task lists, images, links, highlight, text style and alignment. Its own [DOCX import/export is paid](https://tiptap.dev/product/conversion) (Pro packages or the cloud service), so CorePro converts .docx itself. |
+| [Tiptap](https://github.com/ueberdosis/tiptap) 3 on ProseMirror | MIT | v3.32.0, 2026-10-13 (`prosemirror-view` 1.42.8, 2026-10-24) | **Recommended.** `@tiptap/core` takes a plain element, with no framework needed. Free extensions cover tables, task lists, images, links, highlight, text style and alignment. Its own [DOCX import/export is paid](https://tiptap.dev/product/conversion) (Pro packages or the cloud service), so Zazabor converts .docx itself. |
 | [Lexical](https://github.com/facebook/lexical) | MIT | v0.52.0, 2026-09-28 | A fine alternative that also works without a framework. It has fewer ready-made document features (tables, alignment, styles) than the Tiptap set and is still pre-1.0. |
 | Univer Docs | Apache-2.0 | v1.2.0 | Has Word-like layout with pages, headers and footers, but its docx import and export need the same Pro conversion server as Sheets. |
-| CorePro's Notes editor (`src/notes/editor.ts`) | ours | — | Built for Markdown notes. A document editor needs tables with merged cells, styles, page setup and images, which would mean rebuilding ProseMirror. Its Markdown reader and writer (`src/notes/markdown.ts`) is still useful for .md import and export. |
-| [mammoth.js](https://github.com/mwilliamson/mammoth.js) (docx → HTML) | BSD-2-Clause | 1.13.0 on npm, 2026-09 | **Yes, for import.** It "aims to produce simple and clean HTML by using semantic information in the document, and ignoring other details". It keeps headings, lists, tables, images, footnotes, links and inline formatting, and drops fonts, sizes, colours and table borders. It does no sanitising, so CorePro must clean its HTML. |
-| [docx](https://github.com/dolanmiu/docx) (writes .docx) | MIT | 9.14.0, 2026-10-23 | **Yes, for export.** CorePro maps the editor's document tree onto it. |
+| Zazabor's Notes editor (`src/notes/editor.ts`) | ours | — | Built for Markdown notes. A document editor needs tables with merged cells, styles, page setup and images, which would mean rebuilding ProseMirror. Its Markdown reader and writer (`src/notes/markdown.ts`) is still useful for .md import and export. |
+| [mammoth.js](https://github.com/mwilliamson/mammoth.js) (docx → HTML) | BSD-2-Clause | 1.13.0 on npm, 2026-09 | **Yes, for import.** It "aims to produce simple and clean HTML by using semantic information in the document, and ignoring other details". It keeps headings, lists, tables, images, footnotes, links and inline formatting, and drops fonts, sizes, colours and table borders. It does no sanitising, so Zazabor must clean its HTML. |
+| [docx](https://github.com/dolanmiu/docx) (writes .docx) | MIT | 9.14.0, 2026-10-23 | **Yes, for export.** Zazabor maps the editor's document tree onto it. |
 | [docx-rs](https://github.com/bokuweb/docx-rs) (Rust) | MIT | 0.4.21, 2026-07-20 | Possible later, for exports without a window. |
-| Embed [ONLYOFFICE Docs](https://github.com/ONLYOFFICE/DocumentServer) or [Collabora Online](https://www.collaboraonline.com/code/) | AGPL-3.0 (ONLYOFFICE v10.0.0, 2026-10-12) | — | **No.** Both are document servers (Docker or packages) that a browser editor talks to through WOPI or their APIs. That means hundreds of MB and a background service for a desktop app, AGPL obligations, and a look CorePro can't restyle. They give the best Office fidelity, which is why "Open in LibreOffice" stays one click away (section 6.4). |
+| Embed [ONLYOFFICE Docs](https://github.com/ONLYOFFICE/DocumentServer) or [Collabora Online](https://www.collaboraonline.com/code/) | AGPL-3.0 (ONLYOFFICE v10.0.0, 2026-10-12) | — | **No.** Both are document servers (Docker or packages) that a browser editor talks to through WOPI or their APIs. That means hundreds of MB and a background service for a desktop app, AGPL obligations, and a look Zazabor can't restyle. They give the best Office fidelity, which is why "Open in LibreOffice" stays one click away (section 6.4). |
 
 ## 5. Docs: the design
 
@@ -111,7 +111,7 @@ completion and clipboard helpers, so the grid mostly draws and forwards input.
   through `markdown.ts` and .html through the same sanitiser. .odt, .rtf and .doc go through
   LibreOffice to .docx when it's installed, and otherwise open in the system app.
 - **Export:** .docx through `docx`, .md, .html, and PDF (section 6.4).
-- **What a docx round trip loses:** fonts, sizes and colours from styles (CorePro writes its own
+- **What a docx round trip loses:** fonts, sizes and colours from styles (Zazabor writes its own
   clean styles), page size and margins from the original, headers and footers, comments, tracked
   changes, fields, text boxes, columns and section breaks. The fidelity guard decides what happens
   to the original (section 6.3).
@@ -128,7 +128,7 @@ completion and clipboard helpers, so the grid mostly draws and forwards input.
   (`src/shell/windows.ts`). `classifyPath` in `src/shell/router.ts` gains `"document"` and
   `"sheet"`, and `OpenRequest` gains `{ kind: "doc" | "sheet"; path }`. Today these files are
   `"other"` and open in the system app. With the features off, they still do.
-- **Files:** double-click opens them in CorePro when the feature is on. "Open With" lists CorePro
+- **Files:** double-click opens them in Zazabor when the feature is on. "Open With" lists Zazabor
   Docs and Sheets next to the system's apps. Right-click → New Document or New Spreadsheet in a
   folder.
 - **Quick Look** (`src/shared/quicklook/bodies.ts`): .docx renders through mammoth and the
@@ -137,16 +137,16 @@ completion and clipboard helpers, so the grid mostly draws and forwards input.
   with sheet tabs. Neither loads the editors' chunks.
 - **Default app:** the same opt-in switches as for folders, images and videos (`xdg-mime`, off by
   default, reversible).
-- **Elsewhere in CorePro:** Time's daily report and Money's exports can open straight into Docs or
+- **Elsewhere in Zazabor:** Time's daily report and Money's exports can open straight into Docs or
   Sheets.
 
 ### 6.2 Saving, autosave and versions
 
 - **Save** (Ctrl+S) writes the file with the code editor's safe save. **Autosave to the file** is
-  an option, on for files CorePro created and off for Office files from elsewhere: explicit saves
+  an option, on for files Zazabor created and off for Office files from elsewhere: explicit saves
   are the Office habit, and they keep the fidelity guard meaningful.
 - **Recovery:** every 5 seconds while there are unsaved changes, the document's state goes to
-  `office/recovery/<path-hash>`. After a crash, opening the file again (or starting CorePro) offers
+  `office/recovery/<path-hash>`. After a crash, opening the file again (or starting Zazabor) offers
   "Restore unsaved changes from 10:42". The recovery file is cleared on save or on "Don't Save".
 - **Versions:** each save first copies the previous file to `office/versions/<path-hash>/<time>.<ext>`.
   Older versions are thinned to one per day after a week and dropped after 30 days. File → Version
@@ -155,7 +155,7 @@ completion and clipboard helpers, so the grid mostly draws and forwards input.
 ### 6.3 The fidelity guard
 
 Before overwriting an Office file, Rust lists the zip's parts (the `zip` crate is already a
-dependency) and reports what CorePro can't write back:
+dependency) and reports what Zazabor can't write back:
 
 - **.xlsx:** `xl/charts/`, `xl/pivotTables/`, `xl/drawings/`, `xl/vbaProject.bin`, `xl/comments*`,
   `xl/externalLinks/`.
@@ -163,13 +163,13 @@ dependency) and reports what CorePro can't write back:
   tracked changes (`w:ins` or `w:del` in `document.xml`), and `vbaProject.bin`.
 
 If any of these are found, a banner names them in plain words when the file opens ("This
-spreadsheet has 2 charts and a pivot table that CorePro can't keep"). Save then defaults to **Save
-a Copy** (`Report (CorePro).xlsx`), with "Overwrite anyway" and "Open in LibreOffice" next to it.
+spreadsheet has 2 charts and a pivot table that Zazabor can't keep"). Save then defaults to **Save
+a Copy** (`Report (Zazabor).xlsx`), with "Overwrite anyway" and "Open in LibreOffice" next to it.
 
 ### 6.4 Print and PDF
 
 WebKitGTK has printing, but Tauri has no API that exposes it ([WebKit bug
-212814](https://bugs.webkit.org/show_bug.cgi?id=212814), pointing at Tauri issue #4917). CorePro
+212814](https://bugs.webkit.org/show_bug.cgi?id=212814), pointing at Tauri issue #4917). Zazabor
 already links the `webkit2gtk` crate (feature `v2_40`), so a Rust command can run
 `webkit2gtk::PrintOperation` on the editor's webview:
 
@@ -196,7 +196,7 @@ When LibreOffice is installed, "Export as PDF (LibreOffice)" converts the saved 
 - `contenteditable` and input-method composition: ProseMirror works around most engine quirks.
   Bangla, Arabic (right-to-left) and emoji need a test pass.
 - **Spell checking** comes from WebKitGTK's web context, through Enchant and Hunspell. Whether
-  Tauri turns it on, and which languages are installed, has to be checked. CorePro may need to
+  Tauri turns it on, and which languages are installed, has to be checked. Zazabor may need to
   enable it from Rust.
 - Clipboard: reading `text/html` and TSV pasted from LibreOffice, Excel on the web and Google
   Sheets must be tested through Tauri's clipboard path.
@@ -220,7 +220,7 @@ sessions. O2 is 2. O3 is 3, mostly the docx mapping and the page view. O4 is 1.
 
 | Risk | Mitigation |
 |---|---|
-| IronCalc is young (v0.9, "in its infancy") | Pin the version and keep a test corpus (O1) that must pass before each upgrade. The guard protects originals. Univer's open-source core is the fallback for the UI and engine, with CorePro's own xlsx mapping. |
+| IronCalc is young (v0.9, "in its infancy") | Pin the version and keep a test corpus (O1) that must pass before each upgrade. The guard protects originals. Univer's open-source core is the fallback for the UI and engine, with Zazabor's own xlsx mapping. |
 | A missing function or formula difference | IronCalc treats any difference from Excel as a bug ([docs](https://docs.ironcalc.com/)). Report it upstream and show `#NAME?` honestly, never a wrong number. |
 | docx fidelity disappoints | Set expectations in the banner, save a copy by default, and keep Open in LibreOffice one click away. |
 | No print API in Tauri on Linux | Use `webkit2gtk::PrintOperation` directly from Rust (section 6.4). Fall back to the print dialog, or to LibreOffice. |
@@ -232,18 +232,18 @@ sessions. O2 is 2. O3 is 3, mostly the docx mapping and the page view. O4 is 1.
 
 1. **One "Office" section on the rail** (recent documents and spreadsheets, templates, New buttons),
    or editors opened only from Files and Quick Look, as the code editor is?
-2. **Overwriting Office files with parts CorePro can't keep:** save a copy by default (recommended),
+2. **Overwriting Office files with parts Zazabor can't keep:** save a copy by default (recommended),
    or ask every time?
 3. **LibreOffice as an optional helper** for .doc, .xls, .odt and .ods and for exact PDFs: fine to
    use it when it's installed? Should the .deb recommend it?
-4. **Default app:** offer "Make CorePro the default for documents and spreadsheets" switches (off
+4. **Default app:** offer "Make Zazabor the default for documents and spreadsheets" switches (off
    by default)?
-5. **CorePro's licence.** There is none yet. This plan avoids GPL and AGPL code so the choice stays
-   open. Say so if CorePro will be GPL anyway, because that reopens HyperFormula and others.
+5. **Zazabor's licence.** There is none yet. This plan avoids GPL and AGPL code so the choice stays
+   open. Say so if Zazabor will be GPL anyway, because that reopens HyperFormula and others.
 6. **Pagination:** is a page-width view with exact pages only in print and PDF enough, or do you
    need Word-style live pages with headers and footers? Live pages are much more work, and would
    point to Univer Docs plus a docx bridge.
-7. **Charts in Sheets** in the first version? IronCalc won't have them before its 1.0, so CorePro
+7. **Charts in Sheets** in the first version? IronCalc won't have them before its 1.0, so Zazabor
    would draw its own and store them beside the file.
 8. **Fonts:** Noto Sans Bengali, SolaimanLipi or another as the default Bangla font in documents
    and PDFs?

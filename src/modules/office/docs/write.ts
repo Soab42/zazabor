@@ -2,6 +2,7 @@ import type { JSONContent } from "@tiptap/core";
 import { Document, Packer, PageOrientation } from "docx";
 import { htmlToContent } from "docx/html";
 import type { PageSetup } from "./read";
+import { layoutPictures } from "./picture";
 
 /**
  * Saving Docs content. A .docx is built with the `docx` package from the editor's HTML (its
@@ -32,9 +33,11 @@ const STYLES = {
 };
 
 /** The editor's HTML as the .docx reader should see it. */
-function prepare(html: string): string {
+function prepare(html: string, warn: (text: string) => void): string {
   const root = document.createElement("template");
   root.innerHTML = html;
+  // Pictures' wrapping as Word's: floats, or a paragraph of their own (picture.ts).
+  layoutPictures(root.content, true, warn);
   // A page break starts the paragraph after it on a new page (no empty paragraph in between).
   for (const br of Array.from(root.content.querySelectorAll("[data-page-break]"))) {
     const next = br.nextElementSibling as HTMLElement | null;
@@ -63,7 +66,7 @@ function prepare(html: string): string {
 export async function writeDocx(html: string, page: PageSetup, title: string): Promise<{ bytes: Uint8Array; warnings: string[] }> {
   const warnings: string[] = [];
   const contentWidth = ((page.orientation === "landscape" ? page.height : page.width) - page.margins.left - page.margins.right) / 0.75;
-  const children = htmlToContent(prepare(html), {
+  const children = htmlToContent(prepare(html, (w) => warnings.push(w)), {
     styleMap: { "p.ds-title": "Title", "p.ds-subtitle": "Subtitle", "p.ds-quote": "Quote", "p.ds-code": "Code" },
     // As the page shows them: header cells aren't centred (a browser centres <th>), and the
     // Normal style's line spacing is the document's default, not repeated on every paragraph.
@@ -72,7 +75,7 @@ export async function writeDocx(html: string, page: PageSetup, title: string): P
     onWarning: (w) => warnings.push(w.message),
   });
   const doc = new Document({
-    creator: "CorePro Docs",
+    creator: "Zazabor Docs",
     title,
     styles: STYLES,
     sections: [{
@@ -96,7 +99,7 @@ export function writeHtml(html: string, title: string, css: string): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="generator" content="CorePro Docs">
+<meta name="generator" content="Zazabor Docs">
 <title>${esc(title)}</title>
 <style>
 body { max-width: 46em; margin: 3em auto; padding: 0 1.5em; }

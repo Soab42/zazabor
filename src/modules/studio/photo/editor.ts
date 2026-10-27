@@ -3,6 +3,7 @@ import { basename, clamp, dirname, h, stripExtension } from "../../../ui/dom";
 import { icon, type IconName } from "../../../ui/icons";
 import { openMenu, type MenuItem } from "../../../ui/menu";
 import type { StudioApp, StudioHost } from "../app";
+import { aiApi, ensureModels, growMask, shrinkRgba, type SamPoint } from "./aimodels";
 import { autoAdjust, COLOUR_SLIDERS, DEFAULT_ADJUST, EFFECT_SLIDERS, FILTERS, formatValue, LIGHT_SLIDERS, isDefault, type Adjustments, type SliderSpec } from "./adjust";
 import { extensionOf, formatFor, hasAlpha, photoApi, SAVE_FORMATS, type Decoded, type ProjectLayer, type SaveFormat } from "./api";
 import { ask } from "./ask";
@@ -11,6 +12,7 @@ import { BLEND_GROUPS, Engine, intersect, union, type AdjustLayer, type Dab, typ
 import { floodMask } from "./fill";
 import { Filters, FILTER_LABELS, type FilterKind, type FilterSettings } from "./filters";
 import { isIdentity } from "./geometry";
+import { developPanel, isRaw, rawApi, DEFAULT_DEVELOP, type DevelopSettings, type RawInfo } from "./develop";
 import { describeGpu } from "./gl";
 import type { QuickEditSettings } from "./handoff";
 import { heal } from "./heal";
@@ -19,12 +21,13 @@ import { adjIcon, adjLabel, ADJ_TYPES, cloneSpec, defaultSpec, type AdjSpec, typ
 import type { LoadedProject, ProjectJson, ProjectLayerJson } from "./project";
 import { specEditor } from "./props";
 import { QuickRenderer } from "./render";
-import { colorRange, combine, expand, feather, invert, makeSelection, outlinePath, polygonMask, selectAll, shapePoints, type SelectMode, type Selection } from "./selection";
+import { colorRange, combine, expand, feather, invert, makeSelection, outlinePath, polygonMask, refineEdge, selectAll, shapePoints, type SelectMode, type Selection } from "./selection";
 import { hexToRgb, normalizePhotoSettings, rgbToHex, type BrushSettings, type PhotoSettings, type Tool } from "./settings";
 import { corners, dragTransform, handlePoint, HANDLES, hitTransform, IDENTITY_PARAMS, isIdentityParams, outBounds, transformCursor, transformMap, type TransformDrag, type TransformParams } from "./transform";
 import { blockOf, depthOf, descendants, isFolded, moveBlock, siblings } from "./tree";
 import { drawShape, drawText, fontFamily, FONTS, SHAPES, type ShapeSource, type TextSource } from "./vector";
 import "./photo.css";
+import { PHOTO_PROJECT_EXTENSIONS } from "../app";
 
 /** How a document starts. */
 export type Opening =
@@ -44,9 +47,11 @@ const TOOL_INFO: Record<Tool, { label: string; key: string; icon: IconName }> = 
   lasso: { label: "Lasso", key: "L", icon: "phLasso" },
   polyLasso: { label: "Polygonal Lasso", key: "L", icon: "phPolyLasso" },
   wand: { label: "Magic Wand", key: "W", icon: "phWand" },
+  objectSelect: { label: "Object Selection", key: "Shift+W", icon: "phObjectSelect" },
   crop: { label: "Crop", key: "C", icon: "phCrop" },
   eyedropper: { label: "Eyedropper", key: "I", icon: "phEyedropper" },
   heal: { label: "Healing Brush", key: "J", icon: "phHeal" },
+  remove: { label: "Remove", key: "Shift+J", icon: "phRemove" },
   brush: { label: "Brush", key: "B", icon: "brush" },
   clone: { label: "Clone Stamp", key: "S", icon: "stamp" },
   eraser: { label: "Eraser", key: "E", icon: "eraser" },
@@ -57,7 +62,7 @@ const TOOL_INFO: Record<Tool, { label: string; key: string; icon: IconName }> = 
   hand: { label: "Hand", key: "H", icon: "phHand" },
   zoom: { label: "Zoom", key: "Z", icon: "zoomIn" },
 };
-const TOOL_ORDER: Tool[] = ["move", "marquee", "ellipse", "lasso", "polyLasso", "wand", "crop", "eyedropper", "heal", "brush", "clone", "eraser", "gradient", "bucket", "text", "shape", "hand", "zoom"];
+const TOOL_ORDER: Tool[] = ["move", "marquee", "ellipse", "lasso", "polyLasso", "wand", "objectSelect", "crop", "eyedropper", "heal", "remove", "brush", "clone", "eraser", "gradient", "bucket", "text", "shape", "hand", "zoom"];
 /** Tools grouped as in Photoshop's toolbar: a thin line between groups. */
 const TOOL_BREAKS = new Set<Tool>(["marquee", "crop", "heal", "text", "hand"]);
 
@@ -87,7 +92,26 @@ type Drag =
   | { kind: "lasso"; points: [number, number][]; mode: SelectMode }
   | { kind: "transform"; drag: TransformDrag }
   | { kind: "shape"; from: [number, number]; to: [number, number] }
+  | { kind: "remove"; layer: PixelLayer; points: [number, number][] }
   | { kind: "pick" };
+
+/** Object Selection: one object's clicks on the picture MobileSAM looked at. */
+interface ObjectSession {
+  /** What the picture looked like (see `compositeKey`); a change means looking again. */
+  key: string;
+  token: number;
+  /** The picture's size as the model saw it (shrunk). */
+  width: number;
+  height: number;
+  points: SamPoint[];
+  /** The selection before this object, and how the object combines with it. */
+  base: Selection | null;
+  mode: SelectMode;
+  /** The selection the last click made: another selection change ends the session. */
+  result: Selection | null;
+}
+
+const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /** What painting goes into: a pixel layer, or a layer's mask. */
 interface PaintTarget {
@@ -209,6 +233,16 @@ export class PhotoEditor implements StudioApp {
   private cloneOffset: [number, number] | null = null;
   private textEdit: { layer: PixelLayer; box: HTMLElement; isNew: boolean; before: Snapshot | null } | null = null;
   private gradientTo: [number, number] | null = null;
+  /** Object Selection's current object. */
+  private objectSession: ObjectSession | null = null;
+  /** An AI tool is working (one at a time). */
+  private aiWorking = false;
+  /** RAW files' camera details, by path. */
+  private rawInfo = new Map<string, RawInfo>();
+  /** Developing again, one at a time; the Develop sliders' settings when a drag started. */
+  private developQueue: Promise<void> = Promise.resolve();
+  private developTimer = 0;
+  private developStart: DevelopSettings | null = null;
   private lastFilter: { kind: FilterKind } | null = null;
   /** The adjustment change last recorded, which a quick repeat folds into. */
   private lastAdjust: { step: object; layer: Layer; label: string; time: number; next: { a: Adjustments; s: AdjSpec } } | null = null;
@@ -303,6 +337,8 @@ export class PhotoEditor implements StudioApp {
       }
       this.setDocSize(decoded.width, decoded.height);
       this.doc.layers = [this.pixelLayer("Background", 0, 0, decoded.width, decoded.height, decoded.rgba)];
+      // A camera RAW file: the layer can be developed again from the Properties panel.
+      if (isRaw(opening.path) && !quick) (this.doc.layers[0] as PixelLayer).raw = { path: opening.path, settings: { ...DEFAULT_DEVELOP } };
       if (quick && !isDefault(quick.adjust)) {
         this.doc.layers.push(this.adjustLayer("Quick Edit", { type: "basic" }, quick.adjust));
       }
@@ -333,7 +369,7 @@ export class PhotoEditor implements StudioApp {
     return loaded.map((l, i): Layer => {
       const mask: LayerMask | null = l.mask ? { tex: this.engine.layerTexture(l.mask.width, l.mask.height, l.mask.rgba), x: l.mask.x, y: l.mask.y, width: l.mask.width, height: l.mask.height, fill: l.mask.fill, enabled: l.mask.enabled } : null;
       const base = { id: ids[i], name: l.name, visible: l.visible, opacity: l.opacity, blend: l.blend, parent: l.parent === null ? null : ids[l.parent], clip: l.clip, mask };
-      if (l.kind === "pixel") return { ...base, kind: "pixel", x: l.x, y: l.y, width: l.width, height: l.height, tex: this.engine.layerTexture(l.width, l.height, l.rgba), source: l.source };
+      if (l.kind === "pixel") return { ...base, kind: "pixel", x: l.x, y: l.y, width: l.width, height: l.height, tex: this.engine.layerTexture(l.width, l.height, l.rgba), source: l.source, raw: l.raw ?? null };
       if (l.kind === "adjust") return { ...base, kind: "adjust", adjust: { ...l.adjust }, spec: l.spec };
       return { ...base, kind: "group", passThrough: l.passThrough, open: l.open };
     });
@@ -840,7 +876,7 @@ export class PhotoEditor implements StudioApp {
     }
     const next = this.engine.layerTexture(layer.width, layer.height, pixels);
     const before = this.snapshot();
-    const replaced: PixelLayer = { ...layer, id: this.nextId++, tex: next, mask: null, source: null };
+    const replaced: PixelLayer = { ...layer, id: this.nextId++, tex: next, mask: null, source: null, raw: null };
     this.doc.layers[this.activeIndex] = replaced;
     this.editMask = false;
     this.recordLayers("Apply Layer Mask", "phMask", before);
@@ -1012,7 +1048,7 @@ export class PhotoEditor implements StudioApp {
     }
     const ext = extensionOf(path);
     try {
-      if (ext === "coreimage") await this.saveProject(path);
+      if (PHOTO_PROJECT_EXTENSIONS.includes(ext)) await this.saveProject(path);
       else if (ext === "psd") await this.savePsd(path);
       else await this.savePicture(path, formatFor(path), this.settings.export.quality);
     } catch (err) {
@@ -1028,19 +1064,19 @@ export class PhotoEditor implements StudioApp {
 
   private async askSavePath(): Promise<string | null> {
     const folder = this.sourcePicture ? dirname(this.sourcePicture) : this.filePath ? dirname(this.filePath) : null;
-    const name = `${stripExtension(this.title())}.coreimage`;
+    const name = `${stripExtension(this.title())}.zazimage`;
     const path = await saveDialog({
       title: "Save As",
       defaultPath: folder ? `${folder}/${name}` : name,
       filters: [
-        { name: "Photo project (layers kept)", extensions: ["coreimage"] },
+        { name: "Photo project (layers kept)", extensions: ["zazimage"] },
         { name: "Photoshop (layers kept)", extensions: ["psd"] },
         ...SAVE_FORMATS.map((f) => ({ name: `${f.name} (layers merged)`, extensions: [f.extension] })),
       ],
     });
     if (!path) return null;
     const ext = extensionOf(path);
-    return ext === "coreimage" || ext === "psd" || SAVE_FORMATS.some((f) => f.extension === ext || (f.id === "jpeg" && ext === "jpeg") || (f.id === "tiff" && ext === "tif")) ? path : `${path}.coreimage`;
+    return PHOTO_PROJECT_EXTENSIONS.includes(ext) || ext === "psd" || SAVE_FORMATS.some((f) => f.extension === ext || (f.id === "jpeg" && ext === "jpeg") || (f.id === "tiff" && ext === "tif")) ? path : `${path}.zazimage`;
   }
 
   private async withBusy<T>(text: string, work: () => Promise<T>): Promise<T> {
@@ -1066,7 +1102,7 @@ export class PhotoEditor implements StudioApp {
       };
       const index = new Map(this.doc.layers.map((l, i) => [l.id, i]));
       const json: ProjectJson = {
-        app: "CorePro Photo",
+        app: "Zazabor Photo",
         version: 2,
         width: this.doc.width,
         height: this.doc.height,
@@ -1076,7 +1112,7 @@ export class PhotoEditor implements StudioApp {
           const base = { name: l.name, visible: l.visible, opacity: l.opacity, blend: l.blend, parent: l.parent === null ? null : (index.get(l.parent) ?? null), clip: l.clip, mask };
           if (l.kind === "adjust") return { ...base, kind: "adjust", adjust: { ...l.adjust }, spec: cloneSpec(l.spec) };
           if (l.kind === "group") return { ...base, kind: "group", passThrough: l.passThrough, open: l.open };
-          return { ...base, kind: "pixel", x: l.x, y: l.y, width: l.width, height: l.height, data: pixels(l), source: l.source ? { ...l.source } : null };
+          return { ...base, kind: "pixel", x: l.x, y: l.y, width: l.width, height: l.height, data: pixels(l), source: l.source ? { ...l.source } : null, raw: l.raw ? { path: l.raw.path, settings: { ...l.raw.settings } } : null };
         }),
       };
       const k = Math.min(1, PREVIEW_SIDE / Math.max(this.doc.width, this.doc.height));
@@ -1244,6 +1280,7 @@ export class PhotoEditor implements StudioApp {
           { label: "Load Mask as Selection", icon: "phMarquee" as IconName, action: () => this.selectFromMask() },
         ]
         : [
+          { label: "Remove Background", icon: "phSubject" as IconName, disabled: !this.pixelTarget, action: () => void this.removeBackground() },
           { label: "Add Mask: Reveal All", icon: "phMask" as IconName, disabled: !layer, action: () => this.addMask("reveal") },
           { label: "Add Mask: Hide All", icon: "phMask" as IconName, disabled: !layer, action: () => this.addMask("hide") },
           { label: "Add Mask: Reveal Selection", icon: "phMask" as IconName, disabled: !layer || !this.selection, action: () => this.addMask("revealSelection") },
@@ -1267,12 +1304,14 @@ export class PhotoEditor implements StudioApp {
       { label: "Reselect", icon: "refresh", shortcut: "Ctrl+Shift+D", disabled: !this.lastSelection || sel, action: () => this.lastSelection && this.changeSelection(this.lastSelection, "Reselect") },
       { label: "Inverse", icon: "phInvert", shortcut: "Ctrl+Shift+I", disabled: !sel, action: () => this.inverseSelection() },
       "separator",
+      { label: "Subject", icon: "phSubject", action: () => void this.selectSubject() },
       { label: "Color Range…", icon: "phWand", action: () => void this.colorRangeDialog() },
       { label: "Layer Transparency", icon: "phLayers", disabled: !this.pixelTarget, action: () => this.selectLayerPixels(this.pixelTarget!) },
       "separator",
       { label: "Feather…", icon: "phBlur", shortcut: "Shift+F6", disabled: !sel, action: () => void this.modifySelection("feather") },
       { label: "Expand…", icon: "plus", disabled: !sel, action: () => void this.modifySelection("expand") },
       { label: "Contract…", icon: "minus", disabled: !sel, action: () => void this.modifySelection("contract") },
+      { label: "Refine Edge…", icon: "phSubject", disabled: !sel, action: () => void this.refineSelectionEdge() },
     ];
   }
 
@@ -1369,6 +1408,17 @@ export class PhotoEditor implements StudioApp {
     const W = this.doc.width, H = this.doc.height;
     const data = kind === "feather" ? feather(sel.data, W, H, by) : expand(sel.data, W, H, kind === "expand" ? Math.round(by) : -Math.round(by));
     this.changeSelection(makeSelection(data, W, H), kind === "feather" ? "Feather" : kind === "expand" ? "Expand" : "Contract");
+  }
+
+  /** Select ▸ Refine Edge: the selection's soft edge snaps to the picture's own edges (hair, fur). */
+  private async refineSelectionEdge() {
+    const sel = this.selection;
+    if (!sel) return;
+    const radius = await askNumber({ title: "Refine Edge", label: "Radius", value: 8, min: 1, max: 100, unit: "px", icon: "phSubject" });
+    if (!radius || this.selection !== sel) return;
+    const W = this.doc.width, H = this.doc.height;
+    const data = await this.withBusy("Refining the edge…", async () => refineEdge(sel.data, this.engine.flatten(this.doc), W, H, radius));
+    this.changeSelection(makeSelection(data, W, H), "Refine Edge", "phSubject");
   }
 
   private async colorRangeDialog() {
@@ -1778,7 +1828,7 @@ export class PhotoEditor implements StudioApp {
       const holeLayer: PixelLayer = { ...layer, tex: hole, opacity: 1, blend: "normal", mask: null, clip: false, parent: null };
       const piece: PixelLayer = { ...t.target, tex, x: out.x, y: out.y, width: out.w, height: out.h, opacity: 1, blend: "normal", mask: null, clip: false, parent: null };
       const merged = this.merged([holeLayer, piece], layer.name);
-      const replaced: PixelLayer = { ...layer, id: merged.id, tex: merged.tex, x: 0, y: 0, width: W, height: H, source: null };
+      const replaced: PixelLayer = { ...layer, id: merged.id, tex: merged.tex, x: 0, y: 0, width: W, height: H, source: null, raw: null };
       this.doc.layers[this.doc.layers.indexOf(layer)] = replaced;
       this.activeIndex = this.doc.layers.indexOf(replaced);
       this.engine.deleteTexture(hole);
@@ -1800,7 +1850,7 @@ export class PhotoEditor implements StudioApp {
         mr.h = Math.max(1, Math.ceil(Math.max(...ys)) - mr.y);
         if (mr.w <= max && mr.h <= max) mask = { ...m, tex: this.engine.affineTexture(m, map, mr, [m.fill, m.fill, m.fill, 1]), x: mr.x, y: mr.y, width: mr.w, height: mr.h };
       }
-      const replaced: PixelLayer = { ...layer, id: this.nextId++, tex, x: out.x, y: out.y, width: out.w, height: out.h, source: null, mask };
+      const replaced: PixelLayer = { ...layer, id: this.nextId++, tex, x: out.x, y: out.y, width: out.w, height: out.h, source: null, mask, raw: null };
       if (layer.source) this.host.toast(`“${layer.name}” was rasterized to transform it.`);
       this.doc.layers[this.doc.layers.indexOf(layer)] = replaced;
       this.activeIndex = this.doc.layers.indexOf(replaced);
@@ -2001,6 +2051,7 @@ export class PhotoEditor implements StudioApp {
     if (tool !== "text") this.commitText();
     if (this.transform && !this.transform.quick) this.commitTransform();
     if (tool !== "polyLasso") this.poly = null;
+    if (tool !== "objectSelect") this.objectSession = null;
     if (tool === "crop" && !this.crop) this.crop = { x: 0, y: 0, w: this.doc.width, h: this.doc.height };
     if (tool !== "crop") this.crop = null;
     this.drawTools();
@@ -2129,6 +2180,16 @@ export class PhotoEditor implements StudioApp {
           h("span", { class: "ph-opt-note" }, this.cloneSource ? "Alt+click to pick a new source." : "Alt+click where to copy from first."));
       }
       if (this.editMask && this.layer?.mask) parts.push(h("span", { class: "ph-opt-note mask" }, icon("phMask", 13), "Painting on the mask: black hides, white shows."));
+    } else if (tool === "remove") {
+      parts.push(
+        this.option("Size", s.remove.size, 1, 1000, "px", (v) => ((s.remove.size = v), save(), this.drawOverlay())),
+        h("span", { class: "ph-opt-note" }, "Paint over what to remove: when you let go, it's filled from what's around it (AI, on this computer)."));
+    } else if (tool === "objectSelect") {
+      parts.push(this.segmented(SELECT_MODES, s.select.mode, (v) => ((s.select.mode = v), save(), this.drawOptions())),
+        h("button", { class: "btn small", type: "button", onclick: () => void this.selectSubject() }, icon("phSubject", 13), "Select Subject"),
+        h("span", { class: "ph-opt-note" }, this.objectSession?.points.length
+          ? "Click to add more of the object, Alt+click to take a part away, Shift+click for another object."
+          : "Click an object to select it (AI, on this computer). Alt+click takes a part away; Shift+click adds another object."));
     } else if (tool === "bucket") {
       parts.push(
         this.option("Opacity", s.bucket.opacity, 1, 100, "%", (v) => ((s.bucket.opacity = v), save())),
@@ -2560,6 +2621,17 @@ export class PhotoEditor implements StudioApp {
           h("button", { class: "btn small", type: "button", onclick: () => this.deleteMask() }, icon("trash", 13), "Delete")));
       return;
     }
+    if (layer?.kind === "pixel" && layer.raw) {
+      const raw = layer.raw;
+      this.propsTitle.textContent = "Develop";
+      const info = this.rawInfo.get(raw.path) ?? null;
+      if (!info) void rawApi.info(raw.path).then((i) => (this.rawInfo.set(raw.path, i), this.layer === layer && this.drawProps()), () => undefined);
+      this.propsBody.replaceChildren(
+        ...developPanel(raw, info, { change: (next, label, final) => this.developChanged(layer, next, label, final) }),
+        h("p", { class: "ph-empty" }, "Developing again replaces this layer's pixels: paint and retouch on a layer above."),
+        this.quickActions());
+      return;
+    }
     if (layer?.kind !== "adjust") {
       this.propsTitle.textContent = "Adjustments";
       const grid = h("div", { class: "ph-adjust-grid" }, ...ADJ_TYPES.map((t) =>
@@ -2568,7 +2640,8 @@ export class PhotoEditor implements StudioApp {
         ? h("p", { class: "ph-empty" }, "A type layer. Double-click its thumbnail, or click the text with the Type tool, to edit it.")
         : h("p", { class: "ph-empty" }, this.selection ? "Add an adjustment: it applies inside the selection." : "Add an adjustment layer: it changes everything below it and can be changed later.");
       this.propsBody.replaceChildren(note, grid,
-        h("div", { class: "ph-props-actions" }, h("button", { class: "btn small", type: "button", onclick: () => this.autoTone() }, icon("sparkles", 13), "Auto Tone")));
+        h("div", { class: "ph-props-actions" }, h("button", { class: "btn small", type: "button", onclick: () => this.autoTone() }, icon("sparkles", 13), "Auto Tone")),
+        ...(layer?.kind === "pixel" ? [this.quickActions()] : []));
       return;
     }
     this.propsTitle.textContent = adjLabel(layer.spec.type);
@@ -2640,6 +2713,211 @@ export class PhotoEditor implements StudioApp {
       h("div", { class: "ph-prop-group" }, h("h4", null, "Filter"), look, slider({ key: "lookAmount", label: "Strength", min: 0, max: 100, step: 1 })),
       group("Effects", EFFECT_SLIDERS),
     );
+  }
+
+  // ---- AI tools (aimodels.ts; they run on this computer)
+
+  /** Remove Background and Select Subject, as Photoshop's Properties panel offers them. */
+  private quickActions(): HTMLElement {
+    return h("div", { class: "ph-prop-group" }, h("h4", null, "Quick Actions"),
+      h("div", { class: "ph-props-actions wrap" },
+        h("button", { class: "btn small", type: "button", onclick: () => void this.removeBackground() }, icon("phSubject", 13), "Remove Background"),
+        h("button", { class: "btn small", type: "button", onclick: () => void this.selectSubject() }, icon("phMarquee", 13), "Select Subject")));
+  }
+
+  /** The faster subject finder when Settings → Photo says so. */
+  private subjectTool(): "subject" | "subject-fast" {
+    return normalizePhotoSettings(this.host.shell.config.studio.apps.photo).ai.subject === "fast" ? "subject-fast" : "subject";
+  }
+
+  /** Runs one AI step with the spinner; errors become a message. */
+  private async aiStep<T>(text: string, work: () => Promise<T>): Promise<T | null> {
+    if (this.aiWorking) return null;
+    this.aiWorking = true;
+    try {
+      return await this.withBusy(text, work);
+    } catch (err) {
+      this.host.toast(errorText(err));
+      return null;
+    } finally {
+      this.aiWorking = false;
+    }
+  }
+
+  /** The main subject's mask for RGBA pixels, at their size. */
+  private async subjectOf(rgba: Uint8Array, width: number, height: number): Promise<Uint8Array> {
+    const small = shrinkRgba(rgba, width, height, 2048);
+    const found = await aiApi.subject(small.rgba, small.width, small.height, this.subjectTool() === "subject-fast");
+    return growMask(found, small.width, small.height, width, height);
+  }
+
+  /** Layer ▸ Remove Background: a mask that hides everything but the subject (no pixel is lost). */
+  private async removeBackground() {
+    const layer = this.pixelTarget;
+    if (!layer) return this.host.toast("Choose a pixel layer: Remove Background gives it a mask that hides the background.");
+    if (layer.mask) return this.host.toast("This layer already has a mask. Delete it first, or paint on it.");
+    const W = this.doc.width, H = this.doc.height;
+    if (!this.fits(W * H * 4)) return;
+    if (!(await ensureModels(this.subjectTool(), "subject finder"))) return;
+    const mask = await this.aiStep("Finding the subject…", async () => {
+      const local = await this.subjectOf(this.engine.readTexture(layer.tex, { x: 0, y: 0, w: layer.width, h: layer.height }), layer.width, layer.height);
+      // The mask covers the canvas: the layer's place from the model, hidden elsewhere.
+      const full = new Uint8Array(W * H);
+      for (let y = 0; y < layer.height; y++) {
+        const dy = y + layer.y;
+        if (dy < 0 || dy >= H) continue;
+        for (let x = 0; x < layer.width; x++) {
+          const dx = x + layer.x;
+          if (dx >= 0 && dx < W) full[dy * W + dx] = local[y * layer.width + x];
+        }
+      }
+      return { tex: this.engine.layerTexture(W, H, greyRgba(full)), x: 0, y: 0, width: W, height: H, fill: 0, enabled: true } satisfies LayerMask;
+    });
+    if (!mask) return;
+    layer.mask = mask;
+    this.editMask = false;
+    this.recordChange("Remove Background", "phSubject", (after) => (layer.mask = after ? mask : null), W * H * 4, (applied) => {
+      if (!applied) this.engine.deleteTexture(mask.tex);
+    });
+    this.engine.invalidate();
+    this.refreshAll();
+  }
+
+  /** Select ▸ Subject: the main subject of what the picture shows, as a new selection. */
+  private async selectSubject() {
+    const W = this.doc.width, H = this.doc.height;
+    if (!(await ensureModels(this.subjectTool(), "subject finder"))) return;
+    const mask = await this.aiStep("Finding the subject…", () => this.subjectOf(this.engine.flatten(this.doc), W, H));
+    if (!mask) return;
+    const feather = this.settings.select.feather;
+    this.settings.select.feather = 0;
+    this.applySelection(mask, "new", "Select Subject", "phSubject");
+    this.settings.select.feather = feather;
+  }
+
+  /** What the picture looks like now, as a key: layers, their settings and pixel versions. */
+  private compositeKey(): string {
+    return `${this.doc.width}x${this.doc.height}|` + this.doc.layers.map((l) => [l.id, l.visible ? 1 : 0, l.opacity, l.blend, l.parent ?? "", l.clip ? 1 : 0,
+      this.versions.get(l.id) ?? 0, l.mask ? `${l.mask.enabled ? 1 : 0}${this.maskVersions.get(l.id) ?? 0}` : "-",
+      l.kind === "adjust" ? JSON.stringify([l.adjust, l.spec]) : l.kind === "pixel" ? `${l.x},${l.y}` : ""].join(":")).join("|");
+  }
+
+  /** Object Selection: each click refines the object MobileSAM finds; Shift starts another. */
+  private async objectSelectClick(p: { x: number; y: number }, e: PointerEvent) {
+    const W = this.doc.width, H = this.doc.height;
+    if (this.aiWorking || p.x < 0 || p.y < 0 || p.x >= W || p.y >= H) return;
+    const alt = e.altKey, shift = e.shiftKey;
+    if (!(await ensureModels("select", "object selection"))) return;
+    const key = this.compositeKey();
+    let s = this.objectSession;
+    const sameLook = !!s && s.key === key;
+    if (!s || !sameLook || shift || this.selection !== s.result) {
+      // A new object: on top of the selection there is now, as the options bar says.
+      const mode: SelectMode = shift ? "add" : this.settings.select.mode;
+      s = { key, token: sameLook && s ? s.token : 0, width: sameLook && s ? s.width : 0, height: sameLook && s ? s.height : 0, points: [], base: this.selection, mode, result: null };
+    }
+    const session = s;
+    const mask = await this.aiStep(session.token ? "Selecting…" : "Looking at the picture…", async () => {
+      if (!session.token) {
+        // The model works at 1024 px: send it no more.
+        const small = shrinkRgba(this.engine.flatten(this.doc), W, H, 1024);
+        session.token = await aiApi.samEmbed(small.rgba, small.width, small.height);
+        session.width = small.width;
+        session.height = small.height;
+      }
+      session.points.push({ x: (p.x * session.width) / W, y: (p.y * session.height) / H, add: !alt });
+      const found = await aiApi.samMask(session.token, session.points);
+      return growMask(found, session.width, session.height, W, H);
+    });
+    if (!mask) {
+      if (session.points.length && !session.result) session.points.pop();
+      return;
+    }
+    const next = makeSelection(combine(session.base?.data ?? null, mask, session.mode), W, H);
+    this.changeSelection(next, "Object Selection", "phObjectSelect");
+    session.result = this.selection;
+    this.objectSession = session;
+    this.drawOptions();
+    this.drawOverlay();
+  }
+
+  /** The Remove tool: what was painted over is filled from around it (MI-GAN, on this computer). */
+  private async removeObject(drag: Extract<Drag, { kind: "remove" }>) {
+    const layer = drag.layer;
+    const size = this.settings.remove.size;
+    const r = size / 2;
+    const xs = drag.points.map(([x]) => x - layer.x), ys = drag.points.map(([, y]) => y - layer.y);
+    const bx0 = Math.max(0, Math.floor(Math.min(...xs) - r)), by0 = Math.max(0, Math.floor(Math.min(...ys) - r));
+    const bx1 = Math.min(layer.width, Math.ceil(Math.max(...xs) + r)), by1 = Math.min(layer.height, Math.ceil(Math.max(...ys) + r));
+    if (bx1 <= bx0 || by1 <= by0) return;
+    if (!(await ensureModels("remove", "object remover"))) return;
+    // What the model sees: the painted area with room around it (about 3.2 times its size).
+    const side = Math.min(Math.max(layer.width, layer.height), Math.max(512, Math.round(Math.max(bx1 - bx0, by1 - by0) * 3.2)));
+    const cw = Math.min(side, layer.width), ch = Math.min(side, layer.height);
+    const cx = clamp(Math.round((bx0 + bx1) / 2 - cw / 2), 0, layer.width - cw), cy = clamp(Math.round((by0 + by1) / 2 - ch / 2), 0, layer.height - ch);
+    const canvas = new OffscreenCanvas(cw, ch);
+    const ctx = canvas.getContext("2d")!;
+    ctx.strokeStyle = ctx.fillStyle = "#ffffff";
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = size;
+    ctx.beginPath();
+    drag.points.forEach(([x, y], i) => (i ? ctx.lineTo(x - layer.x - cx, y - layer.y - cy) : ctx.moveTo(x - layer.x - cx, y - layer.y - cy)));
+    if (drag.points.length === 1) {
+      ctx.arc(drag.points[0][0] - layer.x - cx, drag.points[0][1] - layer.y - cy, r, 0, Math.PI * 2);
+      ctx.fill();
+    } else ctx.stroke();
+    const painted = ctx.getImageData(0, 0, cw, ch).data;
+    const mask = new Uint8Array(cw * ch);
+    for (let i = 0; i < mask.length; i++) mask[i] = painted[i * 4 + 3];
+    const region = this.engine.readTexture(layer.tex, { x: cx, y: cy, w: cw, h: ch });
+    const patch = await this.aiStep("Removing…", () => aiApi.inpaint(region, mask, cw, ch));
+    if (!patch) return;
+    const rect = { x: cx + patch.x, y: cy + patch.y, w: patch.width, h: patch.height };
+    const before = this.engine.readTexture(layer.tex, rect);
+    this.engine.writeTexture(layer.tex, rect, patch.rgba);
+    this.recordPixels("Remove", "phRemove", layer, false, rect, before);
+    this.touched(layer, false);
+  }
+
+  // ---- RAW files (develop.ts)
+
+  /** The Develop panel changed a setting: develop again (soon while dragging); one History step per change. */
+  private developChanged(layer: PixelLayer, next: DevelopSettings, label: string, final: boolean) {
+    const raw = layer.raw;
+    if (!raw) return;
+    if (!this.developStart) this.developStart = { ...raw.settings };
+    raw.settings = { ...next };
+    clearTimeout(this.developTimer);
+    if (!final) {
+      this.developTimer = window.setTimeout(() => this.redevelop(layer), 200);
+      return;
+    }
+    const before = this.developStart;
+    this.developStart = null;
+    this.redevelop(layer);
+    if (JSON.stringify(before) === JSON.stringify(next)) return;
+    this.recordChange(label, "phDevelop", (after) => {
+      raw.settings = { ...(after ? next : before) };
+      this.redevelop(layer);
+      if (this.layer === layer) this.drawProps();
+    });
+  }
+
+  /** Develops the layer's RAW file again with its settings (the latest request wins). */
+  private redevelop(layer: PixelLayer) {
+    const raw = layer.raw;
+    if (!raw) return;
+    const wanted = JSON.stringify(raw.settings);
+    this.developQueue = this.developQueue.then(async () => {
+      if (layer.raw !== raw || JSON.stringify(raw.settings) !== wanted) return;
+      const d = await rawApi.develop(raw.path, raw.settings, this.engine.gpu.maxTexture);
+      if (d.width !== layer.width || d.height !== layer.height) throw new Error("The RAW file changed size since it was opened.");
+      this.engine.writeTexture(layer.tex, { x: 0, y: 0, w: d.width, h: d.height }, d.rgba);
+      // The document takes the colour space the RAW file was developed into.
+      if (this.doc.layers[0] === layer) this.icc = d.icc.slice();
+      this.touched(layer, false);
+    }).catch((err) => this.host.toast(`Couldn’t develop the RAW file: ${errorText(err)}`));
   }
 
   private iconButton(glyph: IconName, title: string, run: (e: MouseEvent) => void) {
@@ -2855,7 +3133,37 @@ export class PhotoEditor implements StudioApp {
       const s = 7 * d;
       for (const [hx, hy] of [[x, y], [x + w / 2, y], [x + w, y], [x + w, y + hgt / 2], [x + w, y + hgt], [x + w / 2, y + hgt], [x, y + hgt], [x, y + hgt / 2]]) ctx.fillRect(hx - s / 2, hy - s / 2, s, s);
     }
-    const brushLike = tool === "brush" || tool === "eraser" || tool === "clone" || tool === "heal";
+    if (drag?.kind === "remove") {
+      // What will be removed, in translucent red as Photoshop paints it.
+      ctx.save();
+      ctx.strokeStyle = "rgba(255, 60, 90, 0.45)";
+      ctx.fillStyle = "rgba(255, 60, 90, 0.45)";
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.lineWidth = this.settings.remove.size * v.scale;
+      ctx.beginPath();
+      drag.points.forEach(([x, y], i) => (i ? ctx.lineTo(...toScreen(x, y)) : ctx.moveTo(...toScreen(x, y))));
+      if (drag.points.length === 1) {
+        const [x, y] = toScreen(drag.points[0][0], drag.points[0][1]);
+        ctx.arc(x, y, ctx.lineWidth / 2, 0, Math.PI * 2);
+        ctx.fill();
+      } else ctx.stroke();
+      ctx.restore();
+    }
+    if (this.objectSession && tool === "objectSelect" && this.objectSession.result === this.selection) {
+      const s = this.objectSession;
+      for (const pt of s.points) {
+        const [x, y] = toScreen((pt.x * this.doc.width) / s.width, (pt.y * this.doc.height) / s.height);
+        ctx.fillStyle = pt.add ? "#34c759" : "#ff3b30";
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 1.5 * d;
+        ctx.beginPath();
+        ctx.arc(x, y, 4.5 * d, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+    const brushLike = tool === "brush" || tool === "eraser" || tool === "clone" || tool === "heal" || tool === "remove";
     if (brushLike && this.pointer.inside && !this.spaceHeld) {
       const r = (this.settings[tool].size / 2) * v.scale;
       const px = this.pointer.x * d, py = this.pointer.y * d;
@@ -2915,7 +3223,7 @@ export class PhotoEditor implements StudioApp {
     const tool = this.settings.tool;
     const cursor = this.drag?.kind === "pan" ? "grabbing"
       : this.spaceHeld || tool === "hand" ? "grab"
-      : tool === "brush" || tool === "eraser" || tool === "clone" || tool === "heal" ? "none"
+      : tool === "brush" || tool === "eraser" || tool === "clone" || tool === "heal" || tool === "remove" ? "none"
       : tool === "zoom" ? "zoom-in"
       : tool === "move" ? "move"
       : tool === "text" ? "text"
@@ -3074,6 +3382,15 @@ export class PhotoEditor implements StudioApp {
     } else if (tool === "wand") {
       this.magicWand(p, this.selectMode(e));
       return;
+    } else if (tool === "objectSelect") {
+      void this.objectSelectClick(p, e);
+      return;
+    } else if (tool === "remove") {
+      const target = this.paintableTarget();
+      if (!target) return;
+      if (target.mask || target.layer.kind !== "pixel") return this.host.toast("Remove works on a layer's pixels: click the layer's thumbnail, not its mask.");
+      this.drag = { kind: "remove", layer: target.layer, points: [[p.x, p.y]] };
+      this.drawOverlay();
     } else if (tool === "text") {
       // The browser would move the focus to the canvas after this; the typing box keeps it.
       e.preventDefault();
@@ -3105,7 +3422,7 @@ export class PhotoEditor implements StudioApp {
     const drag = this.drag;
     if (!drag) {
       const tool = this.settings.tool;
-      if (tool === "brush" || tool === "eraser" || tool === "clone" || tool === "heal" || this.poly) this.drawOverlay();
+      if (tool === "brush" || tool === "eraser" || tool === "clone" || tool === "heal" || tool === "remove" || this.poly) this.drawOverlay();
       if (tool === "crop") this.stage.style.cursor = cropCursor(this.cropHit(e));
       const t = this.transform;
       if (t && !t.quick) this.stage.style.cursor = transformCursor(hitTransform(t.box, t.params, p.x, p.y, (9 * this.dpr) / this.zoom, e.ctrlKey || e.metaKey));
@@ -3195,6 +3512,10 @@ export class PhotoEditor implements StudioApp {
         drag.points.push([p.x, p.y]);
         this.drawOverlay();
       }
+    } else if (drag.kind === "remove") {
+      const last = drag.points[drag.points.length - 1];
+      if (Math.hypot(last[0] - p.x, last[1] - p.y) * this.zoom >= 2 * this.dpr) drag.points.push([p.x, p.y]);
+      this.drawOverlay();
     } else if (drag.kind === "transform") {
       const t = this.transform;
       if (!t) return;
@@ -3209,6 +3530,11 @@ export class PhotoEditor implements StudioApp {
     const drag = this.drag;
     if (!drag) return;
     this.drag = null;
+    if (drag.kind === "remove") {
+      if (keep) void this.removeObject(drag);
+      this.drawOverlay();
+      return;
+    }
     if (drag.kind === "paint" || drag.kind === "gradient") {
       const target = drag.target;
       if (drag.kind === "paint" && drag.tool === "heal" && keep) this.finishHeal(drag);
@@ -3573,7 +3899,9 @@ export class PhotoEditor implements StudioApp {
     const cycle = (a: Tool, b: Tool) => this.selectTool(this.settings.tool === a && e.shiftKey ? b : this.settings.tool === b && e.shiftKey ? a : this.settings.tool === b ? b : a);
     if (key === "m") return cycle("marquee", "ellipse"), true;
     if (key === "l") return cycle("lasso", "polyLasso"), true;
-    const tools: Record<string, Tool> = { v: "move", c: "crop", b: "brush", e: "eraser", i: "eyedropper", h: "hand", z: "zoom", w: "wand", t: "text", u: "shape", s: "clone", j: "heal" };
+    if (key === "w") return cycle("wand", "objectSelect"), true;
+    if (key === "j") return cycle("heal", "remove"), true;
+    const tools: Record<string, Tool> = { v: "move", c: "crop", b: "brush", e: "eraser", i: "eyedropper", h: "hand", z: "zoom", t: "text", u: "shape", s: "clone" };
     if (tools[key]) return this.selectTool(tools[key]), true;
     if (key === "g") return this.selectTool(this.settings.tool === "gradient" ? "bucket" : "gradient"), true;
     if (key === "x") return this.swapColors(), true;
@@ -3584,10 +3912,10 @@ export class PhotoEditor implements StudioApp {
       return true;
     }
     const tool = this.settings.tool;
-    if ((tool === "brush" || tool === "eraser" || tool === "clone" || tool === "heal") && (e.key === "[" || e.key === "]" || e.key === "{" || e.key === "}")) {
-      const b = this.settings[tool];
+    if ((tool === "brush" || tool === "eraser" || tool === "clone" || tool === "heal" || tool === "remove") && (e.key === "[" || e.key === "]" || e.key === "{" || e.key === "}")) {
+      const b = this.settings[tool] as { size: number; hardness?: number };
       const up = e.key === "]" || e.key === "}";
-      if (e.shiftKey) b.hardness = clamp(b.hardness + (up ? 25 : -25), 0, 100);
+      if (e.shiftKey && b.hardness !== undefined) b.hardness = clamp(b.hardness + (up ? 25 : -25), 0, 100);
       else {
         const step = b.size < 10 ? 1 : b.size < 50 ? 5 : b.size < 200 ? 10 : 50;
         b.size = clamp(b.size + (up ? step : -step), 1, 1000);

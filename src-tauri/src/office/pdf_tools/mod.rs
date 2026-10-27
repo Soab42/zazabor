@@ -1,8 +1,10 @@
 //! PDF tools that pdf.js can't do in the page, on `lopdf`: the annotation kinds pdf.js doesn't
 //! make (underline, strikethrough, squiggly, notes, shapes), page content (text, pictures,
 //! watermarks, headers and footers, Bates numbers), flattening, passwords, removing hidden
-//! information, redaction by replacing pages with pictures of themselves, and compression
-//! (docs/plans/pdf.md §4.3–4.9).
+//! information, redaction by replacing pages with pictures of themselves, compression
+//! (docs/plans/pdf.md §4.3–4.9), and certificate signatures (§4.7, `sign`). With PDFium, loaded at
+//! run time (`pdfium`): true redaction that keeps the rest of the page as text (`redact`) and
+//! editing existing text (`textedit`).
 //!
 //! The page sends the file as it is now (with its own comments and form values written in) and a
 //! list of operations; the answer is the whole new file, which the page opens in place of the old.
@@ -13,8 +15,13 @@ mod annots;
 mod compress;
 mod fonts;
 mod fonts_table;
+mod ocr;
 mod page;
+mod pdfium;
+mod redact;
 mod security;
+mod sign;
+mod textedit;
 
 #[cfg(test)]
 mod tests;
@@ -54,6 +61,11 @@ pub(crate) enum Op {
     Sanitize(security::SanitizeSpec),
     Redact { pages: Vec<security::RedactPage> },
     Compress(compress::CompressSpec),
+    OcrLayer { pages: Vec<ocr::OcrPage> },
+    /// PDFium: removes what's under the marks, keeping the rest of each page.
+    RedactObjects { pages: Vec<redact::MarkPage> },
+    /// PDFium: changes a line of the page's own text.
+    EditText(textedit::EditSpec),
 }
 
 impl Op {
@@ -75,7 +87,7 @@ fn err(e: impl std::fmt::Display) -> String {
 /// Splits the request body: a little-endian u32 length and the JSON job, then a u32 count and that
 /// many blobs, each a u32 length and its bytes. The first blob is the PDF; operations name the
 /// others (pictures) by index.
-fn split_body(body: &[u8]) -> Result<(Job, Vec<&[u8]>), String> {
+fn split_body<T: serde::de::DeserializeOwned>(body: &[u8]) -> Result<(T, Vec<&[u8]>), String> {
     let mut at = 0usize;
     let mut take = |n: usize| -> Result<&[u8], String> {
         let end = at.checked_add(n).filter(|&e| e <= body.len()).ok_or("The request was cut short.")?;
@@ -85,7 +97,7 @@ fn split_body(body: &[u8]) -> Result<(Job, Vec<&[u8]>), String> {
     };
     let u32_at = |b: &[u8]| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize;
     let len = u32_at(take(4)?);
-    let job: Job = serde_json::from_slice(take(len)?).map_err(|e| format!("Bad request: {e}"))?;
+    let job: T = serde_json::from_slice(take(len)?).map_err(|e| format!("Bad request: {e}"))?;
     let count = u32_at(take(4)?);
     let mut blobs = Vec::with_capacity(count.min(4096));
     for _ in 0..count {
@@ -100,6 +112,11 @@ fn split_body(body: &[u8]) -> Result<(Job, Vec<&[u8]>), String> {
 
 /// Runs a job on `pdf`; `blobs` are the pictures operations refer to.
 pub(crate) fn run(pdf: &[u8], password: Option<&str>, ops: &[Op], blobs: &[&[u8]]) -> Result<Vec<u8>, String> {
+    run_noted(pdf, password, ops, blobs, &mut Vec::new())
+}
+
+/// `run`, adding what the person should know about the result to `notes` (a substituted font, say).
+pub(crate) fn run_noted(pdf: &[u8], password: Option<&str>, ops: &[Op], blobs: &[&[u8]], notes: &mut Vec<String>) -> Result<Vec<u8>, String> {
     if pdf.len() > MAX_BYTES {
         return Err("The file is too big to edit.".into());
     }
@@ -167,6 +184,9 @@ pub(crate) fn run(pdf: &[u8], password: Option<&str>, ops: &[Op], blobs: &[&[u8]
                 compress::images(&mut doc, spec)?;
                 compressing = true;
             }
+            Op::OcrLayer { pages } => ocr::add_layers(&mut doc, pages, blobs)?,
+            Op::RedactObjects { pages } => redact::redact(&mut doc, pages, notes)?,
+            Op::EditText(spec) => textedit::edit(&mut doc, spec, notes)?,
         }
     }
 
@@ -353,12 +373,78 @@ pub async fn pdf_edit(request: Request<'_>) -> Result<Response, String> {
     };
     let body = body.to_vec();
     let out = tauri::async_runtime::spawn_blocking(move || {
-        let (job, blobs) = split_body(&body)?;
+        let (job, blobs) = split_body::<Job>(&body)?;
         run(blobs[0], job.password.as_deref(), &job.ops, &blobs)
     })
     .await
     .map_err(err)??;
     Ok(Response::new(out))
+}
+
+/// `pdf_edit` for jobs that can leave notes: the answer is a little-endian u32 length and a JSON
+/// list of notes, then the new file.
+#[tauri::command]
+pub async fn pdf_edit_noted(request: Request<'_>) -> Result<Response, String> {
+    crate::ensure_unlocked()?;
+    let InvokeBody::Raw(body) = request.body() else {
+        return Err("Nothing to change.".into());
+    };
+    let body = body.to_vec();
+    let out = tauri::async_runtime::spawn_blocking(move || {
+        let (job, blobs) = split_body::<Job>(&body)?;
+        let mut notes = Vec::new();
+        let pdf = run_noted(blobs[0], job.password.as_deref(), &job.ops, &blobs, &mut notes)?;
+        let json = serde_json::to_vec(&notes).map_err(err)?;
+        let mut out = Vec::with_capacity(4 + json.len() + pdf.len());
+        out.extend_from_slice(&(json.len() as u32).to_le_bytes());
+        out.extend_from_slice(&json);
+        out.extend_from_slice(&pdf);
+        Ok::<_, String>(out)
+    })
+    .await
+    .map_err(err)??;
+    Ok(Response::new(out))
+}
+
+/// Whether PDFium can be loaded, for the tools that need it.
+#[derive(serde::Serialize)]
+pub struct PdfiumStatus {
+    available: bool,
+    /// Where it was loaded from, or why it couldn't be.
+    detail: String,
+}
+
+#[tauri::command]
+pub async fn pdf_pdfium() -> PdfiumStatus {
+    match tauri::async_runtime::spawn_blocking(pdfium::status).await.unwrap_or_else(|e| Err(e.to_string())) {
+        Ok(path) => PdfiumStatus { available: true, detail: path.display().to_string() },
+        Err(why) => PdfiumStatus { available: false, detail: why },
+    }
+}
+
+/// The line of text at a point, for Edit Text. The body is `{ password, page, x, y }` and the file,
+/// as `pdf_edit` takes them.
+#[tauri::command]
+pub async fn pdf_text_line(request: Request<'_>) -> Result<Option<textedit::Line>, String> {
+    crate::ensure_unlocked()?;
+    #[derive(Deserialize)]
+    struct Where {
+        #[serde(default)]
+        password: Option<String>,
+        page: u32,
+        x: f32,
+        y: f32,
+    }
+    let InvokeBody::Raw(body) = request.body() else {
+        return Ok(None);
+    };
+    let body = body.to_vec();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (at, blobs) = split_body::<Where>(&body)?;
+        textedit::line_at(blobs[0], at.password.as_deref(), at.page, at.x, at.y)
+    })
+    .await
+    .map_err(err)?
 }
 
 /// Whether Ghostscript is installed (for "Maximum compression").
@@ -379,4 +465,52 @@ pub async fn pdf_compress_ghostscript(request: Request<'_>) -> Result<Response, 
     let body = body.to_vec();
     let out = tauri::async_runtime::spawn_blocking(move || compress::with_ghostscript(&body, &preset)).await.map_err(err)??;
     Ok(Response::new(out))
+}
+
+/// Signs a PDF with a certificate. The body is `{ sign: SignSpec }` and the file, as `pdf_edit`
+/// takes them, with the signer's picture as blob 1 when the signature shows one. The answer is the
+/// signed file, which must be saved exactly as it is.
+#[tauri::command]
+pub async fn pdf_sign(request: Request<'_>) -> Result<Response, String> {
+    crate::ensure_unlocked()?;
+    #[derive(Deserialize)]
+    struct SignJob {
+        sign: sign::SignSpec,
+    }
+    let InvokeBody::Raw(body) = request.body() else {
+        return Err("Nothing to sign.".into());
+    };
+    let body = body.to_vec();
+    let out = tauri::async_runtime::spawn_blocking(move || {
+        let (job, blobs) = split_body::<SignJob>(&body)?;
+        if blobs[0].len() > MAX_BYTES {
+            return Err("The file is too big to sign.".to_string());
+        }
+        let picture = match job.sign.image {
+            Some(i) => Some(blob(&blobs, i)?),
+            None => None,
+        };
+        sign::sign(blobs[0], &job.sign, picture)
+    })
+    .await
+    .map_err(err)??;
+    Ok(Response::new(out))
+}
+
+/// The signatures in the PDF that is the body, each checked.
+#[tauri::command]
+pub async fn pdf_verify_signatures(request: Request<'_>) -> Result<Vec<sign::SigInfo>, String> {
+    crate::ensure_unlocked()?;
+    let InvokeBody::Raw(body) = request.body() else {
+        return Ok(Vec::new());
+    };
+    let body = body.to_vec();
+    tauri::async_runtime::spawn_blocking(move || sign::verify(&body)).await.map_err(err)?
+}
+
+/// What a .p12/.pfx certificate holds (its password checked), before signing with it.
+#[tauri::command]
+pub async fn pdf_cert_info(path: String, password: String) -> Result<sign::CertInfo, String> {
+    crate::ensure_unlocked()?;
+    tauri::async_runtime::spawn_blocking(move || sign::cert_info(&path, &password)).await.map_err(err)?
 }

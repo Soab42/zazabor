@@ -1,6 +1,6 @@
 //! A clip's sound as PCM for the page (Web Audio plays and mixes it, and draws the waveform):
 //! 16-bit stereo at 48 kHz. GStreamer decodes it; when GStreamer has no decoder for the audio
-//! (AAC from phones needs gstreamer1.0-libav, not installed here), libVLC, which CorePro already
+//! (AAC from phones needs gstreamer1.0-libav, not installed here), libVLC, which Zazabor already
 //! uses for playback, converts the sound to a WAV in the cache first.
 
 use super::media::{self, Want};
@@ -57,7 +57,7 @@ fn decode(path: &str) -> Result<Option<Vec<u8>>, String> {
 
 /// The PCM of `path`, through libVLC when GStreamer can't decode it. `cache` holds the WAVs.
 pub fn pcm(path: &str, cache: &Path, has_audio: bool) -> Result<Vec<u8>, String> {
-    if std::env::var_os("COREPRO_VIDEOEDIT_VLC_AUDIO").is_none() {
+    if std::env::var_os("ZAZABOR_VIDEOEDIT_VLC_AUDIO").is_none() {
         if let Some(out) = decode(path)? {
             return Ok(out);
         }

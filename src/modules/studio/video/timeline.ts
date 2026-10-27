@@ -13,8 +13,8 @@ import {
  * main track), trimmed from either edge with snapping, and media is dropped on it.
  */
 
-export const MEDIA_DRAG = "application/x-corepro-video-media";
-export const TEXT_DRAG = "application/x-corepro-video-text";
+export const MEDIA_DRAG = "application/x-zazabor-video-media";
+export const TEXT_DRAG = "application/x-zazabor-video-text";
 
 export interface TimelineHost {
   project(): Project;
@@ -439,6 +439,13 @@ export class Timeline {
       g.fillStyle = "#7c5cd6";
       g.fillRect(x0, y, w, hh);
       label = clip.text.replace(/\s+/g, " ") || "Text";
+    } else if (clip.type === "template") {
+      const fill = g.createLinearGradient(x0, y, x0 + Math.max(40, w), y);
+      fill.addColorStop(0, "#b4457f");
+      fill.addColorStop(1, "#6a44c8");
+      g.fillStyle = fill;
+      g.fillRect(x0, y, w, hh);
+      label = `✦ ${clip.name}`;
     } else {
       const m = mediaOf(p, clip.media);
       label = m?.name ?? "Missing";

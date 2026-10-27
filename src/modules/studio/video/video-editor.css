@@ -1,4 +1,4 @@
-/* ---- Studio → Video Editor: CapCut's layout in CorePro's look. Media on the left, the player in
+/* ---- Studio → Video Editor: CapCut's layout in Zazabor's look. Media on the left, the player in
    the middle, the inspector on the right, the timeline along the bottom. */
 
 .ve-app { background: var(--bg); color: var(--text); overflow: hidden; }
@@ -17,8 +17,9 @@
 
 /* Media panel */
 .ve-panel { display: flex; flex-direction: column; min-height: 0; border-right: 0.5px solid var(--line); }
-.ve-panel-tabs { flex: none; display: flex; gap: 2px; padding: 6px; border-bottom: 0.5px solid var(--line); }
-.ve-panel-tab { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 2px 5px; border: 0; border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 10.5px; cursor: pointer; }
+.ve-panel-tabs { flex: none; display: flex; gap: 0; padding: 6px 4px; border-bottom: 0.5px solid var(--line); }
+/* Seven tabs: each as wide as its label, so "Transitions" fits beside the short ones. */
+.ve-panel-tab { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 2px 5px; border: 0; border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 9.5px; letter-spacing: -0.01em; cursor: pointer; }
 .ve-panel-tab:hover { color: var(--text); background: var(--hover); }
 .ve-panel-tab.active { color: var(--app-ink); background: var(--app-soft); }
 .ve-panel-tab span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -170,3 +171,33 @@
 .ve-missing-text { flex: 1; min-width: 0; font-size: var(--text-sm); }
 .ve-missing-text > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ve-missing-path { color: var(--muted); font-size: 11.5px; }
+
+/* ---- Captions tab (auto captions), Stickers tab, sound effects, codec offer ---- */
+.ve-captions { display: flex; flex-direction: column; gap: 6px; }
+.ve-captions .ve-row > .segmented { flex: 1; }
+.ve-cap-hint { margin: -2px 0 2px 84px; }
+.ve-cap-progress { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 8px; margin: 4px 0; }
+.ve-cap-bar { grid-column: 1 / -1; height: 6px; border-radius: 3px; overflow: hidden; background: var(--track, rgba(127, 127, 140, 0.25)); }
+.ve-cap-fill { height: 100%; width: 0; border-radius: 3px; background: var(--app); transition: width 0.25s linear; }
+.ve-cap-stage { font-size: var(--text-sm); color: var(--text-2); font-variant-numeric: tabular-nums; }
+.ve-cap-models { margin-top: 8px; }
+.ve-panel-note.ve-warn { color: #ffb199; }
+
+.ve-sticker-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.ve-sticker {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px 6px; border: 0; border-radius: 9px;
+  background: #23252c; box-shadow: inset 0 0 0 0.5px var(--line); cursor: pointer; font: inherit; font-size: var(--text-xs, 11px); color: var(--text-2);
+}
+.ve-sticker:hover { box-shadow: inset 0 0 0 1px var(--app); color: var(--text); }
+.ve-sticker-img { width: 100%; height: 46px; object-fit: contain; pointer-events: none; }
+.ve-sticker span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.ve-sfx-grid { display: flex; flex-direction: column; gap: 2px; }
+.ve-sfx { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 8px; }
+.ve-sfx:hover { background: var(--hover); }
+.ve-sfx-play { display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 50%; background: var(--app-soft, rgba(249, 115, 80, 0.2)); color: var(--app-ink, var(--text)); cursor: pointer; }
+.ve-sfx-play:hover { background: var(--app); color: #fff; }
+.ve-sfx-name { flex: 1; min-width: 0; font-size: var(--text-sm); color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.ve-codec-note { margin: 8px 0 4px; padding: 8px 10px; border-radius: 9px; background: rgba(255, 177, 153, 0.08); box-shadow: inset 0 0 0 0.5px rgba(255, 177, 153, 0.35); }
+.ve-codec-note .ve-panel-note { margin: 0 0 6px; color: #ffb199; }

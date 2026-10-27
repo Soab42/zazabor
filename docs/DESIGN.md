@@ -1,6 +1,6 @@
-# CorePro design brief
+# Zazabor design brief
 
-CorePro should feel like a premium macOS app: calm, precise, frosted glass, generous but
+Zazabor should feel like a premium macOS app: calm, precise, frosted glass, generous but
 tight spacing, nothing loud. Every screen in every module follows these rules.
 
 ## Materials

@@ -14,7 +14,7 @@ const BASICS: [string, string[][]][] = [
 ];
 
 const STYLES = [
-  { id: "app", title: "Follow CorePro", text: "The player uses the accent colour and theme you chose for the whole app." },
+  { id: "app", title: "Follow Zazabor", text: "The player uses the accent colour and theme you chose for the whole app." },
   { id: "orange", title: "Orange accent", text: "A warm orange for buttons and the seek bar, inspired by the VLC redesign." },
 ] as const;
 

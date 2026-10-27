@@ -3,8 +3,8 @@
 *Researched 2026-10-26. Licences, versions and release dates were read from each project's
 repository, crates.io, the npm registry and Hugging Face model cards on that day. Target: Tauri 2 +
 plain TypeScript on Linux (WebKitGTK 2.50.4; Intel UHD (Tiger Lake) graphics on this machine).
-Status: **I0, I1, I2 and I3 built, and most of I4 (2026-10-26/27, below); I5 (AI) and I6 (RAW) wait on
-the user.** Section 11 lists the decisions only the user can make.*
+Status: **I0–I3 built, most of I4, and I5 (AI) and I6 (RAW) in a first version (2026-10-26/27,
+below).** Section 11 lists the decisions only the user can make.*
 
 ## What's built (2026-10-26)
 
@@ -14,7 +14,7 @@ saves a copy next to the original; no AI models, RAW, PSD or AVIF yet.
 **I0, probe and canvas.**
 - The probe (`gl.ts`, shown in Photo's status bar): WebGL2 with `EXT_color_buffer_float`, RGBA16F
   render targets checked by drawing a value 8 bits can't hold and reading it back, and
-  `MAX_TEXTURE_SIZE` 16384. Measured in CorePro's WebKitGTK 2.50.4 on a nested Xephyr display,
+  `MAX_TEXTURE_SIZE` 16384. Measured in Zazabor's WebKitGTK 2.50.4 on a nested Xephyr display,
   where libEGL reported no DRI3, so probably Mesa's software renderer; WebKit masks the renderer
   name ("Apple GPU"), so the Intel GPU's own answer still needs a look at Photo's status bar on
   the real display. Without float targets compositing falls back to RGBA8.
@@ -122,12 +122,100 @@ noise; LUT (.cube) and Channel Mixer adjustments; text on a path, layer styles; 
 the tiled layer store and colour management (from I0); PSD colour profiles (ag-psd 31 has no
 ICC field) and 16-bit PSDs.
 
-**Waiting on the user:** I5 (AI tools: model downloads need the user's OK, decision 5) and I6
-(RAW: samples and the licence choice, decisions 6 and 7).
+**Waiting on the user:** nothing since round 3 (the user said "go for all waiting").
 
 **Left for later milestones:** tiles and eviction (I0), colour management, 16-bit documents,
 keeping EXIF in `.coreimage`, history in the file. A shortcut for Export As (Studio takes every
 Ctrl+W/Ctrl+S combination, so Photoshop's Ctrl+Alt+Shift+W can't be used).
+
+### Round 3 (2026-10-27): AI tools and RAW files
+
+The user approved model downloads (decision 5) and RAW support (decision 6) with "go for all
+waiting"; the repository is public with no licence chosen yet.
+
+- **AI tools, all on this computer's CPU** (`src-tauri/src/photo/ai.rs`, `studio/photo/aimodels.ts`).
+  Inference is [tract](https://github.com/sonos/tract) 0.23.9 (pure Rust ONNX, MIT/Apache-2.0,
+  with its multithreaded matrix products on), so building Zazabor downloads nothing prebuilt.
+  Each model is planned once for a fixed input size and kept while Zazabor runs.
+  - **Remove Background** (Layer menu, Properties ▸ Quick Actions): a layer mask from the subject
+    finder; no pixel is deleted. **Select Subject** (Select ▸ Subject, the Object Selection
+    options): the same mask as a selection.
+  - **Object Selection** (Shift+W): click an object; more clicks refine it, Alt+click takes a part
+    away, Shift+click starts another object; New/Add/Subtract/Intersect from the options bar.
+    MobileSAM's encoder looks at the picture once (shrunk to 1024 px; padded with the mean so the
+    model's own normalising pads with zeros, as SAM does), then each click runs the prompt
+    decoder. The decoder gets the clicks and exactly one "not a point" pad: planning it for 16
+    points with 15 pads gave grid-patterned, wrong masks.
+  - **Remove** (Shift+J): paint over something; on release it's filled from around it (MI-GAN).
+    The model sees a square 3× the painted area (2.2× left too little context and smeared), at
+    512 px; the fill is blended in over a feathered, slightly grown mask.
+  - **Refine Edge** (Select menu, not AI): a guided filter (He et al.) with the picture's
+    brightness as the guide, so soft AI edges snap to the picture's own (a 14-px ramp across an
+    edge became a step at the edge in the check).
+  - **Models** download on first use after a prompt with the size and licence, from pinned
+    addresses checked against SHA-256, into the app data folder (`photo/models`); a cancelled or
+    broken download keeps its `.part` and resumes with a Range request. Settings ▸ Photo lists
+    them with Download and Remove and picks the subject finder. Only MIT or Apache-2.0 weights:
+
+    | Tool | Model | File, size | Licence | SHA-256 |
+    |---|---|---|---|---|
+    | Subject (best) | IS-Net general use, 1024 px | `isnet-general-use.onnx` from rembg's release, 170 MB | Apache-2.0 | `60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a` |
+    | Subject (faster) | U²-Netp, 320 px | `u2netp.onnx` from rembg's release, 4.4 MB | Apache-2.0 | `309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8` |
+    | Object Selection | MobileSAM encoder (Acly/MobileSAM on Hugging Face) | `mobile_sam_image_encoder.onnx`, 26.9 MB | Apache-2.0 weights, MIT export | `580f5fb648ea1062c0aabc26217aed56921985f03f0cbbd852bba81d760cc749` |
+    | Object Selection | SAM mask decoder (same repository) | `sam_mask_decoder_single.onnx`, 15.7 MB | Apache-2.0 weights, MIT export | `93915fc7c993ab9d59ab8c9ccd3bce37f7509c81ab4150a74abd4d2abbd8570d` |
+    | Remove | MI-GAN (andraniksargsyan/migan on Hugging Face) | `migan.onnx`, 28.2 MB | MIT | `593eba0b7e04730f1b61c0a3cbca68d97d8d6a7ff5c6a44a7b9d7fcd880fc5ae` |
+
+    Not used: BiRefNet (its deformable convolutions aren't in tract), LaMa (Apache-2.0, 208 MB,
+    better fills, but 8 s at 512 px in tract here), the MI-GAN and SAM "pipeline" exports (their
+    shapes depend on the data, which tract can't plan), RMBG (non-commercial).
+  - **Timings** on the 3300 × 4125 (13.6 MP) test portrait, release build, i5-11400H, while three
+    other agents compiled (load average 17–28, so these are pessimistic): IS-Net 4.8 s warm,
+    18 s the first time (loading and planning a 170 MB model); U²-Netp 1.4 s; Object Selection
+    2.2 s to look at the picture, then about 0.15 s per click at 1024 px; Remove 1.4–2.5 s per
+    stroke. In the debug app on the nested display: Remove Background 19.5 s (first use), a click
+    3–4 s, Remove 2 s.
+  - **Checked** on two public-domain photos (Neil Armstrong's NASA portrait, a golden retriever):
+    the subject masks (IS-Net keeps the helmet, U²-Netp loses the visor), the dog selected from
+    one click with clean edges, the helmet from two, bushes refilled with their own texture, a
+    head removed (filled with fur). In the app: Remove Background (a mask, one History step),
+    Object Selection, Remove over the flag, the first-use prompt and download of U²-Netp
+    (checksum matched), Settings ▸ Photo. **Weak spot:** a large hole in a patterned area (part
+    of the flag) leaves smears; MI-GAN at 512 px is best for small and medium distractions.
+- **RAW files** (`src-tauri/src/photo/raw.rs`, `studio/photo/develop.ts`). **LibRaw 0.21.3,
+  vendored** in `src-tauri/vendor/LibRaw` (copied unchanged from the copy in the rsraw-sys crate)
+  and built by `build.rs` with the system's C++ compiler (-O2 and OpenMP even in debug builds),
+  with a hand-written FFI to its C API: the vendored crates generate bindings with bindgen,
+  which needs libclang, and this machine has none. **Why LibRaw over rawler:** LibRaw is
+  CDDL-1.0 or LGPL-2.1; linked statically under the CDDL it leaves Zazabor's own licence open
+  (closed, permissive or GPL, which can take the LGPL option), where rawler is LGPL-2.1 only and
+  would make a closed or static future need relinking provisions.
+  - Opening a RAW file (all of LibRaw's: CR2, CR3, NEF, ARW, RAF, RW2, ORF, DNG and more) makes
+    one layer developed as shot; the Properties panel becomes **Develop**: camera, ISO, shutter,
+    aperture, focal length; white balance As Shot (shown as a temperature and tint), Daylight,
+    Cloudy, Shade, Tungsten, Fluorescent, Flash or Custom; Temperature, Tint, Exposure,
+    Highlights, Shadows; sRGB or Display P3 (a small Display P3 ICC v2 profile is written and
+    tags saved files). Each change is one History step; undo develops again.
+  - LibRaw demosaics once per file (AHD, or X-Trans for Fuji) in the camera's own linear colours,
+    white-balanced as shot and scaled so nothing clips; developing is Zazabor's: white balance as
+    camera multipliers (a temperature goes through the CIE daylight or Planckian locus and the
+    inverse of the camera's matrix), the camera matrix to linear sRGB or P3, exposure on a fixed
+    baseline (the sensor's white one stop over white), a highlight shoulder that also takes the
+    colour cast out of clipped channels, a shadows lift and a camera-like tone curve. The decoded
+    file stays cached (two files, keyed by size and time), so a Develop change takes about 3 s on
+    a 20 MP file in the debug build.
+  - **Checked** against the embedded previews of six cameras from five brands (raw.pixls.us,
+    CC0): Canon EOS R6 (CR3), Canon EOS 80D (CR2), Nikon Z 6 (NEF), Sony ILCE-6400 (ARW),
+    Fujifilm X-T3 (RAF, X-Trans) and Apple iPhone 12 Pro (DNG). Mean colour per channel within 24
+    of 255 of the camera's own rendering on all six (a test, ignored by default:
+    `ZAZABOR_RAW_SAMPLES=<folder> cargo test raw_samples -- --ignored`). The first exposure
+    baseline (the brightest 0.5 % at white) was off by up to 1.5 stops; the fixed one matches
+    within about half a stop. In the app: the R6 file opened (12 s in the debug build), cooler
+    white balance and undo.
+  - **Not done:** 16-bit RAW layers (the layer is 8-bit), lens corrections, noise reduction,
+    the Gallery and Files showing RAW thumbnails (they need sizes and orientation from LibRaw
+    in shared code; left for a later round), a camera-profile (DCP) look.
+- **Round 2 leftovers:** Refine Edge (above). Perspective and warp transforms and layer styles are
+  still to do.
 
 ## 1. Summary
 
@@ -144,7 +232,7 @@ Ctrl+W/Ctrl+S combination, so Photoshop's Ctrl+Alt+Shift+W can't be used).
   text). Quick Edit's settings open in the full editor as adjustment layers.
 - **Formats:** PNG, JPEG, WebP, AVIF, TIFF and 16-bit PNG/TIFF through Rust; PSD in and out
   through [ag-psd](https://github.com/Agamnentzar/ag-psd) (MIT, 33.0.0, 2026-10-24; 8-bit,
-  partial text). CorePro's own `.coreimage` project file (a zip) keeps everything.
+  partial text). Zazabor's own `.coreimage` project file (a zip) keeps everything.
 - **AI tools on CPU, with permissive models only:**
   - Remove Background and Select Subject: BiRefNet (MIT), IS-Net or U²-Net (Apache-2.0).
   - Click to Select an Object: MobileSAM or SAM 2 (Apache-2.0).
@@ -155,7 +243,7 @@ Ctrl+W/Ctrl+S combination, so Photoshop's Ctrl+Alt+Shift+W can't be used).
 
 ## 2. Features
 
-| Area | Photoshop | CorePro, first version | Later |
+| Area | Photoshop | Zazabor, first version | Later |
 |---|---|---|---|
 | Canvas | Zoom, pan, rotate view, rulers, guides, grid, navigator | Same, on the Gallery's zoom (cursor-anchored cubic-bezier zoom, inertial pan, minimap) | Artboards |
 | Layers | Pixel, adjustment, text, shape, smart object, group; opacity, fill, 27 blend modes, lock, clipping masks | Pixel, adjustment, text, shape, groups; opacity, all of Photoshop's blend modes, lock, clipping masks, layer masks | Smart objects (an embedded original that can be transformed again without loss) |
@@ -178,7 +266,7 @@ Ctrl+W/Ctrl+S combination, so Photoshop's Ctrl+Alt+Shift+W can't be used).
 |---|---|---|
 | Compositing layers, blend modes, masks, adjustments, filters, the brush | WebGL2 shaders in the page | Real-time feedback on the GPU. The Gallery and Video already draw this way |
 | Tiles and memory | Page (GPU textures) with Rust as the store | Only painted tiles exist. Tiles that aren't used for a while are evicted to Rust (memory, then disk) |
-| Decode and encode, 16-bit, ICC | Rust (`image` 0.25.10, MIT/Apache-2.0; [lcms2](https://github.com/kornelski/rust-lcms2) 6.2.0 over Little CMS, MIT) | Already in CorePro for thumbnails (`imaging.rs`) |
+| Decode and encode, 16-bit, ICC | Rust (`image` 0.25.10, MIT/Apache-2.0; [lcms2](https://github.com/kornelski/rust-lcms2) 6.2.0 over Little CMS, MIT) | Already in Zazabor for thumbnails (`imaging.rs`) |
 | AVIF and lossy WebP export | Rust: [ravif](https://github.com/kornelski/cavif-rs) 0.13.0 (BSD-3-Clause) and the [webp](https://crates.io/crates/webp) crate 0.3.1 (MIT/Apache-2.0, over libwebp, BSD) | The `image` crate writes lossless WebP only |
 | PSD | Page (ag-psd) | MIT; reads and writes layers, masks, blend modes and effects. 8-bit only, text partly |
 | Magic wand, healing (Poisson blending), PatchMatch | Rust, with rayon | CPU algorithms that are awkward in shaders |
@@ -288,12 +376,12 @@ out.
 
 | Option | Licence | Latest | Notes |
 |---|---|---|---|
-| [rawler](https://github.com/dnglab/dnglab) (dnglab) | **LGPL-2.1** | 0.8.0, 2026-08-30 | Pure Rust; many cameras and DNG. Statically linked Rust code under the LGPL means CorePro must let users relink, which is simple only if CorePro's source is public |
+| [rawler](https://github.com/dnglab/dnglab) (dnglab) | **LGPL-2.1** | 0.8.0, 2026-08-30 | Pure Rust; many cameras and DNG. Statically linked Rust code under the LGPL means Zazabor must let users relink, which is simple only if Zazabor's source is public |
 | [rawloader](https://github.com/pedrocr/rawloader) | **LGPL-2.1** | 0.37.2, 2026-08-15 | Decoding only; the same LGPL question |
-| [LibRaw](https://github.com/LibRaw/LibRaw) | LGPL-2.1 or CDDL-1.0 | 0.22.3, 2026-10-26 (Pop!_OS has 0.20.2, `libraw20`, not installed) | The standard C library, linked dynamically from the system: clean for LGPL. The Rust binding [libraw-rs](https://crates.io/crates/libraw-rs) is stale (2021), so CorePro needs a small FFI of its own |
+| [LibRaw](https://github.com/LibRaw/LibRaw) | LGPL-2.1 or CDDL-1.0 | 0.22.3, 2026-10-26 (Pop!_OS has 0.20.2, `libraw20`, not installed) | The standard C library, linked dynamically from the system: clean for LGPL. The Rust binding [libraw-rs](https://crates.io/crates/libraw-rs) is stale (2021), so Zazabor needs a small FFI of its own |
 
 **Recommendation:** LibRaw from the system, through a small FFI, loaded only when a RAW file is
-opened. Development is CorePro's own:
+opened. Development is Zazabor's own:
 
 1. LibRaw demosaics.
 2. Then, in linear light: white balance, the camera matrix to the working space, exposure, a tone
@@ -301,13 +389,13 @@ opened. Development is CorePro's own:
 3. The result is a 16-bit layer, with the RAW settings kept as an editable "Develop" adjustment at
    the bottom of the stack.
 
-## 7. Integration with the rest of CorePro
+## 7. Integration with the rest of Zazabor
 
 - **Gallery viewer:** an **Edit** button opens **Quick Edit** in place: crop and rotate, auto,
   light (exposure, contrast, highlights, shadows), colour (temperature, tint, saturation,
   vibrance), filters (the 11 slideshow looks as presets) and vignette. Save makes a copy
   (`IMG_1234 (edited).jpg`) by default; "Save over original" asks first and keeps the original in
-  CorePro's versions for 30 days. "Open in Photo" carries the settings over as adjustment layers.
+  Zazabor's versions for 30 days. "Open in Photo" carries the settings over as adjustment layers.
 - **Files:** `.coreimage` and `.psd` open in Photo; images get **Edit in Photo** in their context
   menu.
 - **Office and PDF:** an image in Docs, or a picked image in the PDF app, can be sent to Photo and
@@ -323,7 +411,7 @@ opened. Development is CorePro's own:
 | I1 | **Quick Edit in the Gallery**: crop, straighten, the light and colour sliders, filter presets, save a copy | Edits look the same on screen and in the saved file (pixel diff against the shader output) |
 | I2 | **Layers and painting**: pixel layers, blend modes, opacity, masks, groups, brush, eraser, gradient, bucket, history panel, `.coreimage` | 20 layers on a 24-megapixel image stay responsive on the Intel GPU here. History steps back through 200 brush strokes |
 | I3 | **Selections and adjustment layers**: all the selection tools in section 2 except the AI ones; all the adjustments; clipping masks | Levels and curves match a reference implementation within 1/255 |
-| I4 | **Text, shapes, transform, filters, clone and healing; PSD in and out; export dialog (PNG, JPEG, WebP, AVIF, TIFF, 16-bit)** | A PSD with layers and masks from Photopea or Photoshop round-trips through CorePro and reopens there |
+| I4 | **Text, shapes, transform, filters, clone and healing; PSD in and out; export dialog (PNG, JPEG, WebP, AVIF, TIFF, 16-bit)** | A PSD with layers and masks from Photopea or Photoshop round-trips through Zazabor and reopens there |
 | I5 | **AI tools**: Remove Background, Select Subject, click to select, Remove an Object | Each runs in under 5 seconds on this machine's CPU for a 12-megapixel photo |
 | I6 | **RAW and colour**: LibRaw develop layer; display profile; Display P3 working space | RAW files from three camera brands develop with correct colour against their embedded previews |
 
@@ -339,7 +427,7 @@ and I6 2.
 | WebKitGTK's WebGL2 lacks float targets, or is slow on some GPUs | The probe in I0. An RGBA8 fallback with dithering; 16-bit maths in Rust where needed |
 | GPU memory on integrated graphics | Sparse tiles, the memory budget and eviction (section 3.3) |
 | PSD fidelity (Photoshop features ag-psd can't write) | Warn when saving over a PSD with unsupported parts (the Office plan's fidelity guard idea), and save a copy by default |
-| AI model licences change or downloads disappear | Pin model versions with checksums. Host the files CorePro uses on a mirror it controls, if the licences allow redistribution |
+| AI model licences change or downloads disappear | Pin model versions with checksums. Host the files Zazabor uses on a mirror it controls, if the licences allow redistribution |
 | Scope: Photoshop is enormous | Ship Quick Edit first (I1), which covers most real use, then grow the full editor milestone by milestone |
 | Existing apps to learn from | [Graphite](https://github.com/GraphiteEditor/Graphite) (Apache-2.0, Rust, node-based; raster tools still early, desktop release candidate in 2026) and [miniPaint](https://github.com/viliusle/miniPaint) (MIT, v4.14.3, 2026-04-20, Canvas 2D) are worth reading for ideas. Neither fits as an embedded engine: each is a whole app with its own UI |
 
@@ -347,15 +435,20 @@ and I6 2.
 
 1. **Where it lives:** a "Studio" section on the rail holding Photo and Video, with an inner rail
    like Office (recommended); or Photo inside the Gallery; or its own section?
-2. **Name:** Photo, CorePro Photo, Studio Photo, or another?
+2. **Name:** Photo, Zazabor Photo, Studio Photo, or another?
 3. **Quick Edit first**, then the full editor? Or start with the full editor?
 4. **Saving edits from the Gallery:** a copy next to the original (recommended), or over the
    original with a backup?
 5. **AI models:** OK to download them on first use (tens to a few hundred MB each, with a prompt)?
    Which matter most: background removal, object removal, or click to select?
+   *Decided 2026-10-27: yes, all three (built in round 3).*
 6. **RAW support** in the first version? Which camera or phone do you shoot RAW with? A sample file
    would help.
-7. **CorePro's licence** affects the RAW choice. If CorePro's source will be public, rawler (LGPL,
+   *Decided 2026-10-27: yes; tested on public CC0 samples from six cameras while no file of the
+   user's is to hand.*
+7. **Zazabor's licence** affects the RAW choice. If Zazabor's source will be public, rawler (LGPL,
    pure Rust) becomes simple; if not, LibRaw through the system library is the clean route.
+   *Round 3 took a third route that keeps every option open: LibRaw vendored and linked
+   statically under its CDDL-1.0 option (round 3 above). The licence itself is still the user's.*
 8. **PSD:** is reading and writing PSD important (working with people who use Photoshop), or is
    `.coreimage` plus PNG/JPEG export enough?

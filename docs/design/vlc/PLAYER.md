@@ -3,7 +3,7 @@
 Source: Figma file `kzhCjdwL4QqrCb5hXqfFTp` ("VLC Redesign (Community)"), frames `247:445`
 (player), `187:328` (player with sidebar), `2425:13624` (light), `2107:5604` (customise
 player). Reference renders: `player1.png`, `player2.png`, `light.png`, `customize.png` in this
-folder. Values below are from Figma's design context; CorePro adapts them to its glass tokens
+folder. Values below are from Figma's design context; Zazabor adapts them to its glass tokens
 (`docs/DESIGN.md`) — **use tokens in code, the hex values only tell you which token to pick.**
 
 ## Layout (1920×1080 frame)
@@ -16,15 +16,15 @@ folder. Values below are from Figma's design context; CorePro adapts them to its
 └ control bar 54px ───────────────────────────────────────────────────────────┘
 ```
 
-In CorePro the Video module lives right of the app rail; its own pieces:
+In Zazabor the Video module lives right of the app rail; its own pieces:
 
 - **Top bar (40px)** — Figma: `#1b1b1b`, backdrop-blur 25, padding 6. Left: "…" menu, sidebar
   toggle, divider, folder icon + breadcrumb text ("Videos", 14px `#8f8f8f`). Centre: current file
-  title (14px `#8f8f8f`). Right: window buttons (skip — CorePro has the system title bar; put
-  fullscreen there instead). → CorePro: a glass toolbar (`--glass` + `--blur`), text `--muted`.
+  title (14px `#8f8f8f`). Right: window buttons (skip — Zazabor has the system title bar; put
+  fullscreen there instead). → Zazabor: a glass toolbar (`--glass` + `--blur`), text `--muted`.
 - **Secondary rail (50px)** — Figma: `#191919`, padding 8, gap 14, icon buttons 30px wide (24px
   icons, 4px padding, radius 4). Items: Home, Videos, Music, Network, Playlists, Recent, "+".
-  CorePro first version: **Home, Videos, Recent** (then "+" to open a file/folder). Active item:
+  Zazabor first version: **Home, Videos, Recent** (then "+" to open a file/folder). Active item:
   accent icon + `--selection` pill. → glass, hairline on the right.
 - **Sidebar (collapsible)** — Figma: `rgba(14,14,14,0.95)` + blur 25, padding 20, gap 17.
   - Header row: back / forward arrows (forward at 30% opacity when unavailable), breadcrumb
@@ -74,7 +74,7 @@ items (icon + label): Spacer, Divider, Playback Speed, Forward 10s, Backward 10s
 Backward 15s, Stop, Repeat, Shuffle, Record, Snapshot, Picture in Picture, HDR, Zoom, Right
 Sidebar, Quit, Settings, Go Home, Thumbnail, File Name, Artist Name, Folder Name, Playlist Name,
 Properties, Replay, Chapters, Favorite, Bookmark, Bookmarks, Playlists. While open, the control
-bar's slots show dashed outlines as drop targets. Footer: Cancel / Save. CorePro first version
+bar's slots show dashed outlines as drop targets. Footer: Cancel / Save. Zazabor first version
 offers the items it can actually do (speed, ±10 s, ±15 s, stop, repeat, shuffle, spacer,
 divider, file name, folder name, playlists, settings, fullscreen) and saves the layout in config.
 

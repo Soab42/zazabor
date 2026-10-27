@@ -403,7 +403,7 @@ mod tests {
 
     #[test]
     fn places_keep_only_existing_folders() {
-        let dir = std::env::temp_dir().join(format!("corepro-places-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("zazabor-places-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let places = existing_places(vec![
             ("home", "Home", Some(dir.clone())),

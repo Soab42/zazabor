@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tauri::ipc::{InvokeBody, Request, Response};
 
+pub mod pdf_convert;
+pub mod pdf_ocr;
 pub mod pdf_signatures;
 pub mod pdf_tools;
 
@@ -82,7 +84,7 @@ pub struct Recovered {
     /// When the snapshot was taken (ms).
     #[serde(default)]
     pub saved: i64,
-    /// The CorePro that took it. Its own (all its windows share one process) are files still open.
+    /// The Zazabor that took it. Its own (all its windows share one process) are files still open.
     #[serde(default)]
     pub pid: u32,
 }
@@ -110,7 +112,7 @@ pub async fn office_recovery_save(request: Request<'_>) -> Result<(), String> {
     .await
 }
 
-/// Snapshots left by a CorePro that didn't close its files (a crash, a power cut), newest first.
+/// Snapshots left by a Zazabor that didn't close its files (a crash, a power cut), newest first.
 #[tauri::command]
 pub async fn office_recovery_list() -> Result<Vec<Recovered>, String> {
     crate::ensure_unlocked()?;
@@ -307,7 +309,7 @@ mod tests {
 
     #[test]
     fn recovery_ids_cannot_leave_the_folder() {
-        let _ = RECOVERY.set(PathBuf::from("/tmp/corepro-recovery-test"));
+        let _ = RECOVERY.set(PathBuf::from("/tmp/zazabor-recovery-test"));
         assert!(recovery_file("sheet-1a2b", "bin").is_ok());
         assert!(recovery_file("../../etc/passwd", "bin").is_err());
         assert!(recovery_file("a/b", "json").is_err());

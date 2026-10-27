@@ -308,7 +308,7 @@ mod tests {
     fn names_come_from_the_source_and_never_overwrite() {
         assert_eq!(source_stem("/home/a/Holiday.2024.mkv"), "Holiday.2024");
         assert_eq!(source_stem("https://host/path/clip.m3u8?token=1"), "clip");
-        let dir = std::env::temp_dir().join(format!("corepro-convert-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("zazabor-convert-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.mp4"), "").unwrap();
         std::fs::write(dir.join("a (2).mp4"), "").unwrap();

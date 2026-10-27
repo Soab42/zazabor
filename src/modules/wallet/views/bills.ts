@@ -57,7 +57,7 @@ export async function payBill(ctx: Ctx, b: Bill) {
 /**
  * Bills and other money that repeats: what's due next and when, what each costs a year, and the
  * subscriptions among them. A bill either posts its transaction by itself on the day (catching
- * up on days CorePro was closed) or reminds you until you mark it as paid.
+ * up on days Zazabor was closed) or reminds you until you mark it as paid.
  */
 export function billsView(ctx: Ctx) {
   let bills: Bill[] = [];
@@ -156,7 +156,7 @@ export function billsView(ctx: Ctx) {
       tile("Subscriptions a year", fmt(ctx, subs), `${live.filter((b) => b.subscription).length} running`));
     list.replaceChildren(
       h("header", { class: "wl-card-head" }, h("div", null, h("h3", null, show === "subscriptions" ? "Subscriptions" : show === "income" ? "Income that repeats" : "Bills"),
-        h("p", { class: "wl-card-sub" }, "Soonest first. A bill that posts itself catches up on the days CorePro was closed."))),
+        h("p", { class: "wl-card-sub" }, "Soonest first. A bill that posts itself catches up on the days Zazabor was closed."))),
       ...(shown.length ? shown.map(row) : [h("div", { class: "wl-empty small" },
         h("div", { class: "wl-empty-tile glass" }, icon("repeat", 26)),
         h("h2", null, show === "all" ? "No bills yet" : "Nothing here"),
@@ -244,7 +244,7 @@ export function billSheet(ctx: Ctx, existing: Bill | null, from?: Tx) {
       field("Category", category),
       h("div", { class: "tt-pair" }, field("Repeats every", h("div", { class: "wl-inline" }, every, freq)), dayField),
       h("div", { class: "tt-pair" }, field("First date", start.el), field("Ends", end.el, { optional: true })),
-      h("label", { class: "wl-toggle-row" }, h("div", null, h("strong", null, "Post it by itself"), h("p", { class: "tt-hint" }, "On the day, and for every date it missed while CorePro was closed. Off: Wallet reminds you until you mark it as paid.")), auto),
+      h("label", { class: "wl-toggle-row" }, h("div", null, h("strong", null, "Post it by itself"), h("p", { class: "tt-hint" }, "On the day, and for every date it missed while Zazabor was closed. Off: Wallet reminds you until you mark it as paid.")), auto),
       remindField,
       h("label", { class: "wl-toggle-row" }, h("div", null, h("strong", null, "A subscription"), h("p", { class: "tt-hint" }, "Listed under Subscriptions, with what they cost a year.")), subscription),
       field("Note", note, { optional: true }),

@@ -5,7 +5,7 @@ import { isImageExt, isVideoExt } from "../modules/files/kinds";
 import type { ModuleId } from "./module";
 
 /**
- * CorePro can run several windows: the main one and any opened with `openWindow` (a module, or a
+ * Zazabor can run several windows: the main one and any opened with `openWindow` (a module, or a
  * single file in a viewer). They share the backend, the saved config and the privacy lock; these
  * helpers say which window this is and carry messages between them.
  */
@@ -20,10 +20,12 @@ export type WindowStart =
   /** A sticky note on the desktop; `path` is the note's id. */
   | { module: "note"; path: string }
   /** The Win+V clipboard popup. */
-  | { module: "clipboard-popup"; path?: null };
+  | { module: "clipboard-popup"; path?: null }
+  /** The screen recorder (`zazabor --record`), its control bar, and its area picker (`path`: the monitor). */
+  | { module: "recorder" | "recorder-pill" | "recorder-area"; path?: string | null };
 
 /** Where this window starts; null for the main window. Set by the backend before the page loads. */
-export const windowStart: WindowStart | null = (window as { __COREPRO_WINDOW__?: WindowStart }).__COREPRO_WINDOW__ ?? null;
+export const windowStart: WindowStart | null = (window as { __ZAZABOR_WINDOW__?: WindowStart }).__ZAZABOR_WINDOW__ ?? null;
 
 export const windowLabel = getCurrentWindow().label;
 export const isMainWindow = windowLabel === "main";

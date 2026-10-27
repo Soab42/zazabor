@@ -166,7 +166,7 @@ function loading(songs: Song[] | null, scanning: boolean, env: PageEnv): HTMLEle
     return h("div", { class: "lib-empty" }, h("div", { class: "spinner" }), h("p", null, "Looking for your music…"));
   }
   if (songs.length === 0) {
-    return emptyState("music", "No music found", "CorePro looks for songs in your Music and Downloads folders and on connected drives.", { label: "Refresh", icon: "refresh", run: () => env.lib.ensureMusic(true) });
+    return emptyState("music", "No music found", "Zazabor looks for songs in your Music and Downloads folders and on connected drives.", { label: "Refresh", icon: "refresh", run: () => env.lib.ensureMusic(true) });
   }
   return null;
 }

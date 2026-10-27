@@ -12,7 +12,10 @@ mod notes;
 mod office;
 mod photo;
 mod protocol;
+mod motion;
+mod recorder;
 mod scan;
+mod statements;
 mod term;
 mod time;
 mod video;
@@ -234,8 +237,8 @@ fn build_main(app: &tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// A later launch of CorePro: shows the main window (making it again if it was closed while
-/// CorePro kept running in the background) and opens `path` there.
+/// A later launch of Zazabor: shows the main window (making it again if it was closed while
+/// Zazabor kept running in the background) and opens `path` there.
 pub(crate) fn show_main(app: &tauri::AppHandle, path: Option<String>) {
     use tauri::Emitter;
     if let Some(window) = app.get_webview_window("main") {
@@ -249,7 +252,7 @@ pub(crate) fn show_main(app: &tauri::AppHandle, path: Option<String>) {
     }
     *PENDING_PATH.lock().unwrap_or_else(|e| e.into_inner()) = path;
     if let Err(err) = build_main(app) {
-        eprintln!("Could not open CorePro's window: {err}");
+        eprintln!("Could not open Zazabor's window: {err}");
     }
 }
 
@@ -276,8 +279,8 @@ fn save_config(app: tauri::AppHandle, json: String) -> Result<(), String> {
     std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
 }
 
-/// Opens another CorePro window on a module (and, for Files, a folder): the same app with its own
-/// workspace. The page reads where to start from `window.__COREPRO_WINDOW__`. `siblings` are the
+/// Opens another Zazabor window on a module (and, for Files, a folder): the same app with its own
+/// workspace. The page reads where to start from `window.__ZAZABOR_WINDOW__`. `siblings` are the
 /// files a window for one file browses through, in order (the pictures of the folder it came from).
 #[tauri::command]
 async fn open_window(
@@ -300,11 +303,11 @@ pub(crate) fn new_window(
     let label = format!("window-{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
     let start = serde_json::json!({ "module": module, "path": path, "siblings": siblings });
     let window = tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::App("index.html".into()))
-        .title("CorePro")
+        .title("Zazabor")
         .inner_size(1280.0, 820.0)
         .min_inner_size(860.0, 560.0)
         .background_color(tauri::webview::Color(0x0e, 0x0f, 0x11, 0xff))
-        .initialization_script(format!("window.__COREPRO_WINDOW__ = {start};"))
+        .initialization_script(format!("window.__ZAZABOR_WINDOW__ = {start};"))
         .build()
         .map_err(|e| e.to_string())?;
     #[cfg(target_os = "linux")]
@@ -332,8 +335,8 @@ fn enable_cors_for_cs_scheme(webview: tauri::webview::PlatformWebview) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // One CorePro at a time (two would overwrite each other's notes and time): with CorePro
-    // already running, `corepro --new-note` / `--clipboard` and plain launches go to it, and a
+    // One Zazabor at a time (two would overwrite each other's notes and time): with Zazabor
+    // already running, `zazabor --new-note` / `--clipboard` and plain launches go to it, and a
     // second `--background` has nothing to do. `--quit` only asks the running one to quit.
     if notes::quick::quit_requested() {
         notes::quick::forward_quit();
@@ -358,7 +361,12 @@ pub fn run() {
         })
         .setup(|app| {
             let cache = app.path().app_cache_dir()?;
-            migrate::run(&app.path().app_config_dir()?, &cache);
+            if migrate::run(&app.path().app_config_dir()?, &app.path().app_data_dir()?, &cache) {
+                // The first start after the rename from CorePro: its login entry and desktop
+                // shortcuts become Zazabor's.
+                background::adopt_old_entry();
+                notes::quick::adopt_old_shortcuts();
+            }
             protocol::init(cache.join("renders"));
             dims::init(cache.join("dimensions.json"));
             lock::init(app.path().app_config_dir()?);
@@ -368,11 +376,14 @@ pub fn run() {
             time::init(app.handle().clone(), app.path().app_data_dir()?);
             wallet::init(app.handle().clone(), app.path().app_data_dir()?);
             office::init(app.path().app_data_dir()?);
+            statements::init(app.handle().clone(), app.path().app_config_dir()?, app.path().app_data_dir()?);
             // A quick note (`--new-note`) starts with only the note, the clipboard (`--clipboard`)
             // with only the Win+V popup, `--background` with no window at all; otherwise the main
             // window.
             if notes::quick::clipboard_requested() {
                 clipboard::popup::show(app.handle())?;
+            } else if notes::quick::record_requested() {
+                recorder::show_window(app.handle())?;
             } else if notes::quick::requested() {
                 notes::quick::new_note(app.handle());
             } else if !background::requested() {
@@ -505,6 +516,19 @@ pub fn run() {
             office::pdf_tools::pdf_edit,
             office::pdf_tools::pdf_ghostscript,
             office::pdf_tools::pdf_compress_ghostscript,
+            office::pdf_tools::pdf_sign,
+            office::pdf_tools::pdf_verify_signatures,
+            office::pdf_tools::pdf_cert_info,
+            office::pdf_tools::pdf_edit_noted,
+            office::pdf_tools::pdf_pdfium,
+            office::pdf_tools::pdf_text_line,
+            office::pdf_ocr::pdf_ocr_languages,
+            office::pdf_ocr::pdf_ocr_download,
+            office::pdf_ocr::pdf_ocr_cancel,
+            office::pdf_ocr::pdf_ocr_remove,
+            office::pdf_ocr::pdf_ocr_data,
+            office::pdf_convert::pdf_libreoffice,
+            office::pdf_convert::pdf_convert_libreoffice,
             // photo (keep this block's commands together)
             photo::photo_decode,
             photo::photo_encode,
@@ -513,6 +537,17 @@ pub fn run() {
             photo::photo_project_open,
             photo::photo_read_file,
             photo::photo_write_file,
+            photo::photo_raw_info,
+            photo::photo_raw_develop,
+            photo::photo_raw_preview,
+            photo::photo_ai_models,
+            photo::photo_ai_download,
+            photo::photo_ai_cancel,
+            photo::photo_ai_remove,
+            photo::photo_ai_subject,
+            photo::photo_ai_sam_embed,
+            photo::photo_ai_sam_mask,
+            photo::photo_ai_inpaint,
             // video editor (keep this block's commands together)
             videoedit::videoedit_probe,
             videoedit::videoedit_frame,
@@ -536,6 +571,60 @@ pub fn run() {
             videoedit::videoedit_record_start,
             videoedit::videoedit_record_level,
             videoedit::videoedit_record_stop,
+            videoedit::videoedit_caption_models,
+            videoedit::videoedit_caption_model_download,
+            videoedit::videoedit_caption_model_cancel,
+            videoedit::videoedit_caption_model_remove,
+            videoedit::videoedit_captions_start,
+            videoedit::videoedit_captions_poll,
+            videoedit::videoedit_captions_cancel,
+            videoedit::videoedit_codecs_install,
+            videoedit::videoedit_sounds,
+            // recorder (keep this block's commands together)
+            recorder::recorder_sources,
+            recorder::recorder_still,
+            recorder::recorder_area_still,
+            recorder::recorder_start,
+            recorder::recorder_status,
+            recorder::recorder_take_finished,
+            recorder::recorder_pause,
+            recorder::recorder_resume,
+            recorder::recorder_mute,
+            recorder::recorder_stop,
+            recorder::recorder_discard,
+            recorder::recorder_pick_area,
+            recorder::recorder_area_done,
+            recorder::recorder_watch,
+            recorder::recorder_unwatch,
+            recorder::recorder_list,
+            recorder::recorder_keep,
+            recorder::recorder_delete,
+            recorder::recorder_copy_file,
+            recorder::recorder_trim,
+            recorder::recorder_meter_start,
+            recorder::recorder_meter_stop,
+            recorder::recorder_shortcut,
+            recorder::recorder_set_shortcut,
+            // statements (keep this block's commands together)
+            statements::statement_read,
+            statements::statement_from_items,
+            statements::statement_save_xlsx,
+            statements::statement_tables_xlsx,
+            statements::statement_ai,
+            statements::statement_ai_cancel,
+            statements::statement_stage,
+            statements::ai_state_get,
+            statements::ai_settings_set,
+            statements::ai_key_set,
+            statements::ai_key_clear,
+            statements::ai_test,
+            // motion templates (keep this block's commands together)
+            motion::motion_pack,
+            motion::motion_unpack,
+            motion::motion_asset_store,
+            motion::motion_assets_delete,
+            motion::motion_kit_read,
+            motion::motion_kit_write,
             // clipboard
             clipboard::clipboard_list,
             clipboard::clipboard_pin,
@@ -675,9 +764,9 @@ pub fn run() {
             video::renderers::video_cast_stop_discovery
         ])
         .build(tauri::generate_context!())
-        .expect("error while running CorePro")
+        .expect("error while running Zazabor")
         .run(|_, event| match event {
-            // The last window closed: in the background mode CorePro keeps running (for the
+            // The last window closed: in the background mode Zazabor keeps running (for the
             // clipboard history); a later launch shows the window again.
             tauri::RunEvent::ExitRequested { code: None, api, .. } if background::keep_running() => api.prevent_exit(),
             tauri::RunEvent::Exit => clipboard::on_exit(),

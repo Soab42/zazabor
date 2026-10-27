@@ -7,6 +7,8 @@ import { MODULES } from "./registry";
 export interface RailHandlers {
   select(id: ModuleId): void;
   settings(): void;
+  /** The user guide (the ? above Settings). */
+  help(): void;
   /** Opens the module in a new window (right-click → Open in New Window, or a middle click). */
   openWindow(id: ModuleId): void;
 }
@@ -18,12 +20,14 @@ export class Rail {
   private buttons = new Map<ModuleId, HTMLButtonElement>();
   private statuses = new Map<ModuleId, RailStatus>();
   private settingsButton = h("button", { class: "rail-btn", title: "Settings (Ctrl+,)", "aria-label": "Settings" }, icon("settings", 20));
+  private helpButton = h("button", { class: "rail-btn rail-help", title: "Help & Guide (F1)", "aria-label": "Help and guide" }, icon("help", 20));
 
   constructor(private readonly handlers: RailHandlers) {
-    const mark = h("div", { class: "rail-mark", title: "CorePro" }, h("img", { src: "/logo.svg", alt: "CorePro", width: 30, height: 30, draggable: false }));
+    const mark = h("div", { class: "rail-mark", title: "Zazabor" }, h("img", { src: "/logo.svg", alt: "Zazabor", width: 30, height: 30, draggable: false }));
     this.settingsButton.append(h("span", { class: "rail-pill" }));
     this.settingsButton.addEventListener("click", () => handlers.settings());
-    this.el.append(mark, this.items, h("div", { class: "spacer" }), this.settingsButton);
+    this.helpButton.addEventListener("click", () => handlers.help());
+    this.el.append(mark, this.items, h("div", { class: "spacer" }), this.helpButton, this.settingsButton);
   }
 
   /** Rebuilds the buttons for the enabled modules, in order (Ctrl+1 is the first). */
@@ -75,5 +79,9 @@ export class Rail {
 
   setSettingsActive(on: boolean) {
     this.settingsButton.classList.toggle("active", on);
+  }
+
+  setHelpActive(on: boolean) {
+    this.helpButton.classList.toggle("active", on);
   }
 }

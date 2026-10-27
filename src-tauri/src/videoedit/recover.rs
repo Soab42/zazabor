@@ -1,5 +1,5 @@
 //! AutoRecover for the Video Editor: while a project has unsaved changes the page keeps a
-//! snapshot of it here every 20 seconds. A snapshot left by a CorePro that is no longer running
+//! snapshot of it here every 20 seconds. A snapshot left by a Zazabor that is no longer running
 //! (a crash, a power cut) is offered back on Studio's Home.
 
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,7 @@ pub struct Snapshot {
     /// When it was taken (ms since 1970).
     #[serde(default)]
     pub saved: i64,
-    /// The CorePro that took it (its own snapshots are of projects still open).
+    /// The Zazabor that took it (its own snapshots are of projects still open).
     #[serde(default)]
     pub pid: u32,
 }
@@ -42,7 +42,7 @@ pub fn save(dir: &Path, mut meta: Snapshot, text: &str, pid: u32, now: i64) -> R
     Ok(())
 }
 
-/// Snapshots other CorePros left behind, newest first.
+/// Snapshots other Zazabors left behind, newest first.
 pub fn list(dir: &Path, pid: u32) -> Vec<Snapshot> {
     let mut out: Vec<Snapshot> = std::fs::read_dir(dir)
         .map(|entries| {
@@ -88,8 +88,8 @@ mod tests {
     }
 
     #[test]
-    fn only_snapshots_of_other_corepros_come_back_newest_first() {
-        let dir = std::env::temp_dir().join(format!("corepro-recover-{}", std::process::id()));
+    fn only_snapshots_of_other_zazabors_come_back_newest_first() {
+        let dir = std::env::temp_dir().join(format!("zazabor-recover-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         save(&dir, meta("v-old"), "{\"a\":1}", 111, 1000).unwrap();
         save(&dir, meta("v-new"), "{\"a\":2}", 222, 2000).unwrap();
@@ -97,7 +97,7 @@ mod tests {
         let listed: Vec<String> = list(&dir, 333).into_iter().map(|s| s.id).collect();
         assert_eq!(listed, ["v-new", "v-old"]);
         assert_eq!(read(&dir, "v-old").unwrap(), "{\"a\":1}");
-        // Saving again under the same id replaces it (and takes it over for this CorePro).
+        // Saving again under the same id replaces it (and takes it over for this Zazabor).
         save(&dir, meta("v-old"), "{\"a\":4}", 333, 4000).unwrap();
         assert_eq!(list(&dir, 333).len(), 1);
         assert_eq!(read(&dir, "v-old").unwrap(), "{\"a\":4}");

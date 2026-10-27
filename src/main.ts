@@ -14,6 +14,10 @@ loadConfig()
     if (windowStart?.module === "note") return (await import("./notes/window")).startNoteWindow(config, windowStart.path);
     // The Win+V popup gets just the clipboard history.
     if (windowStart?.module === "clipboard-popup") return (await import("./clipboard/popup")).startClipboardPopup(config);
+    // The screen recorder's window, its floating control bar and its area picker.
+    if (windowStart?.module === "recorder") return (await import("./modules/studio/record/windows")).startRecorderWindow(config);
+    if (windowStart?.module === "recorder-pill") return (await import("./modules/studio/record/windows")).startRecorderBar(config);
+    if (windowStart?.module === "recorder-area") return (await import("./modules/studio/record/windows")).startAreaPicker(config, windowStart.path);
     return new Shell(config).start();
   })
-  .catch((err) => console.error("CorePro failed to start:", err));
+  .catch((err) => console.error("Zazabor failed to start:", err));

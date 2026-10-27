@@ -1,6 +1,6 @@
 //! The X11 side of pasting from the Win+V popup: which window has the keyboard, giving it back,
 //! and pressing Ctrl+V there (XTest), plus the class of the app that copied (for excluded apps).
-//! Xlib and libXtst are loaded at run time (x11-dl), so CorePro still starts without them.
+//! Xlib and libXtst are loaded at run time (x11-dl), so Zazabor still starts without them.
 //!
 //! Native Wayland apps can't be typed into this way, so on Wayland `can_paste` is false and the
 //! popup only puts the item on the clipboard.
@@ -40,7 +40,7 @@ fn wayland() -> bool {
     std::env::var("XDG_SESSION_TYPE").is_ok_and(|t| t.eq_ignore_ascii_case("wayland")) || std::env::var_os("WAYLAND_DISPLAY").is_some()
 }
 
-/// CorePro can press Ctrl+V in other apps: an X11 session with XTest.
+/// Zazabor can press Ctrl+V in other apps: an X11 session with XTest.
 pub fn can_paste() -> bool {
     !wayland() && std::env::var_os("DISPLAY").is_some() && libs().is_some_and(|l| l.tst.is_some())
 }

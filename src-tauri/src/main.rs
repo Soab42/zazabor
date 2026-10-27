@@ -4,7 +4,7 @@
 fn main() {
     #[cfg(target_os = "linux")]
     prefer_display_gpu();
-    corepro_lib::run()
+    zazabor_lib::run()
 }
 
 /// On hybrid laptops (Intel or AMD driving the screen, NVIDIA as a second GPU), GLVND hands

@@ -4,7 +4,10 @@ import { icon } from "../../../ui/icons";
 import { confirmDialog, field, openDialog, textInput } from "../../time/dialog";
 import { errorText, walletApi, type Batch, type Filter, type ImportPreview, type Mapping, type Profile, type Rule } from "../api";
 import { accountOf, categoryName, fmt, type Ctx } from "../ctx";
-import { shortDate, thisMonth, todayKey } from "../format";
+import { plain, shortDate, thisMonth, todayKey } from "../format";
+import { dropTarget } from "../drops";
+import { extensionOf, statementsApi, STATEMENT_EXTENSIONS, type Staged, type Statement } from "../../../shared/statements/api";
+import { openStatement, type StatementHost } from "../../../shared/statements/flow";
 
 const STATEMENTS = [{ name: "Statements (CSV, Excel)", extensions: ["csv", "tsv", "txt", "xlsx", "xlsm"] }];
 /** Rows shown in the preview (all of them are added). */
@@ -26,6 +29,114 @@ function categoryOptions(ctx: Ctx, value: string | null): HTMLOptionElement[] {
   return options;
 }
 
+const UPLOADS = [{ name: "Statements (PDF, picture, CSV, Excel)", extensions: STATEMENT_EXTENSIONS }];
+const WALLETS = ["bKash", "Nagad", "Rocket", "Upay"];
+
+/** The key an account is remembered by for a statement: its bank and last four digits. */
+function statementKey(st: Statement): string | null {
+  return st.bank || st.accountLast4 ? `${(st.bank ?? "").toLowerCase()}|${st.accountLast4 ?? ""}` : null;
+}
+
+/** The account a statement is for: the one picked last time, else one whose name has its last four digits or its bank. */
+function guessAccount(ctx: Ctx, st: Statement): string | null {
+  const accounts = ctx.state().accounts.filter((a) => !a.archived);
+  const key = statementKey(st);
+  const remembered = key ? ctx.shell.config.wallet.statementAccounts[key] : undefined;
+  if (remembered && accounts.some((a) => a.id === remembered)) return remembered;
+  const same = accounts.filter((a) => a.currency === st.currency);
+  if (st.accountLast4) {
+    const byDigits = same.filter((a) => a.name.includes(st.accountLast4!));
+    if (byDigits.length === 1) return byDigits[0].id;
+  }
+  if (st.bank) {
+    const word = st.bank.toLowerCase().replace(/^the /, "").replace(/ bank.*$/, "").trim();
+    const byBank = same.filter((a) => a.name.toLowerCase().includes(word));
+    if (word && byBank.length === 1) return byBank[0].id;
+  }
+  return null;
+}
+
+/**
+ * Adds a statement's rows (but those left out) to an account, through the same importer as a
+ * CSV: rows already in Wallet are skipped and Undo takes the whole batch back. "new" makes the
+ * account first, opening at the statement's opening balance.
+ */
+async function importStatement(ctx: Ctx, st: Statement, accountId: string, excluded: Set<number>) {
+  let id = accountId;
+  if (id === "new") {
+    const opening = st.opening ?? 0;
+    const account = await walletApi.saveAccount({
+      name: `${st.bank ?? "Statement"}${st.accountLast4 ? ` ••${st.accountLast4}` : ""}`,
+      kind: WALLETS.includes(st.bank ?? "") ? "mobile_wallet" : "bank",
+      currency: st.currency,
+      opening: `${opening < 0 ? "-" : ""}${plain(opening, st.currency)}`,
+      color: "blue",
+    });
+    id = account.id;
+  }
+  const key = statementKey(st);
+  if (key && ctx.shell.config.wallet.statementAccounts[key] !== id) {
+    ctx.shell.config.wallet.statementAccounts[key] = id;
+    ctx.shell.saveConfig();
+  }
+  const staged = await stage(st);
+  const edits = [...excluded].map((i) => ({ line: i + 2, include: false, categoryId: null }));
+  const preview = await walletApi.importPreview(staged.path, null, id, staged.mapping);
+  const adding = preview.rows.filter((r) => !r.error && !r.duplicate && !excluded.has(r.line - 2)).length;
+  if (adding === 0) {
+    ctx.changed();
+    throw new Error(preview.duplicates ? "Everything in this statement is already in Wallet." : "There's nothing to add.");
+  }
+  const batch = await walletApi.importCommit(staged.path, null, id, staged.mapping, edits, st.file);
+  ctx.toast(`Added ${batch.added} from ${st.file}${preview.duplicates ? ` · ${preview.duplicates} already in Wallet` : ""}`, { label: "Undo", run: () => void undoImport(ctx, batch) });
+  ctx.changed();
+}
+
+/** A statement written once as the CSV Wallet's importer reads. */
+const staging = new WeakMap<Statement, Promise<Staged>>();
+function stage(st: Statement): Promise<Staged> {
+  let staged = staging.get(st);
+  if (!staged) {
+    staged = statementsApi.stage(st);
+    staging.set(st, staged);
+    staged.catch(() => staging.delete(st));
+  }
+  return staged;
+}
+
+/** The rows of a statement (by index) an account already has. */
+async function existingRows(st: Statement, accountId: string): Promise<Set<number>> {
+  const staged = await stage(st);
+  const preview = await walletApi.importPreview(staged.path, null, accountId, staged.mapping);
+  return new Set(preview.rows.filter((r) => r.duplicate).map((r) => r.line - 2));
+}
+
+/** What Wallet gives the statement reader: the account to import into, and the import. */
+function statementHost(ctx: Ctx): StatementHost {
+  return {
+    toast: (text, action) => ctx.toast(text, action),
+    openSettings: (category) => ctx.shell.openSettings(category),
+    openInSheets: (path) => ctx.shell.open({ kind: "office", path }),
+    wallet: (st) => ({ accounts: ctx.state().accounts, account: guessAccount(ctx, st), run: (s, account, excluded) => importStatement(ctx, s, account, excluded), existing: existingRows }),
+    autoImport: async (st) => {
+      if (!ctx.shell.config.wallet.autoImportStatements || st.check.status !== "ok" || st.rows.some((r) => r.flag)) return false;
+      const account = guessAccount(ctx, st);
+      if (!account) return false;
+      await importStatement(ctx, st, account, new Set());
+      return true;
+    },
+  };
+}
+
+/**
+ * A statement from any bank or wallet (PDF, scan, photo, CSV, Excel): read, checked against its
+ * own balances, then shown (or added straight away when that's turned on and it adds up).
+ */
+export async function uploadStatement(ctx: Ctx, path?: string) {
+  const file = path ?? (await openFiles({ title: "Upload a Statement", filters: UPLOADS }));
+  if (file) await openStatement(file, statementHost(ctx));
+}
+
 /** Picks a statement and opens the wizard for an account. */
 export async function startImport(ctx: Ctx, accountId: string) {
   const path = await openFiles({ title: "Import a Statement", filters: STATEMENTS });
@@ -33,7 +144,7 @@ export async function startImport(ctx: Ctx, accountId: string) {
 }
 
 /**
- * Bring a statement in: map its columns (CorePro guesses them), see every row with its category
+ * Bring a statement in: map its columns (Zazabor guesses them), see every row with its category
  * and whether it's already in the wallet, leave rows out or change their category, then add the
  * new ones as one batch (Undo takes it back).
  */
@@ -280,7 +391,7 @@ export function exportDialog(ctx: Ctx, filter: Filter) {
     try {
       const n = await walletApi.exportTo(kind, { ...filter, limit: undefined, offset: undefined }, path);
       dialog.close();
-      ctx.toast(`Exported ${n} transaction${n === 1 ? "" : "s"} to ${baseName(path)}`);
+      ctx.toast(`Exported ${n} transaction${n === 1 ? "" : "s"} to ${baseName(path)}`, kind === "json" ? undefined : { label: "Open in Sheets", run: () => ctx.shell.open({ kind: "office", path }) });
     } catch (err) {
       dialog.error(errorText(err));
     } finally {
@@ -334,6 +445,8 @@ export function importView(ctx: Ctx) {
   const profilesCard = h("section", { class: "wl-card" });
   const exportCard = h("section", { class: "wl-card" });
   const el = h("div", { class: "wl-view wl-import-view" }, start, h("div", { class: "wl-overview-grid" }, history, rulesCard, exportCard, profilesCard));
+  // A statement dropped on the card is uploaded.
+  dropTarget(start, (paths) => void uploadStatement(ctx, paths[0]), undefined, (p) => STATEMENT_EXTENSIONS.includes(extensionOf(p)));
 
   async function load() {
     [batches, rules, profiles] = await Promise.all([walletApi.batches(), walletApi.rules(), walletApi.profiles()]).catch((err) => {
@@ -355,8 +468,11 @@ export function importView(ctx: Ctx) {
     start.replaceChildren(
       h("div", { class: "wl-import-hero" },
         h("span", { class: "wl-chip wl-c-blue", style: { width: "44px", height: "44px" } }, icon("download", 22)),
-        h("div", null, h("h3", null, "Import a statement"), h("p", { class: "wl-card-sub" }, "A CSV or Excel file from your bank, card or bKash. Rows already in Wallet are skipped, so importing the same statement twice adds nothing."))),
-      h("div", { class: "wl-inline" }, field("Into", account), h("button", { class: "btn primary", type: "button", disabled: !account.value, onclick: () => void startImport(ctx, account.value) }, icon("folder", 15), "Choose File…")));
+        h("div", null, h("h3", null, "Upload a statement"), h("p", { class: "wl-card-sub" }, "A PDF, scan, photo, CSV or Excel statement from your bank, card or bKash (or drop it here). Zazabor reads it, checks it against its own balances, finds the account and adds what's new; importing the same statement twice adds nothing. Save it as Excel from the same window."))),
+      h("div", { class: "wl-inline" },
+        h("button", { class: "btn primary", type: "button", onclick: () => void uploadStatement(ctx) }, icon("stStatement", 15), "Upload Statement…"),
+        field("Map the columns myself, into", account),
+        h("button", { class: "btn", type: "button", disabled: !account.value, onclick: () => void startImport(ctx, account.value) }, icon("columns", 15), "Choose File…")));
 
     history.replaceChildren(head("Recent imports", "Undo takes back everything one import added."),
       batches.length

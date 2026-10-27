@@ -1,3 +1,3 @@
-ZDOTDIR="$COREPRO_USER_ZDOTDIR"
+ZDOTDIR="$ZAZABOR_USER_ZDOTDIR"
 [[ -r "$ZDOTDIR/.zlogin" ]] && source "$ZDOTDIR/.zlogin"
-unset COREPRO_USER_ZDOTDIR __corepro_zdotdir
+unset ZAZABOR_USER_ZDOTDIR __zazabor_zdotdir

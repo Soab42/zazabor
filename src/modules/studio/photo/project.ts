@@ -3,6 +3,7 @@ import type { OpenedProject } from "./api";
 import { isBlendMode, type BlendMode } from "./engine";
 import { normalizeSpec, type AdjSpec } from "./layeradjust";
 import { normalizeSource, type LayerSource } from "./vector";
+import { normalizeDevelop, type RawState } from "./develop";
 
 /**
  * `document.json` in a `.coreimage` project. Pixel layers and masks point at `layers/<data>.png`;
@@ -10,7 +11,7 @@ import { normalizeSource, type LayerSource } from "./vector";
  * index in this list. Version 1 files (no groups, masks or other adjustments) read the same way.
  */
 export interface ProjectJson {
-  app: "CorePro Photo";
+  app: "Zazabor Photo";
   version: 2;
   width: number;
   height: number;
@@ -38,7 +39,7 @@ interface LayerJsonBase {
 }
 
 export type ProjectLayerJson =
-  | (LayerJsonBase & { kind: "pixel"; x: number; y: number; width: number; height: number; data: number; source: LayerSource | null })
+  | (LayerJsonBase & { kind: "pixel"; x: number; y: number; width: number; height: number; data: number; source: LayerSource | null; raw?: RawState | null })
   | (LayerJsonBase & { kind: "adjust"; adjust: Adjustments; spec: AdjSpec })
   | (LayerJsonBase & { kind: "group"; passThrough: boolean; open: boolean });
 
@@ -65,7 +66,7 @@ interface LoadedBase {
 
 /** A layer read from a project, checked: names are plain text, numbers in range. */
 export type LoadedLayer =
-  | (LoadedBase & { kind: "pixel"; x: number; y: number; width: number; height: number; rgba: Uint8Array; source: LayerSource | null })
+  | (LoadedBase & { kind: "pixel"; x: number; y: number; width: number; height: number; rgba: Uint8Array; source: LayerSource | null; raw?: RawState | null })
   | (LoadedBase & { kind: "adjust"; adjust: Adjustments; spec: AdjSpec })
   | (LoadedBase & { kind: "group"; passThrough: boolean; open: boolean });
 
@@ -78,6 +79,12 @@ export interface LoadedProject {
 }
 
 const MAX_SIDE = 65536;
+
+/** A layer's RAW link from a project file, checked. */
+function rawOf(value: unknown): RawState | null {
+  const r = value && typeof value === "object" ? (value as { path?: unknown; settings?: unknown }) : null;
+  return r && typeof r.path === "string" && r.path ? { path: r.path, settings: normalizeDevelop(r.settings) } : null;
+}
 
 /** Reads a project's document, refusing anything that doesn't add up. */
 export function loadProject(opened: OpenedProject, maxTexture: number): LoadedProject {
@@ -145,6 +152,8 @@ export function loadProject(opened: OpenedProject, maxTexture: number): LoadedPr
         height: p.height,
         rgba: p.rgba,
         source: normalizeSource(item.source),
+        // A layer developed from a RAW file: the file and its Develop settings.
+        raw: rawOf(item.raw),
       });
     } else return;
     kept.set(at, layers.length - 1);

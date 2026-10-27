@@ -1,13 +1,13 @@
 # VLC redesign: feature checklist
 
 From the designer's video walkthrough ("I Redesigned VLC After 25 Years", Juxtopposed) as
-summarised by the project owner, mapped onto CorePro's Video module. `PLAYER.md` has the visual
-spec from the Figma file. CorePro keeps its own app accent and icon set (no VLC logo — it is
+summarised by the project owner, mapped onto Zazabor's Video module. `PLAYER.md` has the visual
+spec from the Figma file. Zazabor keeps its own app accent and icon set (no VLC logo — it is
 VideoLAN's trademark) but follows the redesign's ideas: neutral greys/black, orange-style accent
 by default in the Video module's presets, rectangular-but-softened shapes, two-tone icons for
 non-interactive menu icons.
 
-Status (Oct 18, 2026): built on the `corepro` branch and checked by hand in a test window; the two
+Status (Oct 18, 2026): built on the `zazabor` branch and checked by hand in a test window; the two
 open boxes are what's left.
 
 Owners: **A** = player chrome & quick access, **B** = side panel & subtitles engine,
@@ -62,7 +62,7 @@ Owners: **A** = player chrome & quick access, **B** = side panel & subtitles eng
 - [x] On-screen messages show which shortcut was pressed, not just the result.
 
 ## 9. Settings (D)
-- [x] Video settings in CorePro's Settings page by category: Interface, Playback, Video, Audio, Subtitles (incl. on-screen messages), Library, Network, Performance (hardware decoding), Recording/Casting — basic first, advanced below, an info icon on every setting, words instead of codes.
+- [x] Video settings in Zazabor's Settings page by category: Interface, Playback, Video, Audio, Subtitles (incl. on-screen messages), Library, Network, Performance (hardware decoding), Recording/Casting — basic first, advanced below, an info icon on every setting, words instead of codes.
 - [x] A Keyboard Shortcuts dialog reachable directly from the player menu.
 
 ## 10. Customisation (D; Customise Player exists)

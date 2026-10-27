@@ -644,7 +644,7 @@ mod tests {
     // One test: the note store is global to the process.
     #[test]
     fn syncs_with_a_folder() {
-        let root = std::env::temp_dir().join(format!("corepro-notes-sync-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("zazabor-notes-sync-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let dir = root.join("drive");
         std::fs::create_dir_all(&dir).unwrap();

@@ -164,7 +164,7 @@ export const createWalletModule: ModuleFactory = (shell) => {
     return h("div", { class: "wl-empty" },
       h("div", { class: "wl-empty-tile glass" }, icon(locked ? "lock" : "info", 30)),
       h("h2", null, locked ? "Wallet is locked" : "Wallet couldn't open"),
-      h("p", null, locked ? "Unlock CorePro to see your accounts." : problem ?? ""),
+      h("p", null, locked ? "Unlock Zazabor to see your accounts." : problem ?? ""),
       locked ? null : h("button", { class: "btn", type: "button", onclick: () => void refresh(true) }, icon("refresh", 15), "Try Again"));
   }
 

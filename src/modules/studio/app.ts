@@ -13,9 +13,14 @@ export type StudioKind = "photo" | "video";
 export type Aspect = "9:16" | "16:9" | "1:1" | "4:5";
 
 /** Pictures Photo opens (and its own project file). */
-export const PHOTO_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff", "avif", "psd", "coreimage"];
+export const PHOTO_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff", "avif", "psd", "zazimage", "coreimage",
+  // Camera RAW files (LibRaw; see photo/develop.ts).
+  "3fr", "arw", "cr2", "cr3", "crw", "dcr", "dng", "erf", "fff", "iiq", "k25", "kdc", "mef", "mos", "mrw", "nef", "nrw", "orf", "pef",
+  "raf", "raw", "rw2", "rwl", "sr2", "srf", "srw", "x3f"];
 /** The Video Editor's own project file; clips and pictures start a new project instead. */
-export const VIDEO_PROJECT_EXTENSIONS = ["corevideo"];
+export const VIDEO_PROJECT_EXTENSIONS = ["zazvideo", "corevideo"];
+/** Photo's own project file (`.coreimage` is its name from before Zazabor; both open). */
+export const PHOTO_PROJECT_EXTENSIONS = ["zazimage", "coreimage"];
 
 export function extensionOf(path: string): string {
   const name = basename(path);
@@ -23,10 +28,10 @@ export function extensionOf(path: string): string {
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
 }
 
-/** Studio's own project files (.coreimage, .corevideo): which app they belong to, or null. */
+/** Studio's own project files (.zazimage, .zazvideo, and the older .coreimage, .corevideo): which app they belong to, or null. */
 export function studioProjectKind(path: string): StudioKind | null {
   const ext = extensionOf(path);
-  return ext === "coreimage" ? "photo" : VIDEO_PROJECT_EXTENSIONS.includes(ext) ? "video" : null;
+  return PHOTO_PROJECT_EXTENSIONS.includes(ext) ? "photo" : VIDEO_PROJECT_EXTENSIONS.includes(ext) ? "video" : null;
 }
 
 /** Which app opens a file as a project of its own; null for anything else. */

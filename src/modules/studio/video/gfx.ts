@@ -22,6 +22,8 @@ export interface Source {
   textures: WebGLTexture[];
   /** The frame shown (video), to ask for the next one. */
   pts: number;
+  /** How long that frame lasts (video). */
+  dur?: number;
   /** Mipmaps are made on demand for blurred backgrounds. */
   mips: boolean;
 }
@@ -375,6 +377,7 @@ export class Compositor {
     s.width = w;
     s.height = h;
     s.pts = frame.pts;
+    s.dur = frame.dur;
     s.mips = false;
     return s;
   }
@@ -615,6 +618,22 @@ export class Compositor {
     gl.readPixels(Math.max(0, Math.min(c.width - 1, Math.round(x))), Math.max(0, Math.min(c.height - 1, c.height - 1 - Math.round(y))), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     return [px[0], px[1], px[2]];
+  }
+
+  /** C as RGBA rows from the top (Save as Poster). */
+  readRGBA(): { rgba: Uint8Array; width: number; height: number } {
+    const c = this.targets.c;
+    if (!c || this.lost) throw new Error("The picture was lost (WebGL).");
+    const gl = this.gl;
+    const { width: w, height: h } = c;
+    const flipped = new Uint8Array(w * h * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, c.fb);
+    gl.pixelStorei(gl.PACK_ALIGNMENT, 4);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, flipped);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    const rgba = new Uint8Array(w * h * 4);
+    for (let y = 0; y < h; y++) rgba.set(flipped.subarray((h - 1 - y) * w * 4, (h - y) * w * 4), y * w * 4);
+    return { rgba, width: w, height: h };
   }
 
   /** Shows C on the canvas (its size is the output size). */

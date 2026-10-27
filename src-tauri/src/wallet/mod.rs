@@ -3,15 +3,15 @@
 //! monthly budgets and reports. The ledger is a SQLite database, `wallet/wallet.db` in the app's
 //! data folder (`db.rs`), with a copy kept each day in `wallet/backups/` (the last 14).
 //!
-//! Every command refuses while CorePro is locked; changes go out to all windows as `wallet-changed`.
+//! Every command refuses while Zazabor is locked; changes go out to all windows as `wallet-changed`.
 
 mod bills;
-mod dates;
+pub(crate) mod dates;
 mod db;
 mod earnings;
 mod export;
-mod import;
-mod money;
+pub(crate) mod import;
+pub(crate) mod money;
 mod quick;
 mod receipts;
 
@@ -87,7 +87,7 @@ pub fn init(app: tauri::AppHandle, dir: PathBuf) {
     let _ = STORE.set(Mutex::new(Store { dir, conn, error }));
     let _ = APP.set(app);
     // Each hour (and at start): the day's backup, then the bills that came due, catching up on
-    // the days CorePro wasn't running. Neither runs while CorePro is locked.
+    // the days Zazabor wasn't running. Neither runs while Zazabor is locked.
     let _ = std::thread::Builder::new().name("wallet-backup".into()).spawn(|| loop {
         if let Err(err) = backup_if_due() {
             eprintln!("Wallet backup: {err}");
@@ -221,6 +221,18 @@ fn backup_if_due() -> Result<()> {
     Ok(())
 }
 
+// ---- for other modules' tests
+
+#[cfg(test)]
+pub(crate) fn db_for_tests() -> Connection {
+    db::tests::fresh()
+}
+
+#[cfg(test)]
+pub(crate) fn account_for_tests(conn: &Connection, name: &str) -> String {
+    db::tests::add_account(conn, name, "bank", "BDT", None)
+}
+
 // ---- commands
 
 #[derive(Serialize)]
@@ -321,7 +333,7 @@ pub fn wallet_budget_rollover(month: String, category_id: String, on: bool) -> R
 #[tauri::command]
 pub fn wallet_bills(today: String) -> Result<Vec<bills::Bill>> {
     crate::ensure_unlocked()?;
-    // Catches up first (the hourly check skips while CorePro is locked).
+    // Catches up first (the hourly check skips while Zazabor is locked).
     post_due_bills()?;
     with(|conn| bills::list(conn, &today))
 }
@@ -401,8 +413,18 @@ pub async fn wallet_import_preview(path: String, sheet: Option<u32>, account_id:
 }
 
 #[tauri::command]
-pub async fn wallet_import_commit(path: String, sheet: Option<u32>, account_id: String, mapping: import::Mapping, edits: Vec<import::RowEdit>) -> Result<import::Batch> {
-    blocking(move || change(|conn| import::commit(conn, Path::new(&path), sheet, &account_id, &mapping, &edits, now()))).await
+pub async fn wallet_import_commit(path: String, sheet: Option<u32>, account_id: String, mapping: import::Mapping, edits: Vec<import::RowEdit>, label: Option<String>) -> Result<import::Batch> {
+    blocking(move || {
+        change(|conn| {
+            let batch = import::commit(conn, Path::new(&path), sheet, &account_id, &mapping, &edits, now())?;
+            // A statement read from a PDF or picture is listed under its own name, not the CSV it became.
+            match label.filter(|l| !l.trim().is_empty()) {
+                Some(l) => import::rename_batch(conn, &batch.id, &l),
+                None => Ok(batch),
+            }
+        })
+    })
+    .await
 }
 
 #[tauri::command]
@@ -616,7 +638,7 @@ mod tests {
 
     #[test]
     fn backups_copy_the_ledger() {
-        let dir = std::env::temp_dir().join(format!("corepro-wallet-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("zazabor-wallet-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let conn = open(&dir).unwrap();
         backup_to(&conn, &dir, "2026-10-26.db").unwrap();

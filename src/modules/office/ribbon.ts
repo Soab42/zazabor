@@ -82,6 +82,25 @@ export function button(look: Look & { run: () => void; active?: () => boolean; e
   };
 }
 
+/** A check box, as Excel shows Gridlines and Headings: a box that's ticked while `active`. */
+export function checkbox(look: { label: string; title: string; run: () => void; active: () => boolean; enabled?: () => boolean }): Control {
+  const box = h("span", { class: "rb-box", "aria-hidden": "true" }, icon("check", 11));
+  const el = h("button", {
+    class: "rb-btn small rb-check", type: "button", role: "checkbox", title: look.title, "aria-label": look.title,
+    onmousedown: (e: Event) => e.preventDefault(),
+    onclick: () => look.run(),
+  }, box, h("span", { class: "rb-label" }, look.label));
+  return {
+    el,
+    refresh() {
+      const on = !!look.active();
+      el.classList.toggle("checked", on);
+      el.setAttribute("aria-checked", String(on));
+      if (look.enabled) el.disabled = !look.enabled();
+    },
+  };
+}
+
 /** A button that opens a menu (Borders ▾, Insert ▾). */
 export function menuButton(look: Look & { items: () => MenuItem[]; enabled?: () => boolean }): Control {
   const el = h("button", {

@@ -3,7 +3,9 @@ use super::compress::CompressSpec;
 use super::fonts::Face;
 use super::page::{Bates, HeaderFooterSpec, ImageSpec, TextSpec, WatermarkSpec};
 use super::security::{ProtectSpec, RedactPage, SanitizeSpec};
-use super::{run, Op};
+use super::redact::MarkPage;
+use super::textedit::{line_at, EditSpec};
+use super::{run, run_noted, Op};
 use lopdf::{dictionary, Document, LoadOptions, Object, Stream};
 
 /// Two pages of Helvetica text, their resources inherited from the page tree.
@@ -87,6 +89,7 @@ fn annot(kind: Kind) -> NewAnnot {
         opacity: 0.8,
         contents: "Check this".into(),
         author: "Tester".into(),
+        in_reply_to: None,
     }
 }
 
@@ -238,6 +241,37 @@ fn passwords_open_and_refuse() {
 }
 
 #[test]
+fn replies_answer_their_comment_and_go_with_it() {
+    let marked = run(&sample(), None, &[Op::Annotate { page: 1, annot: annot(Kind::Note) }], &[]).unwrap();
+    let doc = load(&marked);
+    let page = doc.get_pages()[&1];
+    let note = super::page_annots(&doc, page).iter().filter_map(|o| o.as_reference().ok()).find(|&id| doc.get_dictionary(id).unwrap().get(b"Subtype").unwrap().as_name().unwrap() == b"Text").unwrap();
+    let mut reply = annot(Kind::Note);
+    reply.contents = "Agreed".into();
+    reply.in_reply_to = Some((note.0, note.1));
+    let answered = run(&marked, None, &[Op::Annotate { page: 1, annot: reply }], &[]).unwrap();
+    let doc = load(&answered);
+    let list: Vec<_> = super::page_annots(&doc, doc.get_pages()[&1]).iter().filter_map(|o| o.as_reference().ok()).collect();
+    let r = doc.get_dictionary(*list.last().unwrap()).unwrap();
+    assert_eq!(r.get(b"IRT").unwrap().as_reference().unwrap(), note);
+    assert_eq!(r.get(b"RT").unwrap().as_name().unwrap(), b"R");
+    assert!(r.get(b"Popup").is_err());
+    let rect = super::rect_of(&doc, r.get(b"Rect").unwrap()).unwrap();
+    assert!(rect[0] == rect[2] && rect[1] == rect[3], "a reply covers nothing: {rect:?}");
+    // A reply to something that isn't there, and an empty reply, are refused.
+    let mut lost = annot(Kind::Note);
+    lost.in_reply_to = Some((9999, 0));
+    assert!(run(&answered, None, &[Op::Annotate { page: 1, annot: lost }], &[]).is_err());
+    let mut empty = annot(Kind::Note);
+    empty.contents = " ".into();
+    empty.in_reply_to = Some((note.0, note.1));
+    assert!(run(&answered, None, &[Op::Annotate { page: 1, annot: empty }], &[]).is_err());
+    // Deleting the comment takes its popup and its replies.
+    let out = run(&answered, None, &[Op::RemoveAnnots { refs: vec![note] }], &[]).unwrap();
+    assert!(annots_of(&load(&out), 1).is_empty());
+}
+
+#[test]
 fn redaction_leaves_nothing_behind() {
     let before = sample();
     assert!(contains(&everything(&before), b"SECRET123"));
@@ -339,4 +373,124 @@ fn picture_watermark_on_chosen_pages() {
     let img = super::sub_dict(&doc, &res, b"XObject");
     let s = doc.get_object(img.iter().next().unwrap().1.as_reference().unwrap()).unwrap().as_stream().unwrap();
     assert!(s.dict.get(b"SMask").is_ok());
+}
+
+// ---- PDFium (ignored when the library isn't here: scripts/fetch-pdfium.sh, or ZAZABOR_PDFIUM)
+
+/// Page `n`'s text as PDFium reads it.
+fn pdfium_text(bytes: &[u8], n: usize) -> String {
+    super::pdfium::session(|api| {
+        let file = super::pdfium::Doc::load(api, bytes.to_vec())?;
+        let page = file.page(n - 1)?;
+        let text = page.text()?;
+        Ok((0..text.count()).map(|i| text.unicode(i)).collect())
+    })
+    .unwrap()
+}
+
+/// Page `n`'s text as Poppler reads it, when pdftotext is installed.
+fn poppler_text(bytes: &[u8], n: u32) -> Option<String> {
+    let dir = std::env::temp_dir().join(format!("zazabor-pdf-test-{}-{n}-{}", std::process::id(), bytes.len()));
+    std::fs::write(&dir, bytes).ok()?;
+    let out = std::process::Command::new("pdftotext").args(["-f", &n.to_string(), "-l", &n.to_string()]).arg(&dir).arg("-").output().ok();
+    let _ = std::fs::remove_file(&dir);
+    out.filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+}
+
+/// A JPEG of `w` × `h` white pixels.
+fn white_jpeg(w: u32, h: u32) -> Vec<u8> {
+    let mut jpeg = std::io::Cursor::new(Vec::new());
+    image::RgbImage::from_pixel(w, h, image::Rgb([255, 255, 255])).write_to(&mut jpeg, image::ImageFormat::Jpeg).unwrap();
+    jpeg.into_inner()
+}
+
+#[test]
+#[cfg_attr(not(has_pdfium), ignore = "PDFium isn't here (scripts/fetch-pdfium.sh, or set ZAZABOR_PDFIUM)")]
+fn true_redaction_removes_the_word_and_keeps_its_neighbours() {
+    // Page 1 reads "Top SECRET123 here" in 24 pt Helvetica from (72, 700): SECRET123 runs from
+    // x 120 to 257.4. A white picture lies under the whole line, across the mark.
+    let jpeg = white_jpeg(120, 30);
+    let pictured = run(&sample(), None, &[Op::AddImage(ImageSpec { page: 1, x: 180.0, y: 705.0, width: 240.0, height: 60.0, blob: 1 })], &[b"".as_slice(), jpeg.as_slice()]).unwrap();
+    let mark = MarkPage { page: 1, rects: vec![[118.0, 692.0, 259.0, 722.0]] };
+    let mut notes = Vec::new();
+    let out = run_noted(&pictured, None, &[Op::RedactObjects { pages: vec![mark] }], &[], &mut notes).unwrap();
+
+    // Gone from the file's bytes, decoded streams and strings, literal or hex.
+    let all = everything(&out);
+    assert!(!contains(&all, b"SECRET123"), "the redacted text survived");
+    assert!(!contains(&all, super::fonts::hex(b"SECRET123").as_bytes()));
+    assert!(!contains(&all.to_ascii_uppercase(), super::fonts::hex(b"SECRET123").to_ascii_uppercase().as_bytes()));
+    // The words beside it are still text, and so is the other page.
+    let text = pdfium_text(&out, 1);
+    assert!(!text.contains("SECRET"), "{text:?}");
+    assert!(text.contains("Top") && text.contains("here"), "{text:?}");
+    assert!(pdfium_text(&out, 2).contains("Public text"));
+    if let Some(text) = poppler_text(&out, 1) {
+        assert!(!text.contains("SECRET") && text.contains("Top") && text.contains("here"), "Poppler reads {text:?}");
+    }
+    // The picture is still there, now with black where the mark was and white elsewhere.
+    let doc = load(&out);
+    let page = doc.get_pages()[&1];
+    let (black, white) = page_images(&doc, page).iter().fold((0, 0), |(b, w), px| (b + px.iter().filter(|&&v| v < 30).count(), w + px.iter().filter(|&&v| v > 225).count()));
+    assert!(black > 0 && white > 0, "black {black}, white {white}");
+}
+
+/// The decoded pixels (as bytes) of each picture, but JPEGs, in page `page`'s resources.
+fn page_images(doc: &Document, page: lopdf::ObjectId) -> Vec<Vec<u8>> {
+    let mut out = vec![];
+    let Ok((res, ids)) = doc.get_page_resources(page) else { return out };
+    let mut dicts: Vec<&lopdf::Dictionary> = res.into_iter().collect();
+    dicts.extend(ids.iter().filter_map(|&id| doc.get_dictionary(id).ok()));
+    for d in dicts {
+        let Ok(xobjects) = d.get(b"XObject").and_then(|x| doc.dereference(x)).and_then(|(_, x)| x.as_dict()) else { continue };
+        for (_, v) in xobjects.iter() {
+            let Ok(s) = v.as_reference().and_then(|id| doc.get_object(id)).and_then(Object::as_stream) else { continue };
+            // The painted copy PDFium writes is raw pixels (Flate); the original JPEG isn't counted.
+            let jpeg = s.dict.get(b"Filter").and_then(Object::as_name).ok() == Some(b"DCTDecode");
+            if s.dict.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Image") && !jpeg {
+                out.push(if s.dict.get(b"Filter").is_ok() { s.decompressed_content().unwrap_or_default() } else { s.content.clone() });
+            }
+        }
+    }
+    out
+}
+
+#[test]
+#[cfg_attr(not(has_pdfium), ignore = "PDFium isn't here (scripts/fetch-pdfium.sh, or set ZAZABOR_PDFIUM)")]
+fn a_mark_with_nothing_left_under_it_is_checked() {
+    // Marks that cover nothing still draw their box, and the check passes.
+    let out = run(&sample(), None, &[Op::RedactObjects { pages: vec![MarkPage { page: 2, rects: vec![[400.0, 100.0, 500.0, 150.0]] }] }], &[]).unwrap();
+    assert!(pdfium_text(&out, 2).contains("Public text"));
+    // No marks at all is refused.
+    assert!(run(&sample(), None, &[Op::RedactObjects { pages: vec![MarkPage { page: 1, rects: vec![] }] }], &[]).is_err());
+}
+
+#[test]
+#[cfg_attr(not(has_pdfium), ignore = "PDFium isn't here (scripts/fetch-pdfium.sh, or set ZAZABOR_PDFIUM)")]
+fn editing_a_line_round_trips() {
+    let before = sample();
+    // A click on "Public" in page 2's line.
+    let line = line_at(&before, None, 2, 90.0, 708.0).unwrap().expect("a line under the click");
+    assert_eq!(line.text, "Public text");
+    assert!(line.refused.is_none());
+    assert!((line.size - 24.0).abs() < 0.1, "{}", line.size);
+    let edit = |text: &str| Op::EditText(EditSpec { page: 2, objects: line.objects.clone(), old: line.text.clone(), text: text.into() });
+    let mut notes = Vec::new();
+    let out = run_noted(&before, None, &[edit("Private words")], &[], &mut notes).unwrap();
+    assert!(notes.is_empty(), "{notes:?}");
+    let text = pdfium_text(&out, 2);
+    assert!(text.contains("Private words") && !text.contains("Public"), "{text:?}");
+    if let Some(text) = poppler_text(&out, 2) {
+        assert!(text.contains("Private words"), "Poppler reads {text:?}");
+    }
+    // Clicked again, the new text is a line of its own, in the same font and size.
+    let again = line_at(&out, None, 2, 90.0, 708.0).unwrap().unwrap();
+    assert_eq!(again.text, "Private words");
+    assert_eq!(again.font, line.font);
+    // Page 1 is untouched.
+    assert!(pdfium_text(&out, 1).contains("Top SECRET123 here"));
+    // Stale text (the page changed since the click) and Bangla are refused.
+    let stale = Op::EditText(EditSpec { page: 2, objects: line.objects.clone(), old: "Something else".into(), text: "x".into() });
+    assert!(run(&before, None, &[stale], &[]).is_err());
+    assert!(run(&before, None, &[edit("বাংলা")], &[]).is_err());
 }

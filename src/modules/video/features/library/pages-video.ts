@@ -130,7 +130,7 @@ export function homePage(env: PageEnv): PageResult {
     if (lib.folders === null || lib.scanningVideos && lib.folders.length === 0) {
       body.append(h("div", { class: "lib-empty" }, h("div", { class: "spinner" }), h("p", null, "Looking for your videos…")));
     } else {
-      body.append(emptyState("video", "Nothing to watch yet", "Open a video to start. CorePro finds the videos on this computer, remembers where you stopped and lets you pick up right where you left off.", { label: "Open a Video", icon: "video", run: () => env.hooks.openFile() }));
+      body.append(emptyState("video", "Nothing to watch yet", "Open a video to start. Zazabor finds the videos on this computer, remembers where you stopped and lets you pick up right where you left off.", { label: "Open a Video", icon: "video", run: () => env.hooks.openFile() }));
     }
   }
   return { body };
@@ -176,7 +176,7 @@ export function videosPage(env: PageEnv): PageResult {
     return { body, actions: [open] };
   }
   if (folders.length === 0) {
-    body.append(emptyState("folder", "No videos found", "CorePro looks for videos of 1 MB or more in your home folder and on connected drives. Open a folder to browse it directly.", { label: "Open a Folder", icon: "folderPlus", run: () => env.hooks.openFolder() }));
+    body.append(emptyState("folder", "No videos found", "Zazabor looks for videos of 1 MB or more in your home folder and on connected drives. Open a folder to browse it directly.", { label: "Open a Folder", icon: "folderPlus", run: () => env.hooks.openFolder() }));
     return { body, actions: [open] };
   }
   const shown = sortFolders(folders.filter((f) => matches(f.name, env.query)), env.sort, lib);
@@ -216,7 +216,7 @@ export function folderPage(env: PageEnv, path: string): PageResult {
   }
   const name = basename(path);
   if (videos.length === 0) {
-    body.append(emptyState("film", "No videos here", "This folder has no videos CorePro can play.", { label: "Open Another Folder", icon: "folderPlus", run: () => env.hooks.openFolder() }));
+    body.append(emptyState("film", "No videos here", "This folder has no videos Zazabor can play.", { label: "Open Another Folder", icon: "folderPlus", run: () => env.hooks.openFolder() }));
     return { body };
   }
   const ordered = sortVideos(videos, env.sort, lib);

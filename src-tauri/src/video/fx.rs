@@ -179,7 +179,7 @@ pub async fn video_set_subtitle_delay(ms: i64) -> Result<(), String> {
 // ---- OpenSubtitles -------------------------------------------------------------------------
 
 const API_BASE: &str = "https://api.opensubtitles.com/api/v1";
-const USER_AGENT: &str = "CorePro v1.0";
+const USER_AGENT: &str = "Zazabor v1.0";
 const HASH_CHUNK: u64 = 64 * 1024;
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -355,7 +355,7 @@ pub async fn video_online_download(url: String, name: String) -> Result<String, 
         return Err("That download address is not allowed.".into());
     }
     blocking(move || {
-        let dir: PathBuf = std::env::temp_dir().join("corepro-subtitles");
+        let dir: PathBuf = std::env::temp_dir().join("zazabor-subtitles");
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let target = dir.join(subtitle_file_name(&name));
         let config = format!(
@@ -400,7 +400,7 @@ mod tests {
 
     #[test]
     fn movie_hash_matches_the_reference_algorithm() {
-        let dir = std::env::temp_dir().join(format!("corepro-fx-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("zazabor-fx-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.bin");
         let size = 200_000usize;

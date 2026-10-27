@@ -34,7 +34,8 @@
     "docx": "9.14.0",
     "mammoth": "1.13.0",
     "monaco-editor": "0.57.0",
-    "pdfjs-dist": "^6.4.299"
+    "pdfjs-dist": "^6.4.299",
+    "tesseract.js": "7.0.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.3",

@@ -465,13 +465,13 @@ export class LibraryView {
       this.empty.append(
         h("div", { class: "spinner large" }),
         h("h2", null, "Looking for photos…"),
-        h("p", { class: "muted" }, "CorePro is searching your home folder and connected drives. Albums appear here automatically."),
+        h("p", { class: "muted" }, "Zazabor is searching your home folder and connected drives. Albums appear here automatically."),
       );
     } else {
       this.empty.append(
         h("div", { class: "empty-icon" }, icon("image", 44)),
         h("h2", null, "No photos found"),
-        h("p", null, "CorePro looked through your home folder and connected drives, skipping app data and code projects. If your photos live somewhere else, add that folder."),
+        h("p", null, "Zazabor looked through your home folder and connected drives, skipping app data and code projects. If your photos live somewhere else, add that folder."),
         h("button", { class: "btn primary large", onclick: () => this.handlers.addFolder() }, icon("folderPlus", 18), "Add a folder"),
       );
     }

@@ -1,10 +1,14 @@
+import { api } from "../../../api";
 import type { ShellContext } from "../../../shell/module";
 import { save } from "../../../shared/dialog";
 import { basename, dirname, formatBytes, h } from "../../../ui/dom";
 import { showToast } from "../../files/ops/toast";
 import { openDialog } from "../../time/dialog";
 import { errorText } from "../../time/api";
-import { editApi, type Encoders, type ExportSpec } from "./api";
+import { editApi, type Codec, type Encoders, type ExportSpec } from "./api";
+import { offerCodecInstall } from "./codecs";
+
+export { offerCodecInstall };
 import { mixdown, type Engine } from "./engine";
 import type { MediaStore } from "./media";
 import { canvasSize, projectDuration, type Project } from "./model";
@@ -32,6 +36,7 @@ type Quality = ExportSpec["quality"];
 
 interface Choice {
   format: "mp4" | "webm";
+  codec: Codec["id"];
   short: 720 | 1080;
   fps: number;
   quality: Quality;
@@ -53,9 +58,11 @@ function segmented<V extends string | number>(options: [V, string][], get: () =>
 
 /** Asks for the export's settings and file, then runs it. */
 export async function openExport(host: ExportHost): Promise<void> {
-  const encoders: Encoders = await editApi.encoders().catch(() => ({ h264: false, mp3: false, vp9: false, opus: false, aac: false, hevc: false }));
+  const encoders: Encoders = await editApi.encoders().catch(() => ({ h264: false, mp3: false, vp9: false, opus: false, aac: false, hevc: false, codecs: [], missing: [] }));
   const p = host.project();
+  const firstCodec = encoders.codecs.find((c) => c.available)?.id ?? "vaapi";
   const choice: Choice = {
+    codec: last.codec && encoders.codecs.some((c) => c.id === last.codec && c.available) ? last.codec : firstCodec,
     format: last.format ?? (encoders.h264 ? "mp4" : "webm"),
     short: last.short ?? 1080,
     fps: p.canvas.fps,
@@ -71,13 +78,18 @@ export async function openExport(host: ExportHost): Promise<void> {
   showSize();
   const notes: string[] = [];
   if (!encoders.h264) notes.push("MP4 needs an H.264 encoder: VA-API (gstreamer1.0-vaapi) or x264 (gstreamer1.0-plugins-ugly).");
-  if (!encoders.aac) notes.push("MP4s get MP3 sound: this system has no AAC encoder (gstreamer1.0-libav adds one). YouTube, Instagram and TikTok take MP3.");
-  notes.push("HEVC isn't offered yet: VA-API's HEVC encoder doesn't start on this machine.");
+  notes.push(encoders.aac ? "MP4s get AAC sound." : "MP4s get MP3 sound: this system has no AAC encoder (gstreamer1.0-libav adds one). YouTube, Instagram and TikTok take MP3.");
+  if (!encoders.hevc) notes.push("HEVC needs x265 (gstreamer1.0-plugins-bad) or an NVIDIA graphics card; VA-API's HEVC encoder doesn't start on this machine.");
+  const toast = (text: string) => showToast(text, undefined, 5000);
   const duration = projectDuration(p);
   const settings = await new Promise<Choice | null>((resolve) => {
     let result: Choice | null = null;
     const row = (label: string, control: Node, extra?: Node) => h("div", { class: "ve-row" }, h("label", null, label), control, extra ?? null);
     const audioToggle = h("input", { type: "checkbox", class: "switch", checked: choice.audio, onchange: () => (choice.audio = audioToggle.checked) });
+    const codecSelect = h("select", { class: "ve-select", onchange: () => (choice.codec = codecSelect.value as Codec["id"]) },
+      ...encoders.codecs.map((c) => h("option", { value: c.id, disabled: !c.available, selected: c.id === choice.codec, title: c.available ? "" : `Needs ${c.needs}` }, c.available ? c.label : `${c.label} — needs ${c.needs}`)));
+    const codecRow = row("Video codec", codecSelect);
+    codecRow.hidden = choice.format !== "mp4" || encoders.codecs.length === 0;
     const dialog = openDialog({
       title: "Export video",
       subtitle: `${host.title} · ${formatTime(duration, 30, false)}`,
@@ -85,7 +97,11 @@ export async function openExport(host: ExportHost): Promise<void> {
       tone: "work",
       class: "ve-export-dialog tone-video",
       body: [
-        row("Format", segmented<"mp4" | "webm">([["mp4", "MP4 · H.264"], ["webm", "WebM · VP9"]], () => choice.format, (v) => (choice.format = v), (v) => (v === "mp4" ? !encoders.h264 : !encoders.vp9))),
+        row("Format", segmented<"mp4" | "webm">([["mp4", encoders.hevc ? "MP4" : "MP4 · H.264"], ["webm", "WebM · VP9"]], () => choice.format, (v) => {
+          choice.format = v;
+          codecRow.hidden = v !== "mp4";
+        }, (v) => (v === "mp4" ? !encoders.h264 && !encoders.hevc : !encoders.vp9))),
+        codecRow,
         row("Resolution", segmented<720 | 1080>([[720, "720p"], [1080, "1080p"]], () => choice.short, (v) => {
           choice.short = v;
           showSize();
@@ -96,6 +112,13 @@ export async function openExport(host: ExportHost): Promise<void> {
         h("ul", { class: "ve-export-notes" }, ...notes.map((n) => h("li", null, n))),
       ],
       foot: [
+        encoders.missing.length
+          ? h("button", { class: "btn", type: "button", title: `Adds ${encoders.missing.join(", ")}`, onclick: async () => {
+            dialog.close();
+            const now = await offerCodecInstall(encoders.missing, toast);
+            if (now) await openExport(host);
+          } }, "Install codecs…")
+          : null,
         h("span", { class: "spacer" }),
         h("button", { class: "btn", type: "button", onclick: () => dialog.close() }, "Cancel"),
         h("button", { class: "btn primary", type: "button", "data-autofocus": "", onclick: () => {
@@ -114,7 +137,7 @@ export async function openExport(host: ExportHost): Promise<void> {
   if (!path) return;
   if (!path.toLowerCase().endsWith(`.${ext}`)) path += `.${ext}`;
   const { width, height } = canvasSize(p.canvas.aspect, settings.short);
-  await run(host, { path, width, height, fps: settings.fps, format: settings.format, quality: settings.quality, audio: settings.audio });
+  await run(host, { path, width, height, fps: settings.fps, format: settings.format, quality: settings.quality, audio: settings.audio, codec: settings.format === "mp4" ? settings.codec : "" });
 }
 
 async function run(host: ExportHost, spec: ExportSpec) {
@@ -127,7 +150,7 @@ async function run(host: ExportHost, spec: ExportSpec) {
   const status = h("p", { class: "ve-progress-text" }, "Starting the encoder…");
   const dialog = openDialog({
     title: `Exporting ${basename(spec.path)}`,
-    subtitle: `${spec.width} × ${spec.height} · ${spec.fps} fps · ${spec.format === "mp4" ? "H.264" : "VP9"}`,
+    subtitle: `${spec.width} × ${spec.height} · ${spec.fps} fps · ${spec.format === "webm" ? "VP9" : spec.codec?.endsWith("265") ? "HEVC" : "H.264"}`,
     icon: "download",
     tone: "work",
     class: "ve-export-dialog tone-video",
@@ -153,15 +176,20 @@ async function run(host: ExportHost, spec: ExportSpec) {
     const buffers = [new Uint8Array(bytes), new Uint8Array(bytes)];
     let inflight: Promise<number> | null = null;
     const loopStart = performance.now();
+    const mixing = (loopStart - started) / 1000;
+    let warming: Promise<void> = engine.warm(0, spec.width, spec.height, host.keyPrefix);
     for (let n = 0; n < total; n++) {
       if (cancelled) break;
       const t = n / spec.fps;
+      await warming;
       const waits: Promise<void>[] = [];
       engine.compose(t, spec.width, spec.height, host.keyPrefix, waits);
       if (waits.length) {
         await Promise.all(waits);
         engine.compose(t, spec.width, spec.height, host.keyPrefix, null, false);
       }
+      // The next frame's pictures decode while this one is read back and sent.
+      warming = n + 1 < total ? engine.warm((n + 1) / spec.fps, spec.width, spec.height, host.keyPrefix) : Promise.resolve();
       const buffer = buffers[n % 2];
       engine.gfx.readI420(buffer);
       if (inflight) await inflight;
@@ -184,7 +212,8 @@ async function run(host: ExportHost, spec: ExportSpec) {
     running = false;
     dialog.close();
     const seconds = (performance.now() - started) / 1000;
-    console.info(`[video-editor] exported ${done.frames} frames ${spec.width}x${spec.height} in ${seconds.toFixed(1)} s (${(done.frames / seconds).toFixed(1)} fps), ${done.bytes} bytes`);
+    const drawing = seconds - mixing;
+    void api.log("info", `[video-editor] exported ${done.frames} frames ${spec.width}x${spec.height} ${spec.codec || spec.format} in ${seconds.toFixed(1)} s (${(done.frames / seconds).toFixed(1)} fps, ${(done.frames / spec.fps / seconds).toFixed(2)}× real time; sound ${mixing.toFixed(1)} s, then frames at ${(done.frames / drawing).toFixed(1)} fps), ${done.bytes} bytes`).catch(() => undefined);
     showToast(`Exported ${basename(done.path)} · ${formatBytes(done.bytes)} in ${formatTime(seconds, 30, false)}`, {
       label: "Show in Files",
       run: () => host.shell.open({ kind: "folder", path: dirname(done.path) }),
@@ -193,8 +222,10 @@ async function run(host: ExportHost, spec: ExportSpec) {
     running = false;
     if (job !== null) await editApi.exportCancel(job).catch(() => undefined);
     dialog.close();
-    if ((err as Error)?.message !== "Cancelled") showToast(`The export stopped: ${errorText(err)}`);
-    else showToast("Export cancelled.");
+    if ((err as Error)?.message !== "Cancelled") {
+      showToast(`The export stopped: ${errorText(err)}`);
+      void api.log("error", `[video-editor] export stopped: ${errorText(err)}`).catch(() => undefined);
+    } else showToast("Export cancelled.");
   } finally {
     engine.releasePrefix(host.keyPrefix);
     engine.hold(false);

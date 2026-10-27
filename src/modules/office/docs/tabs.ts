@@ -3,7 +3,9 @@ import { h } from "../../../ui/dom";
 import { icon } from "../../../ui/icons";
 import { openMenu, type MenuItem } from "../../../ui/menu";
 import { button, colorButton, combo, custom, menuButton, splitButton, stack, type Group, type Ribbon } from "../ribbon";
-import { dateFormats, linkDialog, paragraphDialog, symbolPicker, tablePicker } from "./dialogs";
+import { altTextDialog, dateFormats, linkDialog, paragraphDialog, symbolPicker, tablePicker } from "./dialogs";
+import { NodeSelection } from "@tiptap/pm/state";
+import { isFree, selectedPicture, setLayout, transformPicture, wrapItems, type Align, type Wrap } from "./picture";
 import type { PageView } from "./page";
 import { MARGIN_PRESETS, PAGE_SIZES, type PageSetup, type PageSize } from "./read";
 import { availableFonts, currentStyle, DEFAULT_FONT, DEFAULT_SIZE, FONT_SIZES, STYLES, type DocStyle } from "./schema";
@@ -290,6 +292,95 @@ export function buildTabs(ribbon: Ribbon, c: DocsContext) {
       ],
     },
   ]);
+
+  // ---- Picture Format (while a picture is selected), as in Word
+  const pic = () => selectedPicture(e);
+  /** The selected picture's box on the page and its paragraph's width, in CSS pixels. */
+  const picBox = () => {
+    const sel = e.state.selection;
+    if (!(sel instanceof NodeSelection)) return null;
+    const dom = e.view.nodeDOM(sel.from) as HTMLElement | null;
+    const img = dom?.querySelector("img");
+    if (!dom || !img) return null;
+    return { img, width: img.offsetWidth, height: img.offsetHeight, room: dom.parentElement?.clientWidth ?? 0 };
+  };
+  const toCm = (px: number) => (px * 2.54) / 96;
+  const toPx = (cm: number) => Math.round((cm * 96) / 2.54);
+  const position = (align: Align) => {
+    const attrs = pic();
+    if (!attrs) return;
+    const wrap = attrs.wrap as Wrap;
+    // In line with the text, a picture goes where its paragraph is aligned.
+    if (wrap === "inline") return void chain(c).setTextAlign(align).run();
+    if (!isFree(wrap)) return setLayout(e, { align });
+    const box = picBox();
+    if (!box) return;
+    const x = align === "left" ? 0 : align === "center" ? Math.round((box.room - box.width) / 2) : Math.max(0, box.room - box.width);
+    setLayout(e, { align, x });
+  };
+  const turn = async (how: "right" | "left" | "flipH" | "flipV") => {
+    const attrs = pic();
+    if (!attrs?.src) return;
+    const done = await transformPicture(String(attrs.src), how);
+    if (!done) return;
+    const size = done.turned && attrs.width && attrs.height ? { width: Number(attrs.height), height: Number(attrs.width) } : {};
+    setLayout(e, { src: done.src, ...size });
+  };
+  const sizeField = (label: string, which: "width" | "height") => {
+    const input = h("input", { class: "rb-num", type: "number", step: "0.1", min: "0.2", "aria-label": `${label} in centimetres`, title: `${label} (cm)` });
+    input.addEventListener("keydown", (ev) => {
+      ev.stopPropagation();
+      if (ev.key === "Enter") input.blur();
+    });
+    input.addEventListener("change", () => {
+      const box = picBox();
+      const cm = Number.parseFloat(input.value);
+      if (!box || !(cm > 0)) return;
+      // The other side follows, so the picture keeps its shape.
+      const ratio = box.height / (box.width || 1);
+      const px = toPx(cm);
+      setLayout(e, which === "width" ? { width: px, height: Math.round(px * ratio) } : { height: px, width: Math.round(px / ratio) });
+    });
+    const control = custom(h("label", { class: "rb-size" }, h("span", null, label), input, h("small", null, "cm")), () => {
+      const box = picBox();
+      if (box && document.activeElement !== input) input.value = toCm(which === "width" ? box.width : box.height).toFixed(2);
+    });
+    return control;
+  };
+  ribbon.tab("picture", "Picture Format", [
+    {
+      label: "Accessibility",
+      controls: [button({ icon: "image", label: "Alt Text", size: "large", title: "Alt Text: describe the picture for screen readers", run: () => altTextDialog(String(pic()?.alt ?? ""), (alt) => setLayout(e, { alt })) })],
+    },
+    {
+      label: "Arrange",
+      controls: [
+        menuButton({ icon: "alignCenter", label: "Position", size: "large", title: "Position on the line or page", items: () => [
+          { label: "Left", icon: "alignLeft", action: () => position("left") },
+          { label: "Centre", icon: "alignCenter", action: () => position("center") },
+          { label: "Right", icon: "alignRight", action: () => position("right") },
+        ] }),
+        menuButton({ icon: "wrapSquare", label: "Wrap Text", size: "large", title: "How text flows around the picture", items: () => wrapItems((pic()?.wrap as Wrap) ?? "inline", (wrap) => setLayout(e, { wrap })) }),
+        stack(
+          [button({ icon: "wrapFront", label: "Bring Forward", title: "In front of the text", run: () => setLayout(e, { wrap: "front" }) })],
+          [button({ icon: "wrapBehind", label: "Send Backward", title: "Behind the text", run: () => setLayout(e, { wrap: "behind" }) })],
+        ),
+        menuButton({ icon: "rotateRight", label: "Rotate", size: "large", title: "Rotate or flip the picture", items: () => [
+          { label: "Rotate Right 90°", icon: "rotateRight", action: () => void turn("right") },
+          { label: "Rotate Left 90°", icon: "rotateLeft", action: () => void turn("left") },
+          { label: "Flip Vertical", icon: "phFlipV", action: () => void turn("flipV") },
+          { label: "Flip Horizontal", icon: "phFlipH", action: () => void turn("flipH") },
+        ] }),
+      ],
+    },
+    {
+      label: "Size",
+      controls: [
+        stack([sizeField("Height", "height")], [sizeField("Width", "width")]),
+        button({ icon: "zoomFit", label: "Reset Size", size: "large", title: "The picture's own size", run: () => setLayout(e, { width: null as never, height: null as never }) }),
+      ],
+    },
+  ], () => !!pic());
 
   // ---- Table (while the cursor is in one)
   const inTable = () => e.isActive("table");

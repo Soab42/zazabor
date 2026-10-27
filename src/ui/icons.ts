@@ -13,6 +13,7 @@ const paths = {
   rotateLeft: `<path d="M4.5 12a7.5 7.5 0 1 0 2.4-5.5L4.5 9"/><path d="M4.5 4v5h5"/>`,
   rotateRight: `<path d="M19.5 12a7.5 7.5 0 1 1-2.4-5.5L19.5 9"/><path d="M19.5 4v5h-5"/>`,
   info: `<circle cx="12" cy="12" r="8.5"/><path d="M12 16.5v-5.5M12 7.75v.01"/>`,
+  help: `<circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.6a2.5 2.5 0 0 1 4.85.85c0 1.7-2.45 2.15-2.45 3.6"/><circle cx="12" cy="16.9" r="0.7" fill="currentColor"/>`,
   fullscreen: `<path d="M8.5 4H4v4.5M15.5 4H20v4.5M8.5 20H4v-4.5M15.5 20H20v-4.5"/>`,
   palette: `<path d="M12 3.5a8.5 8.5 0 1 0 0 17c1.1 0 1.8-.8 1.8-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.7-1.7h2a4 4 0 0 0 4-4c0-3.9-3.8-7.2-8.5-7.2z"/><circle cx="7.5" cy="11" r="1.1" fill="currentColor"/><circle cx="10.5" cy="7.3" r="1.1" fill="currentColor"/><circle cx="15.2" cy="7.8" r="1.1" fill="currentColor"/>`,
   settings: `<path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/>`,
@@ -152,6 +153,10 @@ const paths = {
   pfMarkArea: `<rect x="4.5" y="6.5" width="15" height="11" rx="1" stroke-dasharray="3 2"/>`,
   pfUnlock: `<rect x="5" y="10.5" width="14" height="10" rx="2.2"/><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 6.8-1.2"/>`,
   pfCompress: `<path d="M9 3.5v5.5H3.5M15 3.5v5.5h5.5M9 20.5V15H3.5M15 20.5V15h5.5"/>`,
+  pfCertificate: `<rect x="3.5" y="4.5" width="17" height="12" rx="1.5"/><path d="M7 8.5h7M7 11.5h4"/><circle cx="16.5" cy="13.5" r="2.5"/><path d="M15 15.5l-1 4.5 2.5-1.3 2.5 1.3-1-4.5"/>`,
+  pfSigned: `<path d="M12 3.5l7 3v5c0 4.4-3 7.7-7 9-4-1.3-7-4.6-7-9v-5z"/><path d="M8.8 12.2l2.2 2.2 4.2-4.4"/>`,
+  pfOcr: `<path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><path d="M8 9h8M8 12h8M8 15h5"/>`,
+  pfToWord: `<path d="M7 3.5h7l4.5 4.5v11a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5z"/><path d="M13.5 3.5V8.5h5"/><path d="M8.5 12l1.2 5 1.8-4 1.8 4 1.2-5"/>`,
   docFile: `<path d="M7 3.5h7l4.5 4.5v11a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5z"/><path d="M13.5 3.5V8.5h5M8.5 12h7M8.5 15h7M8.5 18h4"/>`,
   sheetFile: `<path d="M7 3.5h7l4.5 4.5v11a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5z"/><path d="M13.5 3.5V8.5h5M8.5 11.5h7v7h-7zM8.5 15h7M12 11.5v7"/>`,
   save: `<path d="M5.5 4.5h10.5l3.5 3.5v10.5a1.5 1.5 0 0 1-1.5 1.5h-12A1.5 1.5 0 0 1 4.5 18.5v-13a1 1 0 0 1 1-1z"/><path d="M8 4.5v4.5h7V4.5M8 20v-5.5h8V20"/>`,
@@ -177,6 +182,12 @@ const paths = {
   borderBottom: `<path d="M4.5 19.5h15" stroke-width="2.4"/><path d="M4.5 4.5h15M4.5 4.5v15M19.5 4.5v15M12 4.5v15M4.5 12h15" stroke-dasharray="1.5 2"/>`,
   merge: `<rect x="3.5" y="5.5" width="17" height="13" rx="1.5"/><path d="M7 12h10M9.5 9.5L7 12l2.5 2.5M14.5 9.5L17 12l-2.5 2.5"/>`,
   wrap: `<path d="M4.5 6h15M4.5 12h12.5a2.75 2.75 0 0 1 0 5.5H12M4.5 18h4.5M14 15.5l-2 2 2 2"/>`,
+  // Picture wrapping (Office Docs' Wrap Text)
+  wrapInline: `<path d="M4.5 6h15M4.5 18h15M14 12h5.5"/><rect x="4.5" y="9.5" width="7" height="5" rx="1"/>`,
+  wrapSquare: `<rect x="4.5" y="5.5" width="7" height="7" rx="1"/><path d="M14.5 6.5h5M14.5 9.5h5M14.5 12.5h5M4.5 16h15M4.5 19h15"/>`,
+  wrapTopBottom: `<path d="M4.5 4.5h15M4.5 19.5h15"/><rect x="8" y="8" width="8" height="8" rx="1"/>`,
+  wrapBehind: `<rect x="7" y="5.5" width="10" height="13" rx="1" opacity="0.45"/><path d="M4.5 9h15M4.5 12h15M4.5 15h15"/>`,
+  wrapFront: `<path d="M4.5 9h3M4.5 12h3M4.5 15h3M16.5 9h3M16.5 12h3M16.5 15h3"/><rect x="7" y="5.5" width="10" height="13" rx="1" fill="currentColor" fill-opacity="0.35"/>`,
   sortAsc: `<path d="M7 5v14M4 16l3 3 3-3"/><path d="M13 9.5l2.2-5 2.3 5M13.7 8h3.1M13 13.5h4.5L13 19h4.5"/>`,
   sortDesc: `<path d="M7 5v14M4 16l3 3 3-3"/><path d="M13 4.5h4.5L13 10h4.5M13 19.5l2.2-5 2.3 5M13.7 18h3.1"/>`,
   sortCustom: `<path d="M7 5v14M4 16l3 3 3-3M4 8l3-3 3 3M13 7h7M13 12h5M13 17h3"/>`,
@@ -250,6 +261,10 @@ const paths = {
   phShape: `<rect x="3.5" y="9.5" width="10" height="10" rx="1.5"/><circle cx="15.5" cy="8.5" r="5"/>`,
   phHeal: `<rect x="2.6" y="8.6" width="18.8" height="6.8" rx="3.4" transform="rotate(-45 12 12)"/><path d="M10.5 10.5h.01M13.5 13.5h.01M13.5 10.5h.01M10.5 13.5h.01"/>`,
   phMask: `<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="12" cy="12" r="4.5" fill="currentColor"/>`,
+  phObjectSelect: `<rect x="3.5" y="3.5" width="13" height="13" rx="2" stroke-dasharray="2.2 2"/><path d="M12.5 12.5l7.5 3-3 1.5-1.5 3z" fill="currentColor"/>`,
+  phRemove: `<path d="M5 16.5 14.8 6.7a2.3 2.3 0 0 1 3.2 3.2L8.2 19.7H5z"/><path d="M12.6 8.9l3.2 3.2"/><path d="M16.5 19.5h4M19.2 2.8l.5 1.4 1.4.5-1.4.5-.5 1.4-.5-1.4-1.4-.5 1.4-.5z"/>`,
+  phSubject: `<circle cx="12" cy="8" r="3.2"/><path d="M5.5 20.5a6.5 6.5 0 0 1 13 0"/><path d="M3 7V4.5A1.5 1.5 0 0 1 4.5 3H7M17 3h2.5A1.5 1.5 0 0 1 21 4.5V7M21 17v2.5a1.5 1.5 0 0 1-1.5 1.5H17M7 21H4.5A1.5 1.5 0 0 1 3 19.5V17"/>`,
+  phDevelop: `<rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="M7 15.5l3-3.5 2.5 2.5 2-2.5 2.5 3.5"/><path d="M3.5 9h17" stroke-dasharray="1.6 1.6"/>`,
   phGroup: `<path d="M3.5 7a1.5 1.5 0 0 1 1.5-1.5h4l2 2h8a1.5 1.5 0 0 1 1.5 1.5v8.5a1.5 1.5 0 0 1-1.5 1.5H5a1.5 1.5 0 0 1-1.5-1.5z"/>`,
   phClip: `<path d="M7 4v9a3 3 0 0 0 3 3h8"/><path d="M15 13l3 3-3 3"/>`,
   phTransform: `<rect x="5.5" y="5.5" width="13" height="13"/><path d="M3.5 3.5h4v4h-4zM16.5 3.5h4v4h-4zM16.5 16.5h4v4h-4zM3.5 16.5h4v4h-4z"/>`,
@@ -269,6 +284,19 @@ const paths = {
   // ---- Video editor (add its icons below this line)
   veKey: `<path d="M12 3.5l8.5 8.5-8.5 8.5L3.5 12z"/>`,
   veMic: `<rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5M8.5 20.5h7"/>`,
+  veSticker: `<path d="M5 4.5h10.5L19.5 8.5V19a.5.5 0 0 1-.5.5H5a.5.5 0 0 1-.5-.5V5a.5.5 0 0 1 .5-.5z"/><path d="M15.5 4.5V8a.5.5 0 0 0 .5.5h3.5"/><path d="M9 13.5c.8 1.2 1.8 1.8 3 1.8s2.2-.6 3-1.8"/><circle cx="9.5" cy="10.5" r=".8" fill="currentColor"/><circle cx="14.5" cy="10.5" r=".8" fill="currentColor"/>`,
+  veSound: `<path d="M4.5 9.5h3l4-3.5v12l-4-3.5h-3z"/><path d="M15 9a4 4 0 0 1 0 6M17.5 6.5a7.5 7.5 0 0 1 0 11"/>`,
+  // ---- Statements (add their icons below this line)
+  stAlert: `<path d="M12 4.2 3.6 18.8h16.8z"/><path d="M12 10v4.2M12 16.6v.01"/>`,
+  stStatement: `<path d="M6.5 3.5h8l3 3v14h-11z"/><path d="M14.5 3.5v3h3"/><path d="M9 11h6M9 14h6M9 17h3.5"/>`,
+  // ---- Screen recorder (add its icons below this line)
+  recRecord: `<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.2" fill="currentColor" stroke="none"/>`,
+  recScreen: `<rect x="3" y="4.5" width="18" height="12" rx="1.8"/><path d="M9 20h6M12 16.5V20"/>`,
+  recWindow: `<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 8.5h17"/><circle cx="6.3" cy="6.5" r=".6" fill="currentColor"/><circle cx="8.4" cy="6.5" r=".6" fill="currentColor"/>`,
+  recArea: `<path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><rect x="8.5" y="8.5" width="7" height="7" rx="1" stroke-dasharray="2 1.6"/>`,
+  recMicOff: `<path d="M9 9v2a3 3 0 0 0 5.1 2.1M15 10.5V6.5a3 3 0 0 0-5.7-1.3M5.5 11.5a6.5 6.5 0 0 0 10.6 5M18.3 13a6.5 6.5 0 0 0 .2-1.5M12 18v2.5M8.5 20.5h7M4 4l16 16"/>`,
+  recCamera: `<rect x="3.5" y="6.5" width="12" height="11" rx="2"/><path d="M15.5 10.5l5-3v9l-5-3"/>`,
+  recSystem: `<path d="M4.5 9.5h3l4-3.5v12l-4-3.5h-3z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>`,
 } as const;
 
 export type IconName = keyof typeof paths;

@@ -35,6 +35,9 @@ pub struct Mapping {
     /// A column with category names, matched to the wallet's.
     #[serde(default)]
     pub category: Option<usize>,
+    /// A column with account names (Wallet's own export): a row naming another account goes there.
+    #[serde(default)]
+    pub account: Option<usize>,
     /// "dmy", "mdy" or "ymd", for dates written with numbers only.
     pub date_order: String,
     /// One amount column: "negative-out" (spending has a minus) or "positive-out".
@@ -113,7 +116,7 @@ pub fn read_table(path: &Path, sheet: Option<u32>) -> Result<Table> {
             }
             Ok(Table { rows: trim_rows(rows), sheets })
         }
-        "xls" | "ods" => Err(format!("CorePro reads .xlsx and .csv statements. Open “{shown}” in Sheets and save it as .xlsx first.")),
+        "xls" | "ods" => Err(format!("Zazabor reads .xlsx and .csv statements. Open “{shown}” in Sheets and save it as .xlsx first.")),
         _ => Err(format!("“{shown}” isn't a CSV or Excel file.")),
     }
 }
@@ -202,7 +205,7 @@ fn find_column(header: &[String], names: &[&str]) -> Option<usize> {
 /// A first guess at the mapping: the header row is the first that names a date column (or the
 /// row above the first date), columns by their names, and the date order by its numbers.
 pub fn guess_mapping(table: &Table) -> Mapping {
-    let mut mapping = Mapping { header_row: 0, date: 0, description: None, amount: None, debit: None, credit: None, category: None, date_order: "dmy".into(), sign: "negative-out".into(), decimal_comma: false };
+    let mut mapping = Mapping { header_row: 0, date: 0, description: None, amount: None, debit: None, credit: None, category: None, account: None, date_order: "dmy".into(), sign: "negative-out".into(), decimal_comma: false };
     let header_row = table.rows.iter().take(30).position(|r| find_column(r, &DATE_NAMES).is_some());
     let header_row = header_row.or_else(|| {
         table.rows.iter().take(30).position(|r| r.iter().any(|c| dates::parse_loose(c, "dmy").is_some())).map(|i| i.saturating_sub(1))
@@ -218,6 +221,7 @@ pub fn guess_mapping(table: &Table) -> Mapping {
     mapping.credit = find_column(&header, &CREDIT_NAMES);
     mapping.amount = if mapping.debit.is_some() && mapping.credit.is_some() { None } else { find_column(&header, &AMOUNT_NAMES) };
     mapping.category = find_column(&header, &["category"]);
+    mapping.account = find_column(&header, &["account"]);
     if mapping.amount.is_some() {
         mapping.debit = None;
         mapping.credit = None;
@@ -370,8 +374,10 @@ pub struct Row {
     pub category_id: Option<String>,
     /// The rule that categorised it.
     pub rule: Option<String>,
-    /// Already in the ledger (imported before).
+    /// Already in the ledger (imported before, or typed with the same date, amount and payee).
     pub duplicate: bool,
+    /// Another account than the one imported into, named by the account column.
+    pub account_id: Option<String>,
     /// Why it can't be added (a total line, a date that isn't one…).
     pub error: Option<String>,
     #[serde(skip)]
@@ -401,11 +407,14 @@ fn row_hash(account: &str, date: &str, amount: i64, description: &str, occurrenc
 
 /// Turns the table into rows to add, with categories, duplicates and problems marked.
 pub fn rows(conn: &Connection, table: &Table, account_id: &str, mapping: &Mapping) -> Result<Vec<Row>> {
-    let account = db::accounts(conn)?.into_iter().find(|a| a.id == account_id).ok_or("That account no longer exists.")?;
+    let accounts = db::accounts(conn)?;
+    let account = accounts.iter().find(|a| a.id == account_id).ok_or("That account no longer exists.")?;
     let code = account.currency.clone();
     let rules = rules(conn)?;
     let categories = db::categories(conn)?;
     let mut seen: HashMap<String, usize> = HashMap::new();
+    // Rows that could match a transaction typed by hand: (index in `out`, account|date|amount|payee).
+    let mut loose: Vec<(usize, String, String, String, i64, String)> = Vec::new();
     let mut out = Vec::new();
     let cell = |r: &Vec<String>, c: Option<usize>| c.and_then(|c| r.get(c)).map(|v| v.trim().to_string()).unwrap_or_default();
     for (i, r) in table.rows.iter().enumerate().skip(mapping.header_row + 1) {
@@ -444,7 +453,8 @@ pub fn rows(conn: &Connection, table: &Table, account_id: &str, mapping: &Mappin
         let kind = if amount.unwrap_or(0) > 0 { "income" } else { "expense" };
         let mut category_id = rule.and_then(|r| r.category_id.clone());
         if category_id.is_none() {
-            let named = cell(r, mapping.category).to_lowercase();
+            // "Food › Eating out" (Wallet's export) names the sub-category last.
+            let named = cell(r, mapping.category).rsplit(" › ").next().unwrap_or("").trim().to_lowercase();
             if !named.is_empty() {
                 category_id = categories.iter().find(|c| !c.archived && c.kind == kind && c.name.to_lowercase() == named).map(|c| c.id.clone());
             }
@@ -452,21 +462,51 @@ pub fn rows(conn: &Connection, table: &Table, account_id: &str, mapping: &Mappin
         if category_id.is_none() && !description.is_empty() {
             category_id = quick::guess_category(conn, kind, &description)?;
         }
-        let payee = rule.filter(|r| !r.payee.is_empty()).map(|r| r.payee.clone()).unwrap_or_else(|| description.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(120).collect());
+        let payee: String = rule.filter(|r| !r.payee.is_empty()).map(|r| r.payee.clone()).unwrap_or_else(|| description.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(120).collect());
+        // A row naming another account (in its own currency, as Wallet exports it) goes there.
+        let named_account = cell(r, mapping.account).to_lowercase();
+        let other = (!named_account.is_empty())
+            .then(|| accounts.iter().find(|a| !a.archived && a.id != account_id && a.currency == code && a.name.to_lowercase() == named_account))
+            .flatten()
+            .map(|a| a.id.clone());
+        let target = other.as_deref().unwrap_or(account_id);
         let mut hash = String::new();
         let mut duplicate = false;
         if let (Some(d), Some(a), None) = (&date, amount, &error) {
-            let key = format!("{d}|{a}|{}", lower_words(&description));
+            let key = format!("{target}|{d}|{a}|{}", lower_words(&description));
             let n = seen.entry(key).or_default();
-            hash = row_hash(account_id, d, a, &description, *n);
+            hash = row_hash(target, d, a, &description, *n);
             *n += 1;
             duplicate = conn
-                .query_row("SELECT 1 FROM transactions WHERE account_id = ?1 AND import_hash = ?2", params![account_id, hash], |r| r.get::<_, i64>(0))
+                .query_row("SELECT 1 FROM transactions WHERE account_id = ?1 AND import_hash = ?2", params![target, hash], |r| r.get::<_, i64>(0))
                 .optional()
                 .map_err(db_err)?
                 .is_some();
+            loose.push((out.len(), format!("{target}|{d}|{a}|{}", lower_words(&payee)), target.to_string(), d.clone(), a, lower_words(&payee)));
         }
-        out.push(Row { line, date, payee, amount_minor: amount, category_id, rule: rule.map(|r| r.pattern.clone()), duplicate, error, hash });
+        out.push(Row { line, date, payee, amount_minor: amount, category_id, rule: rule.map(|r| r.pattern.clone()), duplicate, account_id: other, error, hash });
+    }
+    // Typed by hand, or exported and brought back: the same day, amount and payee. The ledger's
+    // matching rows not already claimed by an earlier import of this file cover as many rows here
+    // (of two identical rickshaw rides, only as many are old as the ledger has).
+    let mut free: HashMap<String, i64> = HashMap::new();
+    for (i, key, account, date, amount, payee) in &loose {
+        if !free.contains_key(key) {
+            let existing: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM transactions WHERE account_id = ?1 AND date = ?2 AND amount_minor = ?3 AND lower(trim(payee)) = ?4",
+                    params![account, date, amount, payee],
+                    |r| r.get(0),
+                )
+                .map_err(db_err)?;
+            let claimed = loose.iter().filter(|(j, k, ..)| k == key && out[*j].duplicate).count() as i64;
+            free.insert(key.clone(), existing - claimed);
+        }
+        let left = free.get_mut(key).expect("just inserted");
+        if !out[*i].duplicate && *left > 0 {
+            out[*i].duplicate = true;
+            *left -= 1;
+        }
     }
     Ok(out)
 }
@@ -522,6 +562,7 @@ pub fn commit(conn: &mut Connection, path: &Path, sheet: Option<u32>, account_id
     let table = read_table(path, sheet)?;
     let rows = rows(conn, &table, account_id, mapping)?;
     let account = db::accounts(conn)?.into_iter().find(|a| a.id == account_id).ok_or("That account no longer exists.")?;
+    // Rows naming another account are in the same currency (see `rows`), so one rate does.
     let rate = db::rate_of(conn, &account.currency)?.ok_or_else(|| format!("Set the rate for {} in Accounts first.", account.currency))?;
     let category_ids: std::collections::HashSet<String> = db::categories(conn)?.into_iter().map(|c| c.id).collect();
     let edits: HashMap<usize, &RowEdit> = edits.iter().map(|e| (e.line, e)).collect();
@@ -548,7 +589,7 @@ pub fn commit(conn: &mut Connection, path: &Path, sheet: Option<u32>, account_id
         tx.execute(
             "INSERT INTO transactions (id, account_id, date, amount_minor, rate_micro, base_minor, category_id, payee, import_batch, import_hash, created, updated)
                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)",
-            params![new_id(), account_id, date, amount, rate, money::to_base(amount, &account.currency, rate), category, payee, id, r.hash, now],
+            params![new_id(), r.account_id.as_deref().unwrap_or(account_id), date, amount, rate, money::to_base(amount, &account.currency, rate), category, payee, id, r.hash, now],
         )
         .map_err(db_err)?;
         added += 1;
@@ -571,6 +612,13 @@ fn batch_row(r: &rusqlite::Row) -> rusqlite::Result<Batch> {
 
 const BATCH_SELECT: &str = "SELECT b.id, b.account_id, b.file, b.added, b.skipped, b.created, b.undone,
        (SELECT COUNT(*) FROM transactions t WHERE t.import_batch = b.id) FROM import_batches b";
+
+/// Shows a batch under another file name.
+pub fn rename_batch(conn: &Connection, id: &str, file: &str) -> Result<Batch> {
+    let file: String = file.chars().take(200).collect();
+    conn.execute("UPDATE import_batches SET file = ?1 WHERE id = ?2", params![file, id]).map_err(db_err)?;
+    batch(conn, id)
+}
 
 pub fn batch(conn: &Connection, id: &str) -> Result<Batch> {
     conn.query_row(&format!("{BATCH_SELECT} WHERE b.id = ?1"), [id], batch_row).optional().map_err(db_err)?.ok_or_else(|| "That import no longer exists.".into())
@@ -630,7 +678,7 @@ mod tests {
     #[test]
     fn a_statement_is_mapped_and_read() {
         let conn = fresh();
-        let dir = std::env::temp_dir().join(format!("corepro-import-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("zazabor-import-{}", std::process::id()));
         let path = write(&dir, "city.csv", STATEMENT);
         let bank = add_account(&conn, "City Bank", "bank", "BDT", None);
         let p = preview(&conn, &path, None, &bank, None).unwrap();
@@ -650,7 +698,7 @@ mod tests {
     #[test]
     fn importing_twice_adds_nothing_and_undo_takes_the_batch() {
         let mut conn = fresh();
-        let dir = std::env::temp_dir().join(format!("corepro-import2-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("zazabor-import2-{}", std::process::id()));
         let path = write(&dir, "city.csv", STATEMENT);
         let bank = add_account(&conn, "City Bank", "bank", "BDT", None);
         // A rule renames the payee and picks the category.
@@ -685,7 +733,7 @@ mod tests {
     #[test]
     fn one_signed_column_and_old_encodings() {
         let conn = fresh();
-        let dir = std::env::temp_dir().join(format!("corepro-import3-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("zazabor-import3-{}", std::process::id()));
         let mut bytes = b"Date;Payee;Amount\n2026-10-03;Caf\xe9 Mocha;-4,50\n2026-10-04;Refund;12,00\n".to_vec();
         bytes.extend_from_slice(b"");
         std::fs::create_dir_all(&dir).unwrap();
@@ -696,6 +744,42 @@ mod tests {
         assert!(p.mapping.decimal_comma);
         assert_eq!(p.rows[0].payee, "Café Mocha");
         assert_eq!(p.rows.iter().map(|r| r.amount_minor).collect::<Vec<_>>(), [Some(-450), Some(1_200)]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn wallets_own_excel_export_comes_back_without_duplicates() {
+        let conn = fresh();
+        let cash = db::accounts(&conn).unwrap()[0].id.clone();
+        let bank = add_account(&conn, "City Bank", "bank", "BDT", None);
+        let typed = |conn: &Connection, account: &str, amount: &str, date: &str, payee: &str, category: &str| {
+            db::save_tx(conn, db::TxInput { id: None, kind: "expense".into(), account_id: account.into(), amount: amount.into(), date: date.into(), category_id: Some(cat(conn, category)), payee: payee.into(), note: "".into() }, 1).unwrap();
+        };
+        typed(&conn, &cash, "250", "2026-10-26", "Kacchi Bhai", "Eating out");
+        typed(&conn, &cash, "100", "2026-10-26", "Rickshaw", "Eating out");
+        typed(&conn, &bank, "1,200", "2026-10-20", "Desco", "Eating out");
+        let dir = std::env::temp_dir().join(format!("zazabor-roundtrip-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("wallet.xlsx");
+        assert_eq!(crate::wallet::export::xlsx(&conn, &db::Filter::default(), &path).unwrap(), 3);
+        // Typed by hand, exported, imported back: all three are already there.
+        let p = preview(&conn, &path, None, &cash, None).unwrap();
+        assert_eq!(p.mapping.account, Some(1));
+        assert_eq!((p.new_count, p.duplicates, p.errors), (0, 3, 0));
+        // Into an empty wallet the bank's row goes to the bank, the rest to cash, with categories.
+        let mut fresh_conn = fresh();
+        let cash2 = db::accounts(&fresh_conn).unwrap()[0].id.clone();
+        let bank2 = add_account(&fresh_conn, "City Bank", "bank", "BDT", None);
+        let p = preview(&fresh_conn, &path, None, &cash2, None).unwrap();
+        assert_eq!(p.new_count, 3);
+        let desco = p.rows.iter().find(|r| r.payee == "Desco").unwrap();
+        assert_eq!((desco.account_id.as_deref(), desco.category_id.clone()), (Some(bank2.as_str()), Some(cat(&fresh_conn, "Eating out"))));
+        let b = commit(&mut fresh_conn, &path, None, &cash2, &p.mapping, &[], 2).unwrap();
+        assert_eq!(b.added, 3);
+        let balance = |conn: &Connection, id: &str| db::accounts(conn).unwrap().iter().find(|a| a.id == id).unwrap().balance_minor;
+        assert_eq!((balance(&fresh_conn, &cash2), balance(&fresh_conn, &bank2)), (-35_000, -120_000));
+        // Undo takes back the rows of both accounts.
+        assert_eq!(undo(&mut fresh_conn, &b.id).unwrap(), 3);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

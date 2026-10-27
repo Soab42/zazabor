@@ -28,6 +28,13 @@ export function walletCategory(host: { readonly config: Config; configChanged():
     el: h("label", { class: "sf-row sf-toggle" }, h("div", { class: "st-text" }, h("span", { class: "sf-label" }, "Hide amounts"),
       h("p", { class: "sf-hint" }, "Every amount shows as ৳••• (for sharing your screen). Ctrl+H in Wallet turns it on and off.")), hide),
   };
+  const auto = h("input", { type: "checkbox", class: "switch", role: "switch" });
+  auto.addEventListener("change", () => ((host.config.wallet.autoImportStatements = auto.checked), host.configChanged()));
+  const autoRow: SettingsRow = {
+    label: "Import statements automatically",
+    el: h("label", { class: "sf-row sf-toggle" }, h("div", { class: "st-text" }, h("span", { class: "sf-label" }, "Import statements automatically"),
+      h("p", { class: "sf-hint" }, "An uploaded statement goes straight in when its balances add up, no row needs a look and its account is known (picked once, then remembered). Otherwise it's shown first. Undo takes an import back.")), auto),
+  };
   const base = h("span", { class: "st-value" });
   const baseRow = wide("Base currency", "Totals, budgets and reports are in it; accounts in other currencies use the rates on the Accounts view. Taka groups in lakhs and crores.", base);
 
@@ -43,7 +50,7 @@ export function walletCategory(host: { readonly config: Config; configChanged():
   }
 
   function drawRates() {
-    if (!state || !earnings) return rates.replaceChildren(h("span", { class: "sf-hint" }, "Unlock CorePro to see them."));
+    if (!state || !earnings) return rates.replaceChildren(h("span", { class: "sf-hint" }, "Unlock Zazabor to see them."));
     const projects = [...new Set([...earnings.projects, ...earnings.rates.map((r) => r.project)])].sort((a, b) => a.localeCompare(b));
     if (!projects.length) return rates.replaceChildren(h("span", { class: "sf-hint" }, "Projects appear here once Time has tracked work on a task with a project."));
     rates.replaceChildren(...projects.map((project) => {
@@ -95,11 +102,13 @@ export function walletCategory(host: { readonly config: Config; configChanged():
     id: "wallet", title: "Wallet", icon: "wallet", section: "Modules",
     groups: [
       { title: "Display", rows: [hideRow, baseRow] },
+      { title: "Statements", rows: [autoRow] },
       { title: "Earnings", rows: [ratesRow] },
       { title: "Data", rows: [backupRow, { label: "", el: note }] },
     ],
     refresh: () => {
       hide.checked = host.config.wallet.hideAmounts;
+      auto.checked = host.config.wallet.autoImportStatements;
       void load();
     },
   };

@@ -1,5 +1,7 @@
 import type { Aspect } from "../app";
 import type { LookId, TransitionKind } from "../../gallery/slideshow/settings";
+import { normalizeTemplateClip, type TemplateClip } from "./motion/format";
+import { templateById } from "./motion/templates";
 
 /**
  * The Video Editor's project: canvas, media and tracks, and the edits on them. Everything here
@@ -203,9 +205,19 @@ export interface TextClip {
   animIn: TextAnim;
   animOut: TextAnim;
   keys?: Keys;
+  /** Karaoke: when each word is spoken (seconds from the clip's start), in the text's order. */
+  words?: { t: number; text: string }[];
+  /** Karaoke: the colour of words already spoken (null: no highlight). */
+  highlight?: string | null;
+  /** Made by Auto captions (a new run replaces these). */
+  auto?: boolean;
+  /** One of Zazabor's stickers instead of text (`stickers.ts`); `style.size` is its height and
+   * `style.color` its colour. */
+  sticker?: string;
 }
 
-export type Clip = MediaClip | TextClip;
+export type Clip = MediaClip | TextClip | TemplateClip;
+export type { TemplateClip };
 export type TrackKind = "main" | "overlay" | "text" | "audio";
 
 export interface Track {
@@ -587,6 +599,12 @@ export function split(p: Project, id: string, t: number): Clip | null {
     right.fadeIn = 0;
     clip.fadeOut = 0;
   }
+  if (right.type === "template" && clip.type === "template") {
+    // Both pieces keep playing the one template where it was: its time runs across the cut.
+    const cut = clip.cut ?? { from: 0, span: clip.duration + right.duration };
+    clip.cut = { ...cut };
+    right.cut = { from: cut.from + left, span: cut.span };
+  }
   if (clip.keys) {
     clipKeys(clip, 0, left);
     clipKeys(right, left, left + right.duration);
@@ -810,7 +828,10 @@ export function audibleClips(p: Project): MediaClip[] {
 /** Media no clip uses. */
 export function unusedMedia(p: Project): Media[] {
   const used = new Set<string>();
-  for (const t of p.tracks) for (const c of t.clips) if (c.type === "media") used.add(c.media);
+  for (const t of p.tracks) for (const c of t.clips) {
+    if (c.type === "media") used.add(c.media);
+    else if (c.type === "template") for (const id of Object.values(c.slots)) used.add(id);
+  }
   return p.media.filter((m) => !used.has(m.id));
 }
 
@@ -839,8 +860,12 @@ export function normalizeProject(raw: unknown, fallbackAspect: Aspect = "9:16"):
   const main = tracks.find((t) => t.kind === "main");
   if (main) p.tracks[0] = { ...main, muted: !!main.muted, hidden: !!main.hidden };
   for (const t of tracks) if (t !== main && ["overlay", "text", "audio"].includes(t.kind)) p.tracks.push({ ...t, muted: !!t.muted, hidden: !!t.hidden });
+  const mediaIds = new Set(p.media.map((m) => m.id));
+  const known = (id: string) => !!templateById(id);
   for (const t of p.tracks) {
-    t.clips = t.clips.filter((c) => c && (c.type === "text" || (c.type === "media" && p.media.some((m) => m.id === c.media))));
+    t.clips = t.clips
+      .map((c) => (c && (c as { type?: string }).type === "template" ? normalizeTemplateClip(c, mediaIds, known) : c))
+      .filter((c): c is Clip => !!c && (c.type === "text" || c.type === "template" || (c.type === "media" && mediaIds.has(c.media))));
     for (const c of t.clips) {
       c.place = { ...defaultPlace(), ...(c.place ?? {}) };
       c.keys = normalizeKeys(c.keys);

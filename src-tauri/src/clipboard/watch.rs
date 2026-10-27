@@ -3,7 +3,7 @@
 //!
 //! Each change (GTK's "owner-change", which X11's XFixes reports for every app) asks the owner
 //! which formats it offers, then reads the best one: files, else text (with its HTML), else a
-//! picture. Requests are asynchronous, so a slow app never freezes CorePro; a newer copy makes
+//! picture. Requests are asynchronous, so a slow app never freezes Zazabor; a newer copy makes
 //! the answers to an older one stale.
 
 use gtk::prelude::*;
@@ -20,10 +20,10 @@ thread_local! {
     static GENERATION: Cell<u64> = const { Cell::new(0) };
 }
 
-/// Copies before this time (ms) aren't recorded: CorePro's own, while typing an emoji.
+/// Copies before this time (ms) aren't recorded: Zazabor's own, while typing an emoji.
 static SKIP_UNTIL: AtomicI64 = AtomicI64::new(0);
-/// CorePro just put a history item back: its next owner change is that, not a new copy from
-/// CorePro (the item moves to the top and keeps the app it came from).
+/// Zazabor just put a history item back: its next owner change is that, not a new copy from
+/// Zazabor (the item moves to the top and keeps the app it came from).
 static OWN_PUT: AtomicI64 = AtomicI64::new(0);
 
 const TEXT_TARGETS: [&str; 6] = ["UTF8_STRING", "text/plain;charset=utf-8", "text/plain", "STRING", "TEXT", "COMPOUND_TEXT"];
@@ -64,7 +64,7 @@ fn changed(cb: &gtk::Clipboard) {
         return;
     }
     // Whose copy it is, asked now: the active window when the copy happened; nobody's when
-    // CorePro put an item back (the history keeps the one it had).
+    // Zazabor put an item back (the history keeps the one it had).
     let source = if now() < OWN_PUT.swap(0, Ordering::SeqCst) { None } else { super::x11::active_class() };
     cb.request_contents(&atom("TARGETS"), move |cb, data| {
         if !current(generation) {

@@ -14,7 +14,7 @@ import { openSetupDialog, type SlideshowScope } from "./slideshow/setup";
 import { ThumbLoader } from "../../shared/thumbs";
 import { Viewer } from "./viewer/viewer";
 
-/** Albums, the deep-zoom viewer and slideshows: SliderPro's gallery, as a CorePro module. */
+/** Albums, the deep-zoom viewer and slideshows: SliderPro's gallery, as a Zazabor module. */
 class GalleryModule implements AppModule {
   readonly id = "gallery" as const;
   readonly title = "Gallery";
@@ -163,7 +163,7 @@ class GalleryModule implements AppModule {
   }
 
   /**
-   * Opens a single photo with the others of its folder, as for "Open with CorePro", a dropped file
+   * Opens a single photo with the others of its folder, as for "Open with Zazabor", a dropped file
    * or a picture opened from Files. `siblings` are the pictures to browse, in order (as Files shows
    * them); without them, the folder's pictures in the library's order.
    */

@@ -5,14 +5,18 @@
 //! bodies), never as JSON arrays.
 
 mod audio;
+mod captions;
+mod codecs;
 mod export;
 mod frames;
-mod h264;
-mod media;
+pub(crate) mod h264;
+pub(crate) mod media;
+mod models;
 mod project;
 mod record;
 mod recover;
 mod relink;
+mod whisper;
 
 use std::path::Path;
 use tauri::ipc::{InvokeBody, Request, Response};
@@ -176,7 +180,7 @@ pub async fn videoedit_recovery_save(app: tauri::AppHandle, meta: recover::Snaps
     blocking(move || recover::save(&dir, meta, &text, std::process::id(), crate::notes::now())).await
 }
 
-/// Snapshots left by a CorePro that stopped without saving, newest first.
+/// Snapshots left by a Zazabor that stopped without saving, newest first.
 #[tauri::command]
 pub async fn videoedit_recovery_list(app: tauri::AppHandle) -> Result<Vec<recover::Snapshot>, String> {
     crate::ensure_unlocked()?;
@@ -246,13 +250,13 @@ pub async fn videoedit_record_stop(id: u64, keep: bool) -> Result<record::Record
     blocking(move || record::stop(id, keep)).await
 }
 
-/// Runs against real files: `COREPRO_VIDEOEDIT_SAMPLE=clip.mp4 cargo test videoedit -- --ignored`.
+/// Runs against real files: `ZAZABOR_VIDEOEDIT_SAMPLE=clip.mp4 cargo test videoedit -- --ignored`.
 #[cfg(test)]
 mod live_tests {
     use super::*;
 
     fn sample() -> Option<String> {
-        std::env::var("COREPRO_VIDEOEDIT_SAMPLE").ok()
+        std::env::var("ZAZABOR_VIDEOEDIT_SAMPLE").ok()
     }
 
     #[test]
@@ -299,7 +303,7 @@ mod live_tests {
         }
         for format in ["mp4", "webm"] {
             let out = std::env::temp_dir().join(format!("videoedit-live.{format}"));
-            let spec = export::Spec { path: out.to_string_lossy().into(), width: 1080, height: 1920, fps: 30, format: format.into(), quality: "standard".into(), audio: true };
+            let spec = export::Spec { path: out.to_string_lossy().into(), width: 1080, height: 1920, fps: 30, format: format.into(), quality: "standard".into(), audio: true, codec: String::new() };
             let started = std::time::Instant::now();
             let job = export::begin(spec).unwrap();
             let pcm: Vec<u8> = (0..48_000 * 3).flat_map(|i| {
@@ -326,4 +330,83 @@ mod live_tests {
             assert!(probe.video.is_some() && probe.audio.is_some());
         }
     }
+}
+
+// ---- auto captions (whisper models downloaded on first use) and codecs
+
+fn models_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("videoedit").join("models"))
+}
+
+/// The captions models: size, whether they're installed, downloads in progress.
+#[tauri::command]
+pub async fn videoedit_caption_models(app: tauri::AppHandle) -> Result<Vec<models::Status>, String> {
+    let dir = models_dir(&app)?;
+    blocking(move || Ok(models::statuses(&dir))).await
+}
+
+/// Starts (or continues) downloading a captions model; the user agreed to its size first.
+#[tauri::command]
+pub async fn videoedit_caption_model_download(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    crate::ensure_unlocked()?;
+    models::start(models_dir(&app)?, &id)
+}
+
+/// Pauses a model download (it continues from there next time).
+#[tauri::command]
+pub async fn videoedit_caption_model_cancel(id: String) -> Result<(), String> {
+    models::cancel(&id);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn videoedit_caption_model_remove(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let dir = models_dir(&app)?;
+    whisper::unload();
+    blocking(move || models::remove(&dir, &id)).await
+}
+
+/// Starts transcribing clips' sound into captions; poll for progress and the result.
+#[tauri::command]
+pub async fn videoedit_captions_start(app: tauri::AppHandle, request: captions::Request) -> Result<u64, String> {
+    crate::ensure_unlocked()?;
+    let cache = app.path().app_cache_dir().map_err(|e| e.to_string())?.join("videoedit");
+    let dirs = captions::Dirs { models: models_dir(&app)?, audio: cache.join("audio"), cache: cache.join("captions") };
+    captions::start(request, dirs)
+}
+
+#[tauri::command]
+pub async fn videoedit_captions_poll(job: u64) -> Result<captions::Poll, String> {
+    captions::poll(job)
+}
+
+#[tauri::command]
+pub async fn videoedit_captions_cancel(job: u64) -> Result<(), String> {
+    captions::cancel(job);
+    Ok(())
+}
+
+/// Installs codec packages (after the user's go-ahead in the page and the system's password
+/// prompt), then reports what can be exported now.
+#[tauri::command]
+pub async fn videoedit_codecs_install(packages: Vec<String>) -> Result<export::Encoders, String> {
+    crate::ensure_unlocked()?;
+    blocking(move || codecs::install(&packages)).await
+}
+
+/// Zazabor's own sound effects (`resources/sfx`), with their paths.
+#[tauri::command]
+pub async fn videoedit_sounds(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let dir = app.path().resource_dir().map_err(|e| e.to_string())?.join("resources").join("sfx");
+    let manifest = std::fs::read_to_string(dir.join("sounds.json")).map_err(|e| {
+        eprintln!("[video-editor] no sound effects at {}: {e}", dir.display());
+        format!("Zazabor's sound effects are missing: {e}")
+    })?;
+    let mut sounds: serde_json::Value = serde_json::from_str(&manifest).map_err(|e| e.to_string())?;
+    for s in sounds.as_array_mut().into_iter().flatten() {
+        if let Some(file) = s.get("file").and_then(|f| f.as_str()).map(str::to_owned) {
+            s["path"] = dir.join(file).to_string_lossy().into_owned().into();
+        }
+    }
+    Ok(sounds)
 }

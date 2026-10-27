@@ -49,6 +49,9 @@ pub struct NewAnnot {
     pub contents: String,
     #[serde(default)]
     pub author: String,
+    /// Notes: the comment this one answers (a reply, /IRT), as object and generation numbers.
+    #[serde(default)]
+    pub in_reply_to: Option<(u32, u16)>,
 }
 
 fn red() -> [f32; 3] {
@@ -80,7 +83,7 @@ pub fn pdf_date() -> String {
 fn unique_name() -> String {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-    format!("corepro-{nanos:x}-{}", COUNTER.fetch_add(1, Ordering::Relaxed))
+    format!("zazabor-{nanos:x}-{}", COUNTER.fetch_add(1, Ordering::Relaxed))
 }
 
 fn bbox(points: &[(f32, f32)], pad: f32) -> [f32; 4] {
@@ -228,6 +231,28 @@ pub fn add(doc: &mut Document, page: ObjectId, a: &NewAnnot) -> Result<(), Strin
             };
             (name, bbox(&all, 1.0), c)
         }
+        Kind::Note if a.in_reply_to.is_some() => {
+            // A reply (Acrobat's /IRT with /RT /R): listed under its comment, not drawn. Its box is
+            // a point at the comment's corner, so viewers that draw it anyway (pdf.js) put nothing
+            // over the comment's icon.
+            let parent = a.in_reply_to.unwrap_or_default();
+            let parent: ObjectId = (parent.0, parent.1);
+            let r = doc
+                .get_dictionary(parent)
+                .ok()
+                .filter(|d| d.get(b"Subtype").is_ok())
+                .and_then(|d| rect_of(doc, d.get(b"Rect").ok()?))
+                .ok_or("That comment isn't in the file any more.")?;
+            if a.contents.trim().is_empty() {
+                return Err("Type the reply.".into());
+            }
+            dict.set("IRT", Object::Reference(parent));
+            dict.set("RT", "R");
+            dict.set("Name", "Comment");
+            dict.set("F", 28);
+            let (x, y) = (r[0].min(r[2]), r[1].max(r[3]));
+            ("Text", [x, y, x, y], String::new())
+        }
         Kind::Note => {
             let at = a.rect.ok_or("Where does the note go?")?;
             let (x, y) = (at[0], at[3].max(at[1]));
@@ -365,19 +390,27 @@ pub fn remove(doc: &mut Document, refs: &Refs) {
     if refs.is_empty() {
         return;
     }
-    // Popups of removed annotations go with them.
+    // Popups and replies (and replies to those) of removed annotations go with them.
     let mut gone = refs.clone();
+    let mut linked = Vec::new();
     for (_, page) in doc.get_pages() {
         for item in page_annots(doc, page) {
             let Ok(id) = item.as_reference() else { continue };
             if let Ok(d) = doc.get_dictionary(id) {
-                if let Ok(parent) = d.get(b"Parent").and_then(Object::as_reference) {
-                    if refs.contains(&parent) && d.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Popup") {
-                        gone.insert(id);
-                    }
+                let popup = d.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Popup");
+                let to = if popup { d.get(b"Parent") } else { d.get(b"IRT") };
+                if let Ok(parent) = to.and_then(Object::as_reference) {
+                    linked.push((id, parent));
                 }
             }
         }
+    }
+    loop {
+        let more: Vec<ObjectId> = linked.iter().filter(|(id, parent)| gone.contains(parent) && !gone.contains(id)).map(|l| l.0).collect();
+        if more.is_empty() {
+            break;
+        }
+        gone.extend(more);
     }
     for (_, page) in doc.get_pages() {
         let list = page_annots(doc, page);

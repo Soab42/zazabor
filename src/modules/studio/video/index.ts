@@ -10,8 +10,9 @@ import type { Aspect, StudioApp, StudioFactory, StudioHost } from "../app";
 import { detectBeats } from "./audio";
 import { editApi } from "./api";
 import { Engine, mainClipAt } from "./engine";
-import { openExport } from "./export";
+import { offerCodecInstall, openExport } from "./export";
 import { Inspector } from "./inspector";
+import { MotionFeatures } from "./motion/editor";
 import { parseCube } from "./lut";
 import { AUDIO_EXTENSIONS, MediaStore, PEAK_RATE, PICTURE_EXTENSIONS, probeMedia, VIDEO_EXTENSIONS } from "./media";
 import {
@@ -20,6 +21,9 @@ import {
   type Clip, type Media, type MediaClip, type Project, type TextClip,
 } from "./model";
 import { parseSrt, writeSrt } from "./srt";
+import { CaptionsPanel } from "./captions";
+import type { Cue } from "./api";
+import { STICKER_SIZE, stickerOf } from "./stickers";
 import { Panel } from "./panels";
 import { TEXT_PRESETS } from "./text";
 import { formatTime, Timeline } from "./timeline";
@@ -104,7 +108,9 @@ class VideoEditor implements StudioApp {
   private engine: Engine;
   private timeline: Timeline;
   private panel: Panel;
+  private captions: CaptionsPanel;
   private inspector: Inspector;
+  private motion: MotionFeatures;
   private stage: HTMLElement;
   private frame: HTMLElement;
   private canvas: HTMLCanvasElement;
@@ -178,6 +184,28 @@ class VideoEditor implements StudioApp {
       fps: () => this.project.canvas.fps,
     });
 
+    this.captions = new CaptionsPanel({
+      project: () => this.project,
+      selectedClips: () => [...this.selection].map((id) => findClip(this.project, id)?.clip).filter((c): c is MediaClip => c?.type === "media"),
+      apply: (cues, preset, highlight) => this.applyCaptions(cues, preset, highlight),
+      toast: (text) => this.host.toast(text),
+    }, () => this.panel.refresh());
+
+    this.motion = new MotionFeatures({
+      project: () => this.project,
+      change: (fn, key) => this.change(fn, key),
+      select: (ids) => this.select(ids, false),
+      time: () => this.engine.time,
+      seek: (t) => this.seek(t),
+      engine: this.engine,
+      prefix,
+      apps: () => this.host.shell.config.studio.apps,
+      saveConfig: () => this.host.shell.saveConfig(),
+      addFiles: (paths) => this.addFiles(paths),
+      toast: (text) => this.host.toast(text),
+      refreshPanel: () => this.panel.refresh(),
+    }, () => this.project.canvas.aspect, () => (this.selection.size === 1 ? [...this.selection][0] : null));
+
     this.panel = new Panel({
       project: () => this.project,
       store: this.store,
@@ -189,10 +217,15 @@ class VideoEditor implements StudioApp {
       addMusic: (path) => void this.addMusic(path),
       removeMedia: (id) => this.removeMedia(id),
       addText: (preset) => this.addText(preset, this.engine.time),
+      addSticker: (id) => this.addSticker(id, this.engine.time),
+      addSound: (path) => void this.addMusic(path),
+      captions: this.captions,
+      installCodecs: () => void this.installCodecs(),
       transitionTarget: () => this.transitionTarget(),
       applyTransition: (kind, duration, all) => this.applyTransition(kind, duration, all),
       currentLook: () => this.currentLook(),
       applyLook: (look, all) => this.applyLook(look, all),
+      templates: { render: () => this.motion.renderTab() },
     });
 
     this.inspector = new Inspector({
@@ -206,6 +239,7 @@ class VideoEditor implements StudioApp {
       pickKeyColor: (id) => this.pickKeyColor(id),
       freezeFrame: () => this.freezeFrame(),
       markBeats: (id) => void this.markBeats(id),
+      templateView: (id, syncs) => this.motion.view(id, syncs),
     });
 
     const tb = (name: Parameters<typeof icon>[0], title: string, run: () => void) =>
@@ -575,12 +609,72 @@ class VideoEditor implements StudioApp {
     const used = this.project.tracks.some((t) => t.clips.some((c) => c.type === "media" && c.media === id));
     this.change((p) => {
       for (const t of p.tracks) t.clips = t.clips.filter((c) => c.type !== "media" || c.media !== id);
+      for (const t of p.tracks) for (const c of t.clips) if (c.type === "template") for (const [k, v] of Object.entries(c.slots)) if (v === id) delete c.slots[k];
       p.media = p.media.filter((m) => m.id !== id);
       layoutMain(p);
       tidyTracks(p);
     });
     this.engine.forgetMedia(id);
     if (used) this.host.toast("Removed the file and its clips. Undo brings them back.");
+  }
+
+  /** Installs the codecs clips need, then probes those clips again (their notes may go). */
+  private async installCodecs() {
+    const encoders = await editApi.encoders().catch(() => null);
+    const missing = encoders?.missing.length ? encoders.missing : ["gstreamer1.0-libav"];
+    const now = await offerCodecInstall(missing, (text) => this.host.toast(text));
+    if (!now) return;
+    const noted = this.project.media.filter((m) => m.note && !m.missing);
+    for (const m of noted) {
+      const fresh = await probeMedia(m.path).catch(() => null);
+      if (!fresh) continue;
+      this.engine.forgetMedia(m.id);
+      this.change((p) => {
+        const x = p.media.find((y) => y.id === m.id);
+        if (!x) return;
+        if (fresh.note) x.note = fresh.note;
+        else delete x.note;
+        x.audio = fresh.audio;
+      });
+    }
+  }
+
+  /** A sticker at `time`: a text clip drawn as one of Zazabor's stickers. */
+  private addSticker(stickerId: string, time: number) {
+    const sticker = stickerOf(stickerId);
+    if (!sticker) return;
+    const clip: TextClip = {
+      id: uid(), type: "text", start: Math.max(0, time), duration: TEXT_SECONDS, text: sticker.label,
+      style: { ...structuredClone(TEXT_PRESETS[0].style), size: STICKER_SIZE, color: "#ffb020", stroke: null, strokeWidth: 0 },
+      place: { ...defaultPlace(), y: 0.4 }, animIn: "pop", animOut: "pop", sticker: sticker.id,
+    };
+    this.change((p) => placeFree(p, clip, "text"));
+    this.select([clip.id], false);
+  }
+
+  /** Auto captions onto a track of their own; earlier auto captions give way. */
+  private applyCaptions(cues: Cue[], presetId: string, highlight: string | null): number {
+    const preset = TEXT_PRESETS.find((x) => x.id === presetId) ?? TEXT_PRESETS.find((x) => x.id === "caption") ?? TEXT_PRESETS[0];
+    // A highlight too close to the words' own colour wouldn't show: pick one that does.
+    if (highlight && colorDistance(highlight, preset.style.color) < 120) highlight = colorDistance(preset.style.color, "#4ade80") < 120 ? "#ff5fa2" : "#4ade80";
+    const y = this.project.canvas.aspect === "16:9" ? 0.84 : this.project.canvas.aspect === "9:16" ? 0.72 : 0.8;
+    this.change((p) => {
+      let track = p.tracks.find((t) => t.kind === "text" && t.clips.some((c) => c.type === "text" && c.auto));
+      for (const t of p.tracks) if (t.kind === "text") t.clips = t.clips.filter((c) => !(c.type === "text" && c.auto));
+      tidyTracks(p);
+      if (!track || !p.tracks.includes(track)) track = newTrack(p, "text");
+      for (const cue of cues) {
+        track.clips.push({
+          id: uid(), type: "text", start: cue.start, duration: Math.max(0.2, cue.end - cue.start), text: cue.text,
+          style: structuredClone(preset.style), place: { ...defaultPlace(), y },
+          animIn: preset.animIn === "typewriter" ? "none" : preset.animIn === "none" ? "none" : "pop", animOut: "none",
+          words: cue.words, highlight, auto: true,
+        });
+      }
+      track.clips.sort((a, b) => a.start - b.start);
+    });
+    requestAnimationFrame(() => this.timeline.fit());
+    return cues.length;
   }
 
   private addText(presetId: string, time: number) {
@@ -897,7 +991,7 @@ class VideoEditor implements StudioApp {
   }
 
   private async exportSrt() {
-    const texts = this.project.tracks.filter((t) => t.kind === "text" && !t.hidden).flatMap((t) => t.clips).filter((c): c is TextClip => c.type === "text");
+    const texts = this.project.tracks.filter((t) => t.kind === "text" && !t.hidden).flatMap((t) => t.clips).filter((c): c is TextClip => c.type === "text" && !c.sticker);
     if (!texts.length) {
       this.host.toast("There are no texts to save as captions.");
       return;
@@ -1031,7 +1125,7 @@ class VideoEditor implements StudioApp {
     const media = await this.addFiles(paths);
     const pictures = media.filter((m) => m.kind !== "audio");
     if (!pictures.length) return;
-    // The slideshow's music: one of CorePro's soundtracks, the user's own file, or none.
+    // The slideshow's music: one of Zazabor's soundtracks, the user's own file, or none.
     let musicPath: string | null = null, bpm = 0;
     if (music?.startsWith(BUILTIN_MUSIC)) {
       const tracks = await api.builtinTracks().catch(() => []);
@@ -1086,9 +1180,9 @@ class VideoEditor implements StudioApp {
   async save(as = false): Promise<boolean> {
     let path = this.file;
     if (!path || as) {
-      path = await save({ title: as ? "Save Video Project As" : "Save Video Project", defaultPath: `${this.title()}.corevideo`, filters: [{ name: "Video projects", extensions: ["corevideo"] }] }).catch(() => null);
+      path = await save({ title: as ? "Save Video Project As" : "Save Video Project", defaultPath: `${this.title()}.zazvideo`, filters: [{ name: "Video projects", extensions: ["zazvideo"] }] }).catch(() => null);
       if (!path) return false;
-      if (!path.toLowerCase().endsWith(".corevideo")) path += ".corevideo";
+      if (!/\.(zazvideo|corevideo)$/i.test(path)) path += ".zazvideo";
     }
     try {
       await editApi.saveProject(path, JSON.stringify(this.project));
@@ -1270,6 +1364,7 @@ class VideoEditor implements StudioApp {
 
   dispose() {
     clearInterval(this.recoverTimer);
+    this.captions.dispose();
     if (this.recording) void editApi.recordStop(this.recording.id, true).catch(() => undefined);
     // Closed on purpose (saved, or "Don't Save"): nothing to recover.
     this.dropSnapshot();
@@ -1303,3 +1398,13 @@ export const createVideoApp: StudioFactory = async (host, start) => {
   }
   return app;
 };
+
+/** How far apart two #rrggbb colours are (0 = the same, about 440 = black and white). */
+function colorDistance(a: string, b: string): number {
+  const rgb = (c: string) => {
+    const v = parseInt(/^#[0-9a-f]{6}$/i.test(c) ? c.slice(1) : "000000", 16);
+    return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+  };
+  const [x, y] = [rgb(a), rgb(b)];
+  return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]);
+}

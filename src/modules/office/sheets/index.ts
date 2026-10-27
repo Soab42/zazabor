@@ -11,7 +11,7 @@ import { areaOf, blankModel, columnName, CELL_NUMBER, LAST_COLUMN, LAST_ROW, loa
 import { Grid } from "./grid";
 import { makeCommands, type SheetActions, type SheetBase } from "./commands";
 import { AutoFilter } from "./filter";
-import { printSheet } from "./print";
+import { printSheet, sheetHtml } from "./print";
 import { buildRibbon } from "./ribbon-tabs";
 import { SheetTabs } from "./tabs";
 import { buildTemplate } from "./templates";
@@ -839,6 +839,18 @@ export const createSheetEditor: EditorFactory = async (host, file, template, rec
     dirty: () => dirty,
     save,
     print,
+    printPreview: () => {
+      const out = sheetHtml(model, sheet(), printGridlines);
+      if (!out) return null;
+      const paper = h("div", { class: "of-paper sheet" });
+      if (out.html) paper.innerHTML = out.html;
+      else paper.append(h("p", null, `This sheet has ${out.cells.toLocaleString()} cells: too many to preview.`));
+      return paper;
+    },
+    info: () => {
+      const sheets = model.getWorksheetsProperties();
+      return [["Sheets", sheets.length.toLocaleString()], ["This sheet", sheets[sheet()]?.name ?? ""]];
+    },
     snapshot: () => ({ bytes: model.toBytes(), version }),
     activate() {
       visible = true;

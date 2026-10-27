@@ -1,5 +1,5 @@
 //! The ledger out: CSV of any filtered list, an Excel workbook with a sheet per month, and a full
-//! JSON copy of every table that other apps (or a later CorePro) can read.
+//! JSON copy of every table that other apps (or a later Zazabor) can read.
 
 use rusqlite::{types::ValueRef, Connection};
 use std::path::Path;
@@ -131,7 +131,7 @@ fn table(conn: &Connection, name: &str) -> Result<Vec<serde_json::Value>> {
 /// The whole ledger: every table, amounts in minor units as stored.
 pub fn json(conn: &Connection, path: &Path, now: i64) -> Result<usize> {
     let mut doc = serde_json::Map::new();
-    doc.insert("format".into(), "corepro-wallet".into());
+    doc.insert("format".into(), "zazabor-wallet".into());
     doc.insert("version".into(), 1.into());
     doc.insert("exported".into(), now.into());
     doc.insert("baseCurrency".into(), money::BASE.into());
@@ -160,7 +160,7 @@ mod tests {
         for (amount, date, payee) in [("250", "2026-10-26", "Kacchi Bhai"), ("1,000", "2026-09-02", "=SUM(A1)")] {
             db::save_tx(&conn, db::TxInput { id: None, kind: "expense".into(), account_id: cash.clone(), amount: amount.into(), date: date.into(), category_id: Some(cat(&conn, "Eating out")), payee: payee.into(), note: "".into() }, 1).unwrap();
         }
-        let dir = std::env::temp_dir().join(format!("corepro-export-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("zazabor-export-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         assert_eq!(csv(&conn, &Filter::default(), &dir.join("w.csv")).unwrap(), 2);
         let text = std::fs::read_to_string(dir.join("w.csv")).unwrap();
