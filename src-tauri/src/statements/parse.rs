@@ -185,7 +185,9 @@ pub fn account_last4(lines: &[String]) -> Option<String> {
     for line in lines.iter().take(60) {
         let l = line.to_lowercase();
         let Some(at) = LABELS.iter().filter_map(|label| l.find(label).map(|i| i + label.len())).min() else { continue };
-        let rest = &line[at.min(line.len())..];
+        // `at` is a position in the lowercased line, which can be longer than the line ("İ" lowercases
+        // to two characters); the digits and separators read below are the same in both.
+        let rest = &l[at..];
         // The first run of digits (with -, spaces or * inside) after the label.
         let mut digits = String::new();
         let mut started = false;
@@ -347,5 +349,13 @@ mod tests {
         assert_eq!(direction("Cash Out"), -1);
         assert_eq!(direction("Cash In"), 1);
         assert_eq!(direction("Send Money"), -1);
+    }
+
+    #[test]
+    fn account_after_a_letter_that_grows_when_lowercased() {
+        // "İ" is 2 bytes, but 3 once lowercased: a position from the lowercased line used to land
+        // inside a character of the original and crash.
+        let lines = vec!["İİİİ Account No: 1234-5678-9012".to_string()];
+        assert_eq!(account_last4(&lines).as_deref(), Some("9012"));
     }
 }

@@ -666,6 +666,9 @@ pub async fn recorder_start(app: tauri::AppHandle, window: tauri::Window, spec: 
     let (y, mo, d, h, mi) = files::local_now();
     let dest = files::unique(&dir, &files::base_name(y, mo, d, h, mi), if plan.webm() { "webm" } else { "mp4" });
     let part = files::part_of(&dest);
+    // Made here: Trim, Delete, Copy and Keep may act on it (a crash leaves the .part).
+    remember(&part);
+    remember(&dest);
     let origin = window.label().to_string();
     let generation = with_state(|s| {
         s.generation += 1;
@@ -893,15 +896,37 @@ fn resume(r: &mut Running) {
     r.clock.start_at(Instant::now());
 }
 
-/// Tells the windows a recording ended, and brings back the one that started it.
-/// Recordings this run of the app made or listed: the only files Delete, Copy and Keep act on,
-/// whatever path the page sends.
+/// Recordings Zazabor made (also before a restart): the only files Trim, Delete, Copy and Keep
+/// act on, whatever path the page sends. Kept in `recorder/known.json` in the app's data folder.
 static KNOWN: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+static KNOWN_FILE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+/// The newest this many are kept (older ones can still be handled in Files).
+const KNOWN_MAX: usize = 2000;
+
+/// Reads the list of recordings made before; called once at start.
+pub fn init(data_dir: &Path) {
+    let file = data_dir.join("recorder").join("known.json");
+    if let Ok(list) = std::fs::read(&file).map_err(|_| ()).and_then(|b| serde_json::from_slice::<Vec<PathBuf>>(&b).map_err(|_| ())) {
+        *KNOWN.lock().unwrap_or_else(|e| e.into_inner()) = list;
+    }
+    let _ = KNOWN_FILE.set(file);
+}
 
 fn remember(path: &Path) {
     let mut known = KNOWN.lock().unwrap_or_else(|e| e.into_inner());
-    if !known.iter().any(|p| p == path) {
-        known.push(path.to_path_buf());
+    if known.iter().any(|p| p == path) {
+        return;
+    }
+    known.push(path.to_path_buf());
+    if known.len() > KNOWN_MAX {
+        let extra = known.len() - KNOWN_MAX;
+        known.drain(..extra);
+    }
+    if let (Some(file), Ok(bytes)) = (KNOWN_FILE.get(), serde_json::to_vec(&*known)) {
+        if let Some(dir) = file.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = crate::fs::text::write_bytes(file, &bytes);
     }
 }
 
@@ -909,6 +934,7 @@ fn is_known(path: &Path) -> bool {
     KNOWN.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|p| p == path)
 }
 
+/// Tells the windows a recording ended, and brings back the one that started it.
 fn finish_event(app: &tauri::AppHandle, done: Finished) {
     if let Some(path) = &done.path {
         remember(Path::new(path));
@@ -1137,7 +1163,6 @@ pub async fn recorder_list(app: tauri::AppHandle, folder_path: Option<String>) -
     Ok(files::list(&dir, active.as_deref())
         .into_iter()
         .map(|(path, recovered, bytes, mtime)| {
-            remember(&path);
             let shown = if recovered { files::final_of(&path).unwrap_or(path.clone()) } else { path.clone() };
             Recording {
                 name: shown.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
@@ -1228,7 +1253,7 @@ pub async fn recorder_trim(path: String, start: f64, end: f64) -> Result<Trimmed
     crate::ensure_unlocked()?;
     media::init()?;
     let src = PathBuf::from(&path);
-    if !is_recording_file(&src) || !src.is_file() {
+    if !is_recording_file(&src) || !is_known(&src) || !src.is_file() {
         return Err("That recording isn't there any more.".into());
     }
     if !(end - start > 0.3) {

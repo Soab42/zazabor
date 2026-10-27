@@ -377,6 +377,7 @@ pub fn run() {
             wallet::init(app.handle().clone(), app.path().app_data_dir()?);
             office::init(app.path().app_data_dir()?);
             statements::init(app.handle().clone(), app.path().app_config_dir()?, app.path().app_data_dir()?);
+            recorder::init(&app.path().app_data_dir()?);
             // A quick note (`--new-note`) starts with only the note, the clipboard (`--clipboard`)
             // with only the Win+V popup, `--background` with no window at all; otherwise the main
             // window.
