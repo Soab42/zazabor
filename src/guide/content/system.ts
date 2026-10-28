@@ -125,7 +125,8 @@ export const install: GuideArticle = {
       steps: [
         "In the Zazabor source folder, run scripts/install-linux.sh. It builds Zazabor and installs it into ~/.local, with an applications-menu entry.",
         "Zazabor is added to **Open With** for pictures, videos, folders, Word, Excel, CSV and PDF files. Your default apps don't change.",
-        "Run the same command again to update. Restart Zazabor (or **Quit Zazabor** and open it) to use the new version.",
+        "Zazabor updates itself: it checks GitHub now and then and says when there's a newer version. Go to **Settings → Zazabor → Updates**, press **Install Update**, then **Restart Now**. Nothing installs without you.",
+        "**Check for Updates** asks at once; turn off **Check for updates automatically** to only check by hand.",
       ],
       tips: [
         "Add --background to start Zazabor in the background at login; --uninstall removes it (your files and settings stay).",
@@ -138,6 +139,14 @@ export const install: GuideArticle = {
         "Video export and playback use GStreamer; some formats need extra codec packages. The Video Editor explains what's missing.",
         "PDF → Word \"Keep the layout\" and some compression options use LibreOffice and Ghostscript when they're installed.",
         "AI models and OCR languages download inside Zazabor when you first use them, after asking.",
+      ],
+    },
+    {
+      title: "Templates, music and fonts",
+      steps: [
+        "Zazabor comes with a few motion templates and its sound effects. The rest of its library (more templates, the soundtracks and the template fonts) downloads from Zazabor's library online the first time you use each piece, and stays on your computer.",
+        "New templates and music appear by themselves within the hour; **Settings → Zazabor → Library → Check Now** looks at once.",
+        "**Remove Downloads** frees the space. Anything you use again downloads again, and projects that use it fetch it when they open.",
       ],
     },
   ],

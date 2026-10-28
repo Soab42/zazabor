@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Installs Zazabor for the current user, no root needed: the app in ~/.local/bin, its bundled
-# soundtracks in ~/.local/lib/Zazabor, and a launcher entry plus icons so it appears in the
+# Installs Zazabor for the current user, no root needed: the app in ~/.local/bin, its sound
+# effects in ~/.local/lib/Zazabor, and a launcher entry plus icons so it appears in the
 # applications menu and in "Open With" for images, video, folders, and Word, Excel and CSV files.
 # With --background it also starts Zazabor in the background at login, for the clipboard
 # history (Settings → Clipboard → Run in the background does the same). PDFium (BSD-3-Clause),
@@ -83,8 +83,8 @@ fi
 
 remove_corepro
 install -Dm755 src-tauri/target/release/zazabor "$bin_dir/zazabor"
-install -d "$lib_dir/resources/music"
-install -m644 src-tauri/resources/music/* "$lib_dir/resources/music/"
+# Soundtracks used to come with the app; they're in the content library now (downloaded when used).
+rm -rf "$lib_dir/resources/music"
 install -d "$lib_dir/resources/sfx"
 install -m644 src-tauri/resources/sfx/* "$lib_dir/resources/sfx/"
 

@@ -11,7 +11,7 @@ import { SHAPES, type Shape } from "./layout";
 import type { MyTemplates } from "./mine";
 import { drawScene, newMemory, type Memory, type Picture, type Scene } from "./player";
 import { allKits, defaultKit, setDefaultKit, themeFor, usesOwnLook, type SavedTemplate } from "./settings";
-import { TEMPLATES } from "./templates";
+import { loadTemplates, onlyStarterTemplates, templateEvents, templates, templatesNeedingUpdate } from "./library";
 import type { MotionTools } from "./tools";
 
 /**
@@ -52,7 +52,13 @@ export class TemplateBrowser {
   private cards: Card[] = [];
   private search: HTMLElement | null = null;
 
-  constructor(private tools: MotionTools, private mine: MyTemplates, private aspect: () => Aspect, private openKits: () => void) {}
+  constructor(private tools: MotionTools, private mine: MyTemplates, private aspect: () => Aspect, private openKits: () => void) {
+    // The library's templates arrive (or change) while the pane may be open.
+    templateEvents.addEventListener("change", () => {
+      if (this.grid.isConnected) this.drawGrid();
+    });
+    void loadTemplates();
+  }
 
   /** The pane's pinned head: search with an options button, then the categories on one line. */
   head(): Node[] {
@@ -150,7 +156,7 @@ export class TemplateBrowser {
 
   private drawGrid() {
     const s = this.tools.settings();
-    const shown = TEMPLATES.filter((t) => this.category !== "mine" && (this.category === "all" || t.category === this.category) && this.matches(t));
+    const shown = templates().filter((t) => this.category !== "mine" && (this.category === "all" || t.category === this.category) && this.matches(t));
     const themes = new Map(shown.map((t) => [t.id, themeFor(t, s).theme]));
     const families = new Set([...themes.values()].flatMap((x) => [x.heading.family, x.body.family, x.bangla.family]));
     void Promise.allSettled([...families].map(loadFamily)).then(() => {
@@ -182,6 +188,11 @@ export class TemplateBrowser {
             this.drawGrid();
           } }, "Clear filters")
           : null));
+    }
+    if (this.category !== "mine") {
+      const later = templatesNeedingUpdate();
+      if (onlyStarterTemplates()) items.push(h("div", { class: "mo-wide vc-none" }, "More templates download from Zazabor's library when you're online."));
+      else if (later) items.push(h("div", { class: "mo-wide vc-none" }, `${later} more template${later === 1 ? " needs" : "s need"} a newer Zazabor. Update it in Settings → Zazabor.`));
     }
     this.grid.replaceChildren(...items);
   }

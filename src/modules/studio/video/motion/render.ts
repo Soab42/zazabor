@@ -7,7 +7,7 @@ import { loadFamily, familyLoaded } from "./fonts";
 import { templateTime, type Box } from "./layout";
 import { svgOutline, traceOutline } from "./outline";
 import { drawScene, moving, newMemory, type Memory, type Outline, type Picture, type Scene } from "./player";
-import { templateOf } from "./templates";
+import { templateOf } from "./library";
 import { readSvg } from "./files";
 
 /**

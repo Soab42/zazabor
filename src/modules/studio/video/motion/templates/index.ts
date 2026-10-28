@@ -1,3 +1,6 @@
+// Every motion template's source. The app ships the starter set (library.ts) and gets the rest
+// from the content library, which tools/content/build.mjs publishes from this list; the app's
+// code takes templates from library.ts, the tests and the publisher from here.
 import type { Template, TemplateClip } from "../format";
 import { getTheApp } from "./app-download";
 import { laptopScreen } from "./app-laptop";

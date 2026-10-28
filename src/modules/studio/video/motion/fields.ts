@@ -10,7 +10,7 @@ import { COLOR_KEYS, OWN_LOOK, overrideTheme, type Colors, type FontRef, type Th
 import { fieldValue, type Field, type Template, type TemplateClip } from "./format";
 import { BUNDLED, FONT_KINDS, PAIRINGS, loadFamily, weightFor } from "./fonts";
 import { allKits, defaultKit } from "./settings";
-import { templateOf } from "./templates";
+import { templateOf } from "./library";
 import type { MotionTools } from "./tools";
 
 /**

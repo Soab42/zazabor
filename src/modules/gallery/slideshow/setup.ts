@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "../../../shared/dialog";
 import type { BuiltinTrack, MusicFile } from "../../../api";
+import { formatBytes, isLocal } from "../../../content";
 import type { Photo } from "../library/model";
 import { basename, h } from "../../../ui/dom";
 import { icon } from "../../../ui/icons";
@@ -318,7 +319,8 @@ export class SettingsForm {
       const current = this.settings.music;
       list.replaceChildren(row(null, "No music", ""));
       list.append(h("div", { class: "ml-head" }, "Zazabor soundtracks"));
-      for (const track of this.tracks) list.append(row(`${BUILTIN_MUSIC}${track.id}`, track.title, track.vibe));
+      // Not downloaded yet: its size (it downloads when it's first played).
+      for (const track of this.tracks) list.append(row(`${BUILTIN_MUSIC}${track.id}`, track.title, isLocal(track.file) ? track.vibe : `${track.vibe} · ${formatBytes(track.bytes)}`));
       const own = current && !current.startsWith(BUILTIN_MUSIC) && !this.songs.some((s) => s.path === current) ? [current] : [];
       if (this.songs.length || own.length) {
         list.append(h("div", { class: "ml-head" }, "Your music"));

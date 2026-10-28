@@ -7497,6 +7497,7 @@ name = "zazabor"
 version = "0.1.0"
 dependencies = [
  "argon2",
+ "base64 0.22.1",
  "bzip2",
  "candle-core",
  "candle-nn",
@@ -7521,7 +7522,9 @@ dependencies = [
  "ravif",
  "rayon",
  "reqwest",
+ "ring",
  "rusqlite",
+ "semver",
  "serde",
  "serde_json",
  "sha2 0.10.9",

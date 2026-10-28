@@ -15,7 +15,7 @@ import { clipTimeAt, templateTime } from "./layout";
 import { parts, type Picture } from "./player";
 import { readSvg } from "./files";
 import { defaultKit, kitById, normalizeMotionSettings, themeFor, usesOwnLook, type MotionSettings } from "./settings";
-import { templateOf } from "./templates";
+import { templateOf } from "./library";
 
 /**
  * The Video Editor's motion templates: adding one (with its suggested sounds), cutting a

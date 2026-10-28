@@ -117,6 +117,10 @@ input.switch:disabled { opacity: 0.45; cursor: default; }
 
 .st-value { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right; }
 .st-inline { display: flex; align-items: center; gap: 12px; }
+/* Buttons beside a status (Settings → Zazabor: Updates, Library). */
+.st-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.st-actions:empty { display: none; }
+.st-update-notes { white-space: pre-line; color: var(--text-2); }
 .st-none { margin: 40px 0; color: var(--muted); text-align: center; }
 
 .st-keys { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }

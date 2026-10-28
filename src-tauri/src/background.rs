@@ -86,13 +86,24 @@ fn asks_first(label: &str) -> bool {
     label == "main" || label.starts_with("window-")
 }
 
+/// The program to start once Zazabor has quit (an update installed over it), while restarting.
+static RESTART: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
+
+/// Ends Zazabor, starting the new version first when restarting into an update.
+fn exit(app: &tauri::AppHandle) {
+    if let Some(exe) = RESTART.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        crate::update::relaunch(&exe);
+    }
+    app.exit(0);
+}
+
 /// Quits Zazabor, background mode or not. The main and section windows close as if their ×
 /// was pressed, so Office still asks about unsaved files; Zazabor exits once they're gone.
 pub fn quit(app: &tauri::AppHandle) {
     use tauri::Manager;
     let open: Vec<_> = app.webview_windows().into_iter().filter(|(label, _)| asks_first(label)).collect();
     if open.is_empty() {
-        return app.exit(0);
+        return exit(app);
     }
     QUITTING.store(true, Ordering::SeqCst);
     for (_, window) in open {
@@ -104,13 +115,20 @@ pub fn quit(app: &tauri::AppHandle) {
 pub fn window_destroyed(app: &tauri::AppHandle, label: &str) {
     use tauri::Manager;
     if QUITTING.load(Ordering::SeqCst) && asks_first(label) && !app.webview_windows().keys().any(|l| l != label && asks_first(l)) {
-        app.exit(0);
+        exit(app);
     }
+}
+
+/// Quits as `quit` does, then starts `exe` (the update installed over this copy).
+pub fn restart(app: &tauri::AppHandle, exe: std::path::PathBuf) {
+    *RESTART.lock().unwrap_or_else(|e| e.into_inner()) = Some(exe);
+    quit(app);
 }
 
 /// Zazabor was opened again: a quit the user stopped (by keeping an unsaved file) is over.
 pub fn cancel_quit() {
     QUITTING.store(false, Ordering::SeqCst);
+    RESTART.lock().unwrap_or_else(|e| e.into_inner()).take();
 }
 
 #[tauri::command]

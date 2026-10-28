@@ -537,21 +537,23 @@ function templateClip(over = {}) {
   };
 }
 
-test("projects keep template clips, drop unknown ones and missing media from slots", () => {
+// A template the app doesn't have yet (the library's, offline since installing) keeps its clips:
+// they draw once it arrives. Only a clip naming no template goes.
+test("projects keep template clips, even of templates not here yet, and drop missing media from slots", () => {
   const raw = {
     canvas: { aspect: "9:16", fps: 30, background: "blur" },
     media: [{ id: "m1", path: "/x/p.png", name: "p.png", kind: "image", duration: 0, width: 10, height: 10, fps: 0, audio: false }],
     tracks: [
       { id: "t0", kind: "main", clips: [] },
-      { id: "t1", kind: "overlay", clips: [templateClip(), templateClip({ id: "c2", start: 9, template: "nope" }), templateClip({ id: "c3", start: 20, slots: { product: "gone" } })] },
+      { id: "t1", kind: "overlay", clips: [templateClip(), templateClip({ id: "c2", start: 9, template: "from-the-library" }), templateClip({ id: "c3", start: 20, slots: { product: "gone" } }), templateClip({ id: "c4", start: 30, template: "" })] },
     ],
   };
   const p = model.normalizeProject(JSON.parse(JSON.stringify(raw)));
   const clips = p.tracks[1].clips;
-  assert.deepEqual(clips.map((c) => c.id), ["c1", "c3"]);
-  assert.deepEqual(clips[1].slots, {});
+  assert.deepEqual(clips.map((c) => c.id), ["c1", "c2", "c3"]);
+  assert.deepEqual(clips[2].slots, {});
   assert.deepEqual(model.unusedMedia(p), [], "a slot counts as using its media");
-  p.tracks[1].clips = [clips[1]];
+  p.tracks[1].clips = [clips[2]];
   assert.equal(model.unusedMedia(p).length, 1);
   // A saved template (My Templates) carries its own document.
   const own = normalizeTemplateClip(templateClip({ template: "mine-1", doc: { ...templateById("lower-name"), id: "mine-1" } }), new Set(), () => false);

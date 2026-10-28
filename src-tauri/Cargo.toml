@@ -57,6 +57,11 @@ candle-core = "=0.11.0"
 candle-nn = "=0.11.0"
 ureq = "=3.4.2"
 sha2 = "0.10"
+# Content library and updates (content.rs, update.rs): Ed25519 signatures with ring, which
+# already comes with ureq's TLS, and version numbers.
+ring = "0.17"
+base64 = "0.22"
+semver = "1"
 # Photo's AI tools: ONNX models on the CPU in pure Rust (no prebuilt runtime is downloaded).
 tract-onnx = "=0.23.9"
 tract-linalg = { version = "=0.23.9", features = ["multithread-mm"] }

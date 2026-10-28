@@ -19,6 +19,7 @@ import { MODULES } from "./registry";
 import { videoShortcuts } from "../modules/video/features/hotkeys";
 import { mediaSettings } from "../modules/video/features/profiles/settings";
 import { videoCategories } from "./settings-video";
+import { updateGroups } from "./updates";
 
 /** What the Settings page needs from the shell. */
 export interface SettingsHost {
@@ -510,7 +511,7 @@ export class Settings {
         h("h2", null, "Zazabor"),
         h("p", { class: "muted" }, "Files, photos and video in one calm place."),
         h("div", { class: "st-about-version" }, "Version ", this.version)),
-      groups: [this.helpGroup(), {
+      groups: [this.helpGroup(), ...updateGroups(this.host.config, () => this.host.configChanged()), {
         title: "Credits",
         rows: [
           plainRow("Built with", textValue("Tauri 2, TypeScript and WebGL")),

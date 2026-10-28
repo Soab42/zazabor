@@ -93,6 +93,20 @@ export interface Config {
   clipboard: ClipboardSettings;
   studio: StudioSettings;
   guide: GuideSettings;
+  updates: UpdateSettings;
+}
+
+/** Updates (src/shell/updates.ts). */
+export interface UpdateSettings {
+  /** Asks GitHub for a newer Zazabor now and then, and says when there's one. */
+  auto: boolean;
+  /** A version the user chose to skip: not offered again (a later one is). */
+  skipped: string | null;
+}
+
+function normalizeUpdates(raw: Partial<UpdateSettings> | undefined): UpdateSettings {
+  const skipped = raw?.skipped;
+  return { auto: raw?.auto !== false, skipped: typeof skipped === "string" && /^\d+\.\d+\.\d+/.test(skipped) ? skipped.slice(0, 40) : null };
 }
 
 /** The clipboard history's page side (the history and its recording settings live in the backend, see clipboard/mod.rs). */
@@ -309,6 +323,7 @@ const DEFAULTS: Config = {
   clipboard: structuredClone(DEFAULT_CLIPBOARD),
   studio: structuredClone(DEFAULT_STUDIO),
   guide: { last: null },
+  updates: { auto: true, skipped: null },
 };
 
 export async function loadConfig(): Promise<Config> {
@@ -347,6 +362,7 @@ export function parseConfig(raw: string): Config {
     clipboard: normalizeClipboard(parsed.clipboard),
     studio: normalizeStudio(parsed.studio),
     guide: normalizeGuide(parsed.guide),
+    updates: normalizeUpdates(parsed.updates),
   };
 }
 

@@ -20,6 +20,7 @@ import { isTerminalTarget } from "../terminal/target";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { closeThisWindow, isFileWindow, isMainWindow, onOthers, openWindow, tellOthers, windowStart } from "./windows";
+import { startUpdateChecks } from "./updates";
 
 /** Activity in one window resets the auto-lock in the others, at most this often. */
 const ACTIVITY_EVERY_MS = 20_000;
@@ -136,6 +137,7 @@ export class Shell implements ShellContext {
       }
     }
     if (isMainWindow) {
+      startUpdateChecks(this.config, () => this.openSettings("about"));
       // Notes that were on the desktop when Zazabor last ran come back.
       if (this.config.features.notes && this.config.notes.reopen) invoke("notes_reopen").catch(() => undefined);
       await this.openLaunchPath();

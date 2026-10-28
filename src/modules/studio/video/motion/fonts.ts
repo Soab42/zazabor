@@ -1,8 +1,11 @@
+import { library, readFile } from "../../../../content";
+
 /**
- * The fonts bundled for motion templates (SIL Open Font License, from github.com/google/fonts at
- * the commit in tools/fetch_motion_fonts.py, files and licences in public/fonts/). A family is
- * loaded the first time something draws with it; drawing waits for it where it matters (export,
- * posters) and redraws when it arrives elsewhere.
+ * The fonts for motion templates (SIL Open Font License, from github.com/google/fonts at the
+ * commit in tools/fetch_motion_fonts.py). The starter families ship with the app (public/fonts/);
+ * the others are in the content library (content/fonts/ in the repo) and download the first time
+ * they're used. A family is loaded the first time something draws with it; drawing waits for it
+ * where it matters (export, posters) and redraws when it arrives elsewhere.
  */
 
 export type FontKind = "sans" | "display" | "serif" | "script" | "bangla";
@@ -15,21 +18,23 @@ export interface Bundled {
   files: [string, string, "normal" | "italic"][];
   /** Has Bengali letters. */
   bangla?: boolean;
+  /** Ships with the app (the rest come from the content library). */
+  starter?: boolean;
 }
 
 export const BUNDLED: readonly Bundled[] = [
-  { family: "Inter", kind: "sans", dir: "inter", files: [["Inter[opsz,wght].ttf", "100 900", "normal"]] },
+  { family: "Inter", starter: true, kind: "sans", dir: "inter", files: [["Inter[opsz,wght].ttf", "100 900", "normal"]] },
   { family: "Poppins", kind: "sans", dir: "poppins", files: [["Poppins-Regular.ttf", "400", "normal"], ["Poppins-SemiBold.ttf", "600", "normal"], ["Poppins-Bold.ttf", "700", "normal"], ["Poppins-ExtraBold.ttf", "800", "normal"]] },
   { family: "Montserrat", kind: "sans", dir: "montserrat", files: [["Montserrat[wght].ttf", "100 900", "normal"]] },
   { family: "Plus Jakarta Sans", kind: "sans", dir: "plusjakartasans", files: [["PlusJakartaSans[wght].ttf", "200 800", "normal"]] },
   { family: "DM Sans", kind: "sans", dir: "dmsans", files: [["DMSans[opsz,wght].ttf", "100 1000", "normal"]] },
   { family: "Manrope", kind: "sans", dir: "manrope", files: [["Manrope[wght].ttf", "200 800", "normal"]] },
-  { family: "Space Grotesk", kind: "sans", dir: "spacegrotesk", files: [["SpaceGrotesk[wght].ttf", "300 700", "normal"]] },
-  { family: "Outfit", kind: "sans", dir: "outfit", files: [["Outfit[wght].ttf", "100 900", "normal"]] },
-  { family: "Sora", kind: "sans", dir: "sora", files: [["Sora[wght].ttf", "100 800", "normal"]] },
+  { family: "Space Grotesk", starter: true, kind: "sans", dir: "spacegrotesk", files: [["SpaceGrotesk[wght].ttf", "300 700", "normal"]] },
+  { family: "Outfit", starter: true, kind: "sans", dir: "outfit", files: [["Outfit[wght].ttf", "100 900", "normal"]] },
+  { family: "Sora", starter: true, kind: "sans", dir: "sora", files: [["Sora[wght].ttf", "100 800", "normal"]] },
   { family: "Bebas Neue", kind: "display", dir: "bebasneue", files: [["BebasNeue-Regular.ttf", "400", "normal"]] },
   { family: "Anton", kind: "display", dir: "anton", files: [["Anton-Regular.ttf", "400", "normal"]] },
-  { family: "Oswald", kind: "display", dir: "oswald", files: [["Oswald[wght].ttf", "200 700", "normal"]] },
+  { family: "Oswald", starter: true, kind: "display", dir: "oswald", files: [["Oswald[wght].ttf", "200 700", "normal"]] },
   { family: "Archivo Black", kind: "display", dir: "archivoblack", files: [["ArchivoBlack-Regular.ttf", "400", "normal"]] },
   { family: "Syne", kind: "display", dir: "syne", files: [["Syne[wght].ttf", "400 800", "normal"]] },
   { family: "Unbounded", kind: "display", dir: "unbounded", files: [["Unbounded[wght].ttf", "200 900", "normal"]] },
@@ -41,7 +46,7 @@ export const BUNDLED: readonly Bundled[] = [
   { family: "Pacifico", kind: "script", dir: "pacifico", files: [["Pacifico-Regular.ttf", "400", "normal"]] },
   { family: "Caveat", kind: "script", dir: "caveat", files: [["Caveat[wght].ttf", "400 700", "normal"]] },
   { family: "Dancing Script", kind: "script", dir: "dancingscript", files: [["DancingScript[wght].ttf", "400 700", "normal"]] },
-  { family: "Hind Siliguri", kind: "bangla", dir: "hindsiliguri", bangla: true, files: [["HindSiliguri-Regular.ttf", "400", "normal"], ["HindSiliguri-SemiBold.ttf", "600", "normal"], ["HindSiliguri-Bold.ttf", "700", "normal"]] },
+  { family: "Hind Siliguri", starter: true, kind: "bangla", dir: "hindsiliguri", bangla: true, files: [["HindSiliguri-Regular.ttf", "400", "normal"], ["HindSiliguri-SemiBold.ttf", "600", "normal"], ["HindSiliguri-Bold.ttf", "700", "normal"]] },
   { family: "Anek Bangla", kind: "bangla", dir: "anekbangla", bangla: true, files: [["AnekBangla[wdth,wght].ttf", "100 800", "normal"]] },
   { family: "Baloo Da 2", kind: "bangla", dir: "balooda2", bangla: true, files: [["BalooDa2[wght].ttf", "400 800", "normal"]] },
   { family: "Tiro Bangla", kind: "bangla", dir: "tirobangla", bangla: true, files: [["TiroBangla-Regular.ttf", "400", "normal"]] },
@@ -115,8 +120,8 @@ export function loadFamily(family: string): Promise<void> {
   if (!p) {
     p = Promise.all(b.files.map(async ([file, weight, style]) => {
       // Commas stay as they are: a dev server takes "%2C" literally.
-      const url = `/fonts/${b.dir}/${encodeURI(file)}`;
-      const face = new FontFace(FACE + b.family, `url("${url}")`, { weight, style, display: "block" });
+      const source = b.starter ? `url("/fonts/${b.dir}/${encodeURI(file)}")` : await libraryFont(b, file);
+      const face = new FontFace(FACE + b.family, source, { weight, style, display: "block" });
       await face.load();
       document.fonts.add(face);
     })).then(() => {
@@ -124,10 +129,24 @@ export function loadFamily(family: string): Promise<void> {
     }).catch((err) => {
       failed.add(b.family);
       console.warn("[motion] font", b.family, err);
+      // A library font that couldn't download (offline) is tried again a little later.
+      if (!b.starter) {
+        window.setTimeout(() => {
+          loads.delete(b.family);
+          failed.delete(b.family);
+        }, 120_000);
+      }
     });
     loads.set(b.family, p);
   }
   return p;
+}
+
+/** A library font file's bytes (downloaded the first time). */
+async function libraryFont(b: Bundled, name: string): Promise<ArrayBuffer> {
+  const entry = (await library()).catalog?.fonts.find((f) => f.family === b.family)?.files.find((f) => f.name === name);
+  if (!entry) throw new Error(`${b.family} isn't in the library (offline since installing?)`);
+  return readFile(entry.file);
 }
 
 // (Not `document.fonts.check`: it answers true for a family it has no faces for yet.)

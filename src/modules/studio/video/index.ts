@@ -1,4 +1,5 @@
 import { api } from "../../../api";
+import { ensureLocal, restoreFromLibrary } from "../../../content";
 import { open, save } from "../../../shared/dialog";
 import { readText } from "../../../shared/quicklook/api";
 import { basename, dirname, h, isTypingTarget, stripExtension } from "../../../ui/dom";
@@ -15,7 +16,7 @@ import { offerCodecInstall, openExport } from "./export";
 import { usePrefs } from "./controls";
 import { Inspector } from "./inspector";
 import { MotionFeatures } from "./motion/editor";
-import { templateOf } from "./motion/templates";
+import { loadTemplates, templateEvents, templateOf } from "./motion/library";
 import { parseCube } from "./lut";
 import { AUDIO_EXTENSIONS, MediaStore, PEAK_RATE, PICTURE_EXTENSIONS, probeMedia, VIDEO_EXTENSIONS } from "./media";
 import {
@@ -378,7 +379,12 @@ class VideoEditor implements StudioApp {
     this.observer.observe(this.el);
     this.refresh({ sound: false });
     this.recoverTimer = window.setInterval(() => void this.keepSnapshot(), RECOVER_MS);
+    // Template clips whose template arrives from the library draw once it's here.
+    templateEvents.addEventListener("change", this.templatesArrived);
+    void loadTemplates();
   }
+
+  private templatesArrived = () => this.refresh({ sound: false });
 
   // ---- settings and title
 
@@ -819,6 +825,11 @@ class VideoEditor implements StudioApp {
   }
 
   private async addMusic(path: string) {
+    try {
+      await ensureLocal(path);
+    } catch (err) {
+      return this.host.toast(`Couldn't download it: ${errorText(err)}`);
+    }
     const [m] = await this.addFiles([path]);
     if (!m) return;
     const t = this.engine.time;
@@ -1445,7 +1456,13 @@ class VideoEditor implements StudioApp {
 
   /** Looks for moved files around the project; asks about the rest. */
   private async relinkMissing() {
-    const missing = this.project.media.filter((m) => m.missing);
+    let missing = this.project.media.filter((m) => m.missing);
+    if (!missing.length) return;
+    // Zazabor's soundtracks and sound effects come back from the library.
+    const restored = (await Promise.all(missing.map(async (m) => ({ id: m.id, path: await restoreFromLibrary(m.path) }))))
+      .filter((r): r is { id: string; path: string } => !!r.path);
+    if (restored.length) this.relinked(restored);
+    missing = this.project.media.filter((m) => m.missing);
     if (!missing.length) return;
     const found = await this.searchFor(missing, null);
     if (found) this.host.toast(`Found ${found} moved file${found === 1 ? "" : "s"}.`);
@@ -1540,6 +1557,7 @@ class VideoEditor implements StudioApp {
   /** Opens an AutoRecover snapshot: the project as it was, still unsaved. */
   async openRecovered(id: string) {
     const raw = (await editApi.recoveryRead(id)) as { _file?: string | null };
+    await loadTemplates();
     this.project = normalizeProject(raw);
     this.file = typeof raw._file === "string" ? raw._file : null;
     this.recoverId = id;
@@ -1566,6 +1584,12 @@ class VideoEditor implements StudioApp {
       const track = tracks.find((t) => t.id === music.slice(BUILTIN_MUSIC.length)) ?? tracks.find((t) => t.id === theme.track);
       musicPath = track?.path ?? null;
       bpm = track?.bpm ?? 0;
+      if (musicPath) {
+        await ensureLocal(musicPath).catch((err) => {
+          this.host.toast(`The soundtrack couldn't be downloaded: ${errorText(err)}`);
+          musicPath = null;
+        });
+      }
     } else if (music) musicPath = music;
     const [song] = musicPath ? await this.addFiles([musicPath]) : [];
     // Reels move faster than slideshows: about two thirds of the theme's time per picture, on the beat.
@@ -1636,6 +1660,7 @@ class VideoEditor implements StudioApp {
 
   async openProject(path: string) {
     const raw = await editApi.openProject(path);
+    await loadTemplates();
     this.project = normalizeProject(raw);
     this.file = path;
     this.unsaved = false;
@@ -1826,6 +1851,7 @@ class VideoEditor implements StudioApp {
 
   dispose() {
     clearInterval(this.recoverTimer);
+    templateEvents.removeEventListener("change", this.templatesArrived);
     this.captions.dispose();
     this.panel.dispose();
     if (this.recording) void editApi.recordStop(this.recording.id, true).catch(() => undefined);

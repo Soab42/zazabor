@@ -7,3 +7,5 @@ src-tauri/gen/schemas/
 .claude/worktrees/
 src-tauri/target-*/
 src-tauri/pdfium/
+content-dist/
+dist-release/

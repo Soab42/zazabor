@@ -5,7 +5,7 @@ import { mediaOf, uid, type Media } from "../model";
 import { FORMAT_VERSION, normalizePackage, type PackageDoc, type Template } from "./format";
 import { deleteAssets, packTemplate, readBytes, storeAsset, unpackTemplate } from "./files";
 import { MAX_MINE, type SavedTemplate } from "./settings";
-import { templateOf } from "./templates";
+import { templateOf } from "./library";
 import type { MotionTools } from "./tools";
 
 /**

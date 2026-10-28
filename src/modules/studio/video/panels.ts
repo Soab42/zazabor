@@ -1,4 +1,5 @@
 import { api, type BuiltinTrack } from "../../../api";
+import { ensureLocal, extraSounds, formatBytes, isLocal } from "../../../content";
 import { listening, onListening, stopListening, toggleListening } from "../../../shared/listen";
 import { h } from "../../../ui/dom";
 import { icon, type IconName } from "../../../ui/icons";
@@ -379,7 +380,9 @@ export class Panel {
 
   private listen(path: string, name: string) {
     this.listened = path;
-    toggleListening(path).catch(() => this.host.toast(`${name} can't be played here.`));
+    // A soundtrack from the library downloads first (stopping needs no file).
+    const ready = listening() === path ? Promise.resolve() : ensureLocal(path);
+    ready.then(() => toggleListening(path)).catch(() => this.host.toast(`${name} can't be played here.`));
   }
 
   private drawListenButton(b: HTMLButtonElement) {
@@ -529,8 +532,8 @@ export class Panel {
     }
     if (!this.sounds) {
       this.sounds = [];
-      void editApi.sounds().then((s) => {
-        this.sounds = s;
+      void Promise.all([editApi.sounds(), extraSounds().catch(() => [])]).then(([s, extra]) => {
+        this.sounds = [...s, ...extra.filter((x) => !s.some((b) => b.id === x.id))];
         if (this.tab === "audio") this.refresh();
       }).catch(() => undefined);
     }
@@ -550,7 +553,7 @@ export class Panel {
     let rows: HTMLElement[] = [];
     if (sub === "music") {
       rows = this.tracks.filter((t) => !q || `${t.title} ${t.vibe}`.toLowerCase().includes(q)).map((t) => this.audioRow({
-        path: t.path, title: t.title, sub: `${t.vibe} · ${t.bpm} BPM · ${formatTime(t.seconds, 30, false)}`, add: () => this.host.addMusic(t.path),
+        path: t.path, title: t.title, sub: `${t.vibe} · ${t.bpm} BPM · ${formatTime(t.seconds, 30, false)}${isLocal(t.file) ? "" : ` · ${formatBytes(t.bytes)}`}`, add: () => this.host.addMusic(t.path),
       }));
     } else if (sub === "sounds") {
       rows = this.sounds.filter((s) => !q || s.title.toLowerCase().includes(q)).map((s) => this.audioRow({

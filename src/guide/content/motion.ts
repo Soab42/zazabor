@@ -17,7 +17,7 @@ export const motionTemplates: GuideArticle = {
         "Turn on **Bangla preview** to see the templates with Bangla text.",
       ],
       tips: [
-        "The first collection: **Product Hero**, **Price Drop**, **Feature Trio**, **Line Logo**, **Name Bar** and **Hook + Follow**. More are on the way.",
+        "A few templates come with Zazabor; the rest come from Zazabor's online library and keep growing. Each downloads with its fonts the first time it's shown (they're small), so they work offline afterwards.",
         "Each template works in 9:16, 1:1, 4:5 and 16:9: the layout rearranges itself rather than cropping.",
       ],
     },

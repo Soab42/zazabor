@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { soundtracks } from "./content";
 
 export interface PhotoFile {
   path: string;
@@ -29,14 +30,19 @@ export interface PhotoInfo {
 
 export type PathKind = "dir" | "image" | "audio" | "file" | "missing";
 
+/** One of Zazabor's soundtracks, from the content library (see content.ts). */
 export interface BuiltinTrack {
   id: string;
   title: string;
   vibe: string;
+  /** Its path in the library. */
   file: string;
+  bytes: number;
   bpm: number;
   seconds: number;
+  /** Where it is, or will be once downloaded (`ensureLocal` downloads it). */
   path: string;
+  local: boolean;
 }
 
 export interface MusicFile {
@@ -55,7 +61,7 @@ export const api = {
     const raw = await invoke<string | null>("cached_photos");
     return raw ? (JSON.parse(raw) as FolderScan[]) : null;
   },
-  builtinTracks: () => invoke<BuiltinTrack[]>("builtin_tracks"),
+  builtinTracks: (): Promise<BuiltinTrack[]> => soundtracks(),
   photoInfo: (path: string) => invoke<PhotoInfo>("photo_info", { path }),
   pathKind: (path: string) => invoke<PathKind>("path_kind", { path }),
   launchPath: () => invoke<string | null>("launch_path"),

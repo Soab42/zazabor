@@ -1,7 +1,6 @@
 import type { Aspect } from "../app";
 import type { LookId, TransitionKind } from "../../gallery/slideshow/settings";
 import { normalizeTemplateClip, type TemplateClip } from "./motion/format";
-import { templateById } from "./motion/templates";
 
 /**
  * The Video Editor's project: canvas, media and tracks, and the edits on them. Everything here
@@ -1071,7 +1070,9 @@ export function normalizeProject(raw: unknown, fallbackAspect: Aspect = "9:16"):
   if (main) p.tracks[0] = { ...main, muted: !!main.muted, hidden: !!main.hidden };
   for (const t of tracks) if (t !== main && ["overlay", "text", "audio"].includes(t.kind)) p.tracks.push({ ...t, muted: !!t.muted, hidden: !!t.hidden });
   const mediaIds = new Set(p.media.map((m) => m.id));
-  const known = (id: string) => !!templateById(id);
+  // A template the app doesn't have (yet: offline since installing, say) keeps its clips; they
+  // draw once the library has it.
+  const known = (id: string) => typeof id === "string" && id.length > 0;
   for (const t of p.tracks) {
     t.clips = t.clips
       .map((c) => (c && (c as { type?: string }).type === "template" ? withTransitions(c, normalizeTemplateClip(c, mediaIds, known)) : c))

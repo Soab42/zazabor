@@ -1,7 +1,9 @@
 mod awake;
 mod background;
 mod clipboard;
+mod content;
 mod dims;
+mod download;
 mod fs;
 mod git;
 mod imaging;
@@ -15,9 +17,11 @@ mod protocol;
 mod motion;
 mod recorder;
 mod scan;
+mod signing;
 mod statements;
 mod term;
 mod time;
+mod update;
 mod video;
 mod videoedit;
 mod wallet;
@@ -128,25 +132,6 @@ fn open_audio_library() -> Result<(), String> {
 fn cached_photos(app: tauri::AppHandle) -> Option<String> {
     ensure_unlocked().ok()?;
     std::fs::read_to_string(library_cache_path(&app).ok()?).ok()
-}
-
-/// The soundtracks bundled with the app, with absolute paths.
-#[tauri::command]
-fn builtin_tracks(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    let dir = app
-        .path()
-        .resource_dir()
-        .map_err(|e| e.to_string())?
-        .join("resources")
-        .join("music");
-    let manifest = std::fs::read_to_string(dir.join("tracks.json")).map_err(|e| e.to_string())?;
-    let mut tracks: serde_json::Value = serde_json::from_str(&manifest).map_err(|e| e.to_string())?;
-    for track in tracks.as_array_mut().into_iter().flatten() {
-        if let Some(file) = track.get("file").and_then(|f| f.as_str()).map(str::to_owned) {
-            track["path"] = dir.join(file).to_string_lossy().into_owned().into();
-        }
-    }
-    Ok(tracks)
 }
 
 #[tauri::command]
@@ -407,7 +392,15 @@ pub fn run() {
             open_music_folder,
             open_audio_library,
             cached_photos,
-            builtin_tracks,
+            content::content_catalog,
+            content::content_fetch,
+            content::content_read,
+            content::content_usage,
+            content::content_clear,
+            update::update_check,
+            update::update_install,
+            update::update_progress,
+            update::update_restart,
             music::music_play,
             music::music_pause,
             music::music_resume,
