@@ -43,13 +43,38 @@ cat > "$tmp/key.pem" <<'KEY'
 MCowBQYDK2VwAyEALTY9o6vjyaypZpE/uKJNHIYvG/37VnmVPTSDNutZTjc=
 -----END PUBLIC KEY-----
 KEY
+# The checksum below comes from this manifest, so without the signature nothing is proven: the
+# install stops unless the signature checks out (OpenSSL 3, or Python's cryptography package).
+# ZAZABOR_INSECURE=1 installs without checking it, on purpose only.
 if command -v openssl >/dev/null && openssl version | grep -q '^OpenSSL [3-9]'; then
   python3 -c 'import base64,sys; sys.stdout.buffer.write(base64.b64decode(open(sys.argv[1]).read().strip()))' "$tmp/latest.json.sig" > "$tmp/sig.bin"
   openssl pkeyutl -verify -pubin -inkey "$tmp/key.pem" -rawin -in "$tmp/latest.json" -sigfile "$tmp/sig.bin" >/dev/null 2>&1 \
     || fail "the release isn't signed by Zazabor's key, so nothing was installed."
   say "Release signature checked."
 else
-  printf 'OpenSSL 3 isn'"'"'t here, so the signature wasn'"'"'t checked (the download is still checked against the release'"'"'s SHA-256).\n'
+  # 0: signed by Zazabor's key; 1: not; 2: no cryptography package to check with.
+  if python3 - "$tmp/latest.json" "$tmp/latest.json.sig" <<'PY'; then status=0; else status=$?; fi
+import base64, sys
+try:
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+except ImportError:
+    sys.exit(2)
+key = Ed25519PublicKey.from_public_bytes(base64.b64decode("LTY9o6vjyaypZpE/uKJNHIYvG/37VnmVPTSDNutZTjc="))
+try:
+    key.verify(base64.b64decode(open(sys.argv[2]).read().strip()), open(sys.argv[1], "rb").read())
+except (InvalidSignature, ValueError):
+    sys.exit(1)
+PY
+  case "$status" in
+    0) say "Release signature checked." ;;
+    2) if [ "${ZAZABOR_INSECURE:-}" = 1 ]; then
+         printf 'ZAZABOR_INSECURE=1: installing without checking the release'"'"'s signature.\n'
+       else
+         fail "can't check the release's signature here: install OpenSSL 3 (or Python's cryptography package) and try again."
+       fi ;;
+    *) fail "the release isn't signed by Zazabor's key, so nothing was installed." ;;
+  esac
 fi
 
 # version, url, sha256 of the Linux build
