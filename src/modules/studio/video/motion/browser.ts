@@ -2,13 +2,13 @@ import { previewUrl } from "../../../../api";
 import { h } from "../../../../ui/dom";
 import { icon } from "../../../../ui/icons";
 import type { Aspect } from "../../app";
-import type { Theme } from "./brand";
+import { OWN_LOOK, type Theme } from "./brand";
 import { CATEGORIES, type Category, type Template } from "./format";
 import { loadFamily } from "./fonts";
 import { SHAPES, type Shape } from "./layout";
 import type { MyTemplates } from "./mine";
 import { drawScene, newMemory, type Memory, type Picture, type Scene } from "./player";
-import { allKits, defaultKit, type SavedTemplate } from "./settings";
+import { allKits, defaultKit, setDefaultKit, themeFor, usesOwnLook, type SavedTemplate } from "./settings";
 import { TEMPLATES } from "./templates";
 import type { MotionTools } from "./tools";
 
@@ -81,11 +81,11 @@ export class TemplateBrowser {
     } }, ...LENGTHS.map(([id, label]) => h("option", { value: id }, label)));
     length.value = this.length;
     const kit = h("select", { "aria-label": "Brand Kit for new templates", onchange: () => {
-      s.defaultKit = kit.value;
+      setDefaultKit(s, kit.value);
       this.tools.saveSettings();
       this.drawGrid();
-    } }, ...allKits(s).map((k) => h("option", { value: k.id }, k.name)));
-    kit.value = defaultKit(s).id;
+    } }, h("option", { value: OWN_LOOK }, "Template's own look"), ...allKits(s).map((k) => h("option", { value: k.id }, k.name)));
+    kit.value = usesOwnLook(s) ? OWN_LOOK : defaultKit(s).id;
     const switchRow = (label: string, get: () => boolean, set: (v: boolean) => void) => {
       const el = h("input", { type: "checkbox", class: "switch", checked: get(), onchange: () => set(el.checked) });
       return h("label", { class: "mo-switch" }, el, h("span", null, label));
@@ -127,14 +127,14 @@ export class TemplateBrowser {
 
   private drawGrid() {
     const s = this.tools.settings();
-    const kit = defaultKit(s);
-    for (const f of [kit.heading.family, kit.body.family, kit.bangla.family]) {
-      void loadFamily(f).then(() => {
-        // Text measured with a stand-in font is measured again.
-        for (const c of this.cards) c.mem = newMemory();
-        this.redrawAll();
-      });
-    }
+    const shown = TEMPLATES.filter((t) => this.category !== "mine" && (this.category === "all" || t.category === this.category) && this.matches(t));
+    const themes = new Map(shown.map((t) => [t.id, themeFor(t, s).theme]));
+    const families = new Set([...themes.values()].flatMap((x) => [x.heading.family, x.body.family, x.bangla.family]));
+    void Promise.allSettled([...families].map(loadFamily)).then(() => {
+      // Text measured with a stand-in font is measured again.
+      for (const c of this.cards) c.mem = newMemory();
+      this.redrawAll();
+    });
     this.cards = [];
     const items: Node[] = [];
     if (this.category === "mine" || this.category === "all") {
@@ -146,13 +146,7 @@ export class TemplateBrowser {
       }
       for (const e of this.category === "mine" ? mine : mine.slice(0, 4)) items.push(this.mineCard(e));
     }
-    if (this.category !== "mine") {
-      for (const t of TEMPLATES) {
-        if (this.category !== "all" && t.category !== this.category) continue;
-        if (!this.matches(t)) continue;
-        items.push(this.card(t, t.name, {}, kit, () => void this.tools.use(t)));
-      }
-    }
+    for (const t of shown) items.push(this.card(t, t.name, {}, themes.get(t.id)!, () => void this.tools.use(t)));
     if (!items.length) items.push(h("p", { class: "ve-panel-note" }, "No templates match."));
     this.grid.replaceChildren(...items);
   }

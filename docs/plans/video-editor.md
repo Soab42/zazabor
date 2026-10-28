@@ -185,6 +185,124 @@ cause for the remaining late preview frames, proxies, GIF export and the native 
 with keyframes, more transition and effect packs, speed-curve editing by hand (presets only), and
 Make a Video for clips (the Gallery has photos only).
 
+### Export speed (2026-10-28)
+
+What changed:
+- **Read-back without stalls:** `Compositor.beginI420` packs the frame and reads it into a GPU buffer
+  behind a fence; `collectI420` copies it out once the fence has passed.
+- **Pipelined frames:** `pipe.ts` keeps 2 reads and 2 sends on their way, numbered with `x-seq`. Rust's
+  `Order` puts frames that overtake each other back in order (at most 8 early; a duplicate or a gap
+  fails the export).
+- **Adaptive motion blur** (`motion/blur.ts`):
+  - Moments are sized to how far anything travels across the shutter: 1 under a pixel, then one more
+    per 4 px, at most 4.
+  - Moments are jittered inside their slices (golden-ratio steps, so every export is the same).
+  - Text letters and words count only while they're actually moving.
+  - The still layers at the bottom (backgrounds, mostly) are drawn once per frame, not per moment.
+- **Fast or Best** in the export dialog ("Rendering"), remembered with the other choices:
+  - Fast: no motion blur, animated backgrounds at half size, and the encoder's quicker setting
+    (VA-API `quality-level=7`, x264/x265 `veryfast`).
+  - Best: the adaptive blur.
+- **Measured:** `Done.waited` records how long frames waited for the encoder.
+
+Measured with 5 s exports, run three times each, in a release build on Intel UHD (Tiger Lake GT1),
+VA-API H.264, 30 fps. The quiet runs had the machine to themselves. In the busy runs, another
+Zazabor window was using the GPU.
+
+| Export | Before | After |
+|---|---|---|
+| Plain 1080×1920 reel, quiet (old page, same binary) | 1.51×, 2.08×, 1.96× | 2.15×, 2.31×, 1.72× |
+| Plain 1080×1920 reel, busy (old build) | 1.33×, 1.37×, 1.24× | 1.43×, 1.26×, 1.36× |
+| Plain 1920×1080, busy (old build) | 1.26×, 1.30×, 1.23× | 1.42×, 1.26×, 1.33× |
+| Template (Launch hero over video) at 1920×1080, quiet | 0.09× (2.6–2.7 fps) | Best 0.26–0.27× (7.9–8.0 fps) · Fast 0.57–0.59× (17.0–17.6 fps) |
+| The same template, busy | 0.06× (1.7–1.9 fps) | Best 0.17–0.18× (5.0–5.3 fps) · Fast 0.34–0.35× (10.2–10.5 fps) |
+
+Where the time goes now:
+- **Plain clips are limited by IPC.**
+  - Bringing a decoded 1080p frame (3.1 MB) to the page takes about 10 ms. The same request without
+    pixels takes 0.23 ms.
+  - Transfers don't overlap: two decoders asked at once take 19 ms per pair, and asking for the next
+    frame early takes 10.6 ms.
+  - Sending a frame back adds about 5–6 ms.
+  - Read-back went from 11–61 ms (synchronous) to 0.4 + 0.8 ms. Frames waited 0.00 s for the
+    encoder, and ending the file takes 0.02–0.03 s.
+- **Templates are limited by the GPU's work on live backgrounds.**
+  - One 1080p moment of Launch hero costs about 90 ms.
+  - Its two background shaders account for 29 + 20.5 ms of that at full size, and 8 + 7 ms at half
+    size.
+- **Quality:**
+  - Plain exports decode to identical frames before and after (150 of 150).
+  - Best against the old 5-moment blur on the same template code: median PSNR 43.6 dB, worst
+    frame 38.7 dB.
+  - Fast against the old blur: median 43.2 dB, worst frame 35.1 dB. Fast has no motion blur.
+
+Left to do:
+- **Plain clips:** cut the 3 MB round trips.
+  - WebCodecs in the page would remove the send, but `VideoEncoder.isConfigSupported` aborts the
+    web process's GStreamer here (`gst_register_core_elements: code should not be reached`).
+  - Or composite cuts-only projects natively (§4.4 step 2).
+- **Templates, Best:** reaching 1× needs cheaper live-background shaders, or Best rendering the soft
+  presets (mesh, bokeh) below full size. That is a look decision.
+- **NV12 packing for VA-API:** not done. The encoder never held frames up, and its CPU conversion
+  runs on its own thread.
+
+### Timeline menus, overlay transitions, listening, text (2026-10-28)
+
+- **Right-click menus** (`index.ts` `clipMenu`, `trackMenu`, opened through `openMenu` by the
+  timeline and by the preview for the layer under the pointer):
+  - On a clip: Edit Text (texts, and templates with texts), Split at Playhead (S), Trim Start or
+    End to Playhead (Q, W), Cut, Copy, Paste, Duplicate (Ctrl+X, C, V, D), Transitions… (layers)
+    or Transition… (main-track cuts), Speed…, Reverse, Freeze Frame (main track), Mark Beats
+    (audio tracks), Select All on This Layer (Ctrl+A), Delete, and Ripple Delete (Shift+Delete,
+    off the main track).
+  - On empty track space: Paste (at that time, on that track), Select All on This Layer, Select
+    All Clips, and Mute or Hide Track.
+- **Several clips:** `selectAllIds` is Ctrl+A. It selects the selection's track (the main track
+  when nothing is selected), and pressing it again selects every track; it doesn't fire in text
+  fields.
+  - Dragging a selected clip moves the selected clips with it. Off the main track, `moveGroup`
+    moves them by the same time, each on its own track. On the main track, `moveMainBlock` moves
+    the selected main clips as a block.
+  - A plain click on one of several selected clips selects just that one.
+  - Copy and paste (`copyClips`, `pasteClips`) keep offsets. Main-track clips go in at the cut
+    nearest the time, and the media they use come along, so a paste works in another project.
+- **Transitions off the main track** (overlays, texts, stickers, templates):
+  - Each clip can have `transIn` and `transOut`. When a clip starts where the one before it on its
+    track ends, `transition` plays across the cut, as on the main track: the clip before plays on
+    for half the length while it goes off, and the next starts half early.
+  - `layerClipsAt` (model) says which clips show at a moment and how far in or out each is.
+    `overlays.ts` turns that into a move, scale, turn, fade, blur, light, wipe or iris of the
+    layer's draws, all in `Engine.compose`, so preview and export match.
+  - Seventeen of the slideshow's kinds suit a layer: dissolve, dip, fade to white, soft wipe, iris,
+    flash, blur, parallax slide, push, whip, drop, cross zoom, zoom punch, zoom spin, spin, flip
+    and glitch.
+  - Across a cut both clips move on one even curve, so a push keeps them side by side.
+  - Chosen in the Transitions tab (In, Out, Between) and in the inspector's Transitions section.
+    The timeline shows orange ramps at a clip's ends and the cut mark on overlay tracks.
+  - Old projects have none of the fields and open unchanged. Template clips keep theirs through
+    `normalizeTemplateClip` (`withTransitions`).
+- **Listening before choosing** (`shared/listen.ts`): one file plays at a time in the whole app.
+  - The webview's player plays a blob of the file, read with `fs_read_binary`. As Quick Look
+    found, it refuses cs: addresses; the release CSP allows `media-src blob:`.
+  - In the Audio tab, play/stop is on every soundtrack, sound effect and music card. It stops
+    when the tab changes, the editor plays, or the editor closes or loses focus.
+  - The file picker has a Listen button for the chosen sound (Space in the list). It stops when
+    the selection changes or the picker closes.
+- **Editing a text:** double-click a text on the preview or the timeline, or choose Edit Text, and
+  a box opens on the preview to type in (live; Esc or a click elsewhere closes it). A template's
+  Edit Text puts the keyboard in the inspector's first Content field.
+  - Fixed on the way: the inspector's text field was empty until the playhead moved. h() sets a
+    string `value` as an attribute, so it now sets the property.
+- **Checked:** `tools/video-editor.test.mjs` has 12 tests: Select All, group moves, block moves,
+  copy and paste across projects, in/out and cut phases, the push keeping side by side, split,
+  every kind whole at 1 and gone at 0, draws and masks, and old projects.
+  - In the app on a nested display, with 5 s clips: the menus, Ctrl+A twice, a three-clip drag,
+    copy and paste, the box on the preview, a template's Edit Text, and listening in the Audio
+    tab and the picker.
+  - A 720p export of a 10 s project with a slide in, a soft wipe, a push across an overlay cut,
+    a spin out and an iris out matched the preview at five moments (mean difference 1–8.5 of
+    255 per channel).
+
 ### V0 results (this machine: i5-11400H, Intel UHD VA-API, GStreamer 1.20.3)
 
 | Probe | Result |

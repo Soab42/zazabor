@@ -4,10 +4,10 @@ import { icon } from "../../../../ui/icons";
 import { openDialog } from "../../../time/dialog";
 import { photoApi } from "../../photo/api";
 import { uid } from "../model";
-import { COLOR_KEYS, luminance, paletteFromPixels, themeOf, type BrandKit, type Colors } from "./brand";
+import { COLOR_KEYS, luminance, OWN_LOOK, paletteFromPixels, themeOf, type BrandKit, type Colors } from "./brand";
 import { readKitText, readSvg, writeKitText } from "./files";
-import { BUNDLED, FONT_KINDS, PAIRINGS, loadFamily, weightFor } from "./fonts";
-import { MAX_KITS, allKits, kitFile, readKitFile } from "./settings";
+import { BUNDLED, FONT_KINDS, PAIRINGS, faceName, loadFamily, weightFor } from "./fonts";
+import { MAX_KITS, allKits, kitFile, readKitFile, setDefaultKit } from "./settings";
 import { SLOT_EXTENSIONS, type MotionTools } from "./tools";
 
 /**
@@ -48,7 +48,7 @@ export function openKits(tools: MotionTools, ctx: KitsContext) {
           selected ? h("button", { class: "btn small", type: "button", title: "Apply to the selected template", onclick: () => tools.applyKit(selected, kit) }, "Apply") : null,
           h("button", { class: "btn small", type: "button", title: "Apply to every template in this project", onclick: () => tools.applyKitEverywhere(kit) }, "All"),
           h("button", { class: "icon-btn small", type: "button", title: isDefault ? "New templates get this kit" : "Use for new templates", disabled: isDefault, onclick: () => {
-            s.defaultKit = kit.id;
+            setDefaultKit(s, kit.id);
             persist();
             list();
           } }, icon(isDefault ? "starFilled" : "star", 15)),
@@ -56,7 +56,8 @@ export function openKits(tools: MotionTools, ctx: KitsContext) {
           h("button", { class: "icon-btn small", type: "button", title: "Export .zazkit", onclick: () => void exportKit(kit) }, icon("download", 15)),
           kit.builtIn ? null : h("button", { class: "icon-btn small", type: "button", title: "Delete", onclick: () => {
             s.kits = s.kits.filter((k) => k.id !== kit.id);
-            if (s.defaultKit === kit.id) s.defaultKit = allKits(s)[0].id;
+            // New templates go back to their own looks.
+            if (s.defaultKit === kit.id) setDefaultKit(s, OWN_LOOK);
             persist();
             list();
           } }, icon("trash", 15))));
@@ -86,7 +87,7 @@ export function openKits(tools: MotionTools, ctx: KitsContext) {
       return [k, input] as const;
     });
     const sw = h("div", { class: "mo-kit-preview" });
-    const preview = () => sw.replaceChildren(swatches(kit), h("span", { style: `font-family: "${kit.heading.family}"; font-weight: ${kit.heading.weight}` }, kit.name || "Brand"));
+    const preview = () => sw.replaceChildren(swatches(kit), h("span", { style: `font-family: "${faceName(kit.heading.family)}"; font-weight: ${kit.heading.weight}` }, kit.name || "Brand"));
     const families = FONT_KINDS.flatMap(([kind, label]) => BUNDLED.filter((b) => b.kind === kind).map((b) => [b.family, `${b.family} · ${label}`] as const));
     const fontSelect = (key: "heading" | "body" | "bangla", only?: (f: string) => boolean) => {
       const el = h("select", { onchange: () => {

@@ -1,6 +1,8 @@
 import type { Key } from "../ease";
 import { FORMAT_VERSION, type Template } from "../format";
 import { ALL_SHAPES, DIAMOND, FULL, RING, frame, per, showHide } from "./build";
+import { live, strict916 } from "./common-a";
+import { DEEP_TEAL } from "./looks";
 
 /**
  * Line Logo: the logo's outline draws itself in light (an SVG's own paths, or an outline traced
@@ -27,7 +29,7 @@ const EMBLEM = per({
 const fadeOut = showHide(0, 0.001, EXIT, 0.5);
 const shrink: Key[] = [[EXIT, 1, "in"], [EXIT + 0.5, 0.94]];
 
-export const lineLogo: Template = {
+export const lineLogo: Template = strict916({
   version: FORMAT_VERSION,
   id: "logo-line",
   name: "Line Logo",
@@ -37,6 +39,7 @@ export const lineLogo: Template = {
   length: 5.5,
   hold: [2.8, EXIT],
   shapes: ALL_SHAPES,
+  look: DEEP_TEAL,
   fields: [
     { id: "logo", kind: "media", label: "Logo", en: "", bind: "logo" },
     { id: "brand", kind: "text", label: "Brand name", en: "Lumen & Co.", bn: "লুমেন অ্যান্ড কো.", limit: 32 },
@@ -44,7 +47,8 @@ export const lineLogo: Template = {
   ],
   hits: [{ t: 0.2, sfx: "rise" }, { t: 1.45, sfx: "chime" }],
   layers: [
-    { id: "bg", kind: "rect", frame: FULL, fill: { kind: "radial", stops: [[0, "@secondary"], [1, "@bg"]] } },
+    live("bg", "aurora", { intensity: [[0, 0.3], [1.6, 0.9]], speed: 0.8, seed: 6 }),
+    live("motes", "drift", { over: true, intensity: 0.55, speed: 0.7, seed: 4 }),
     {
       id: "halo", kind: "ellipse", frame: per({
         "9:16": frame(0.5, 0.4, 1.1, 1.1), "16:9": frame(0.5, 0.38, 1.0, 1.0),
@@ -72,7 +76,7 @@ export const lineLogo: Template = {
       ],
     },
     {
-      id: "brand", kind: "text", field: "brand", font: "heading", size: 0.085, minSize: 0.05, lines: 1, color: "@text",
+      id: "brand", kind: "text", field: "brand", font: "heading", size: 0.085, minSize: 0.07, lines: 1, color: "@text",
       frame: per({
         "9:16": frame(0.5, 0.6, 0.76, 0.12), "16:9": frame(0.5, 0.71, 1.3, 0.12),
         "1:1": frame(0.5, 0.7, 0.86, 0.1), "4:5": frame(0.5, 0.68, 0.86, 0.11),
@@ -82,16 +86,16 @@ export const lineLogo: Template = {
       opacity: showHide(1.5, 0.5, EXIT, 0.4), blur: [[1.5, 0.02, "out"], [2.1, 0]],
     },
     {
-      id: "tagline", kind: "text", field: "tagline", font: "body", size: 0.036, minSize: 0.026, lines: 1, color: "@text/0.68", upper: true,
+      id: "tagline", kind: "text", field: "tagline", font: "body", role: "detail", size: 0.036, minSize: 0.036, lines: 1, color: "@text", upper: true,
       frame: per({
         "9:16": frame(0.5, 0.655, 0.76, 0.06), "16:9": frame(0.5, 0.8, 1.2, 0.06),
         "1:1": frame(0.5, 0.79, 0.84, 0.06), "4:5": frame(0.5, 0.755, 0.84, 0.06),
       }),
-      tracking: 0.2, textAt: { "1:1": { size: 0.03 } },
+      tracking: 0.2, textAt: { "1:1": { size: 0.036 } },
       animate: { unit: "word", t: 2.0, stagger: 0.07, duration: 0.5, from: { opacity: 0, dy: 0.5 } },
       exit: { unit: "line", t: EXIT - 0.1, stagger: 0, duration: 0.3, from: { opacity: 0 } },
     },
     { id: "vignette", kind: "fx", fx: "vignette", frame: FULL, amount: 0.6 },
     { id: "grain", kind: "fx", fx: "grain", frame: FULL, amount: 0.05 },
   ],
-};
+});

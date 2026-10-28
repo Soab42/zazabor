@@ -1,4 +1,5 @@
 import type { TextAnim, TextClip, TextStyle } from "./model";
+import { faceCss } from "./motion/fonts";
 
 /**
  * Texts on the canvas: drawn with Canvas 2D (so system fonts and Bangla shaping come from the
@@ -108,7 +109,7 @@ export function textLook(c: TextClip, local: number): TextLook {
 }
 
 function font(style: TextStyle, px: number) {
-  return `${style.italic ? "italic " : ""}${style.bold ? "700 " : "400 "}${Math.max(4, Math.round(px))}px ${style.font}`;
+  return `${style.italic ? "italic " : ""}${style.bold ? "700 " : "400 "}${Math.max(4, Math.round(px))}px ${faceCss(style.font)}`;
 }
 
 /** Breaks text into lines that fit `width` (words first, then characters for long words). */

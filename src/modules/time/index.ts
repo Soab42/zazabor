@@ -74,7 +74,7 @@ export const createTimeModule: ModuleFactory = () => {
     h("div", { class: "spacer" }),
     presence,
     h("button", { class: "icon-btn", type: "button", title: "Refresh", "aria-label": "Refresh", onclick: () => void refresh(true) }, icon("refresh", 17)),
-    h("button", { class: "btn", type: "button", onclick: () => reportDialog(host) }, icon("document", 15), "Report"),
+    h("button", { class: "btn tt-report-btn", type: "button", title: "Daily report", "aria-label": "Report", onclick: () => reportDialog(host) }, icon("document", 15), h("span", { class: "tt-btn-label" }, "Report")),
     timerButton);
 
   // ---- stat cards
@@ -211,11 +211,13 @@ export const createTimeModule: ModuleFactory = () => {
     const session = today?.session ?? null;
     presence.classList.toggle("in", !!session);
     checkButton.className = `btn small ${session ? "tt-danger-solid" : "primary"}`;
-    checkButton.replaceChildren(icon(session ? "logOut" : "logIn", 14), session ? "Check Out" : "Check In");
+    checkButton.replaceChildren(icon(session ? "logOut" : "logIn", 14), h("span", { class: "tt-btn-label" }, session ? "Check Out" : "Check In"));
+    checkButton.setAttribute("aria-label", session ? "Check Out" : "Check In");
     const running = today?.running ?? null;
     const timing = running?.kind === "work";
     timerButton.className = `btn tt-timer-btn ${timing ? "tt-danger-solid" : "primary"}`;
-    timerButton.replaceChildren(icon(timing ? "stop" : "play", 13), timing ? "Stop" : "Start Task Timer");
+    // A narrow page keeps "Start" of "Start Task Timer".
+    timerButton.replaceChildren(icon(timing ? "stop" : "play", 13), timing ? "Stop" : "Start", timing ? "" : h("span", { class: "tt-timer-more" }, "Task Timer"));
     for (const [kind, chip] of chips) {
       const on = running?.kind === kind;
       chip.el.classList.toggle("active", on);

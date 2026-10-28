@@ -1,6 +1,8 @@
 import { FORMAT_VERSION, type Layer, type Template } from "../format";
 import type { Shape } from "../layout";
 import { ALL_SHAPES, FULL, across, frame, per, pop, showHide } from "./build";
+import { hookAt0, live, strict916 } from "./common-a";
+import { HOT_PINK } from "./looks";
 
 /**
  * Hook + Follow: a reel's opening line punched in word by word over light rays, then a circle wipe
@@ -37,7 +39,7 @@ function social(i: number): Layer {
   };
 }
 
-export const hookFollow: Template = {
+export const hookFollow: Template = strict916(hookAt0({
   version: FORMAT_VERSION,
   id: "reel-hook",
   name: "Hook + Follow",
@@ -47,6 +49,7 @@ export const hookFollow: Template = {
   length: 8,
   hold: [5.2, EXIT],
   shapes: ALL_SHAPES,
+  look: HOT_PINK,
   fields: [
     { id: "hook", kind: "text", label: "Hook", en: "3 things nobody tells you", bn: "৩টি কথা কেউ বলে না", limit: 60, multiline: true },
     { id: "logo", kind: "media", label: "Logo", en: "", bind: "logo" },
@@ -57,8 +60,8 @@ export const hookFollow: Template = {
   hits: [{ t: 0.1, sfx: "impact" }, { t: WIPE, sfx: "whoosh" }, { t: 3.4, sfx: "pop" }, { t: 4.1, sfx: "click" }, { t: 4.75, sfx: "ding" }],
   layers: [
     // Scene A: the hook.
-    { id: "bg-a", kind: "rect", frame: FULL, time: SCENE_A, fill: { kind: "linear", angle: 160, stops: [[0, "@primary"], [1, "@primaryDeep"]] } },
-    { id: "rays", kind: "fx", fx: "rays", frame: FULL, time: SCENE_A, color: "@onPrimary", amount: 0.55, opacity: [[0, 0], [0.6, 1]] },
+    live("bg-a", "mesh", { time: SCENE_A, colors: ["@primary", "@primaryDeep", "@secondary", "@primaryDeep", "@primary", "@deep"], speed: 1.6, intensity: 0.9 }),
+    live("rays", "rays", { time: SCENE_A, over: true, colors: ["@primary", "@secondary"], intensity: [[0, 0], [0.6, 0.6]], speed: 1.5 }),
     {
       id: "progress", kind: "fx", fx: "progress", time: SCENE_A, color: "@accent", value: [[0, 0, "linear"], [WIPE, 1]],
       frame: per({
@@ -84,7 +87,8 @@ export const hookFollow: Template = {
       id: "wipe", kind: "ellipse", frame: frame(0.5, 0.5, 2.15, 2.15), time: SCENE_B, fill: "@bg",
       scale: [[WIPE, 0, "inOut"], [WIPE + 0.6, 1]],
     },
-    { id: "blobs", kind: "fx", fx: "blobs", frame: FULL, time: SCENE_B, amount: 0.6, opacity: [[3.2, 0], [3.9, 1]] },
+    live("glass", "glass", { time: SCENE_B, colors: ["@primaryDeep", "@secondary", "@primary", "@deep", "@bg"], intensity: 0.45, vignette: 0.5, opacity: [[3.2, 0], [3.9, 1]], seed: 5 }),
+    live("bokeh", "bokeh", { time: SCENE_B, over: true, colors: ["@primary", "@secondary", "@primaryDeep"], intensity: 0.4, soft: 0.6, seed: 10 }),
     {
       id: "logo-circle", kind: "ellipse", frame: LOGO_CIRCLE, time: SCENE_B, fill: "@surface", stroke: "@primary", strokeWidth: 0.006,
       glow: { color: "@primary/0.5", blur: 0.04 },
@@ -106,7 +110,7 @@ export const hookFollow: Template = {
       exit: { unit: "line", t: EXIT, stagger: 0, duration: 0.3, from: { opacity: 0, dy: -0.4 } },
     },
     {
-      id: "handle", kind: "text", field: "handle", font: "body", size: 0.04, minSize: 0.028, lines: 1, color: "@text/0.68", time: SCENE_B,
+      id: "handle", kind: "text", field: "handle", font: "body", weight: 700, role: "detail", size: 0.042, minSize: 0.04, lines: 1, color: "@text", time: SCENE_B,
       frame: row("handle", 0.76, 0.06),
       animate: { unit: "line", t: 3.95, stagger: 0, duration: 0.45, from: { opacity: 0, dy: 0.5 } },
       exit: { unit: "line", t: EXIT, stagger: 0, duration: 0.3, from: { opacity: 0 } },
@@ -115,9 +119,9 @@ export const hookFollow: Template = {
       id: "follow", kind: "group", frame: FOLLOW, time: SCENE_B,
       scale: pop(4.1, 0.5, 0.55, EXIT, 0.8), opacity: showHide(4.1, 0.2, EXIT, 0.3), idle: { scale: 0.05 },
       children: [
-        { id: "follow-pill", kind: "rect", frame: FOLLOW, radius: "pill", fill: { kind: "linear", angle: 0, stops: [[0, "@primary"], [1, "@accent"]] },
+        { id: "follow-pill", kind: "rect", frame: FOLLOW, radius: "pill", fill: { kind: "linear", angle: 0, stops: [[0, "@primary"], [1, "@secondary"]] },
           glow: { color: "@primary/0.55", blur: 0.045 }, sheen: { at: [[4.7, -0.2, "inOut"], [5.4, 1.2]], width: 0.25, strength: 0.5 } },
-        { id: "follow-text", kind: "text", field: "follow", font: "body", weight: 800, size: 0.042, minSize: 0.026, lines: 1, color: "@onPrimary", frame: FOLLOW,
+        { id: "follow-text", kind: "text", field: "follow", font: "body", weight: 800, role: "detail", size: 0.042, minSize: 0.036, lines: 1, color: "@onPrimary", frame: FOLLOW,
           textAt: { "16:9": { size: 0.038 } } },
       ],
     },
@@ -127,4 +131,4 @@ export const hookFollow: Template = {
     social(3),
     { id: "grain", kind: "fx", fx: "grain", frame: FULL, amount: 0.05 },
   ],
-};
+}, ["hook"]));

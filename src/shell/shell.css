@@ -147,11 +147,12 @@ input.switch:disabled { opacity: 0.45; cursor: default; }
 }
 .ob-overlay.leaving { opacity: 0; pointer-events: none; transition: opacity 0.26s ease; }
 .ob-sheet {
-  display: flex; flex-direction: column; width: min(640px, 100%); border-radius: 20px;
+  display: flex; flex-direction: column; width: min(640px, 100%); max-height: calc(100dvh - 48px); border-radius: 20px;
   background: var(--glass-strong); -webkit-backdrop-filter: blur(40px) saturate(180%); backdrop-filter: blur(40px) saturate(180%);
   box-shadow: inset 0 1px 0 var(--shine), var(--shadow-pop); animation: pop-in 0.3s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
-.ob-body { display: flex; min-height: 420px; padding: 40px 44px 16px; }
+/* On a short screen the step scrolls and the footer (Back, Next) stays in view. */
+.ob-body { flex: 1; display: flex; min-height: min(420px, 50dvh); overflow-y: auto; padding: 40px 44px 16px; }
 .ob-step { display: flex; flex-direction: column; gap: 22px; width: 100%; animation: pop-in 0.26s cubic-bezier(0.2, 0.8, 0.3, 1); }
 .ob-center { align-items: center; justify-content: center; gap: 12px; text-align: center; }
 .ob-mark, .ob-done {
@@ -205,7 +206,7 @@ input.switch:disabled { opacity: 0.45; cursor: default; }
 .ob-mock-tiles { flex: 1; display: grid; grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr); gap: 5px; }
 .ob-mock-tiles span { border-radius: 3px; background: var(--m-tile); }
 
-.ob-features { display: flex; flex-direction: column; gap: 10px; }
+.ob-features { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
 .ob-feature {
   display: grid; grid-template-columns: 48px minmax(0, 1fr) 24px; align-items: center; gap: 14px; padding: 14px 16px;
   border: 0; border-radius: 14px; background: var(--tile); color: var(--text); text-align: left; cursor: pointer;

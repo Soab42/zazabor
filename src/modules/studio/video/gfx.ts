@@ -246,6 +246,26 @@ void main() {
   gl_Position = vec4(pos, 0.0, 1.0);
 }`;
 
+/** A read of the output `beginI420` started: a buffer on the GPU's side and the fence that says it's filled. */
+export interface PendingRead {
+  buffer: WebGLBuffer;
+  fence: WebGLSync;
+  bytes: number;
+}
+
+/** Resolves on a later task: through a message (timers wait 4 ms once nested), or after `ms`. */
+function nextTask(ms = 0): Promise<void> {
+  if (ms > 0) return new Promise((r) => setTimeout(r, ms));
+  return new Promise((r) => {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => {
+      ch.port1.close();
+      r();
+    };
+    ch.port2.postMessage(null);
+  });
+}
+
 interface Target {
   fb: WebGLFramebuffer;
   tex: WebGLTexture;
@@ -287,6 +307,9 @@ export class Compositor {
   private up: (n: string) => WebGLUniformLocation | null;
   private targets: Record<"a" | "b" | "c", Target | null> = { a: null, b: null, c: null };
   private planes: Target[] = [];
+  /** Free buffers for the reads `beginI420` starts, `readBytes` each. */
+  private reads: WebGLBuffer[] = [];
+  private readBytes = 0;
   private width = 0;
   private height = 0;
   private lost = false;
@@ -653,6 +676,67 @@ export class Compositor {
 
   /** C as I420 (width a multiple of 8), into `out` (width × height × 1.5 bytes). */
   readI420(out: Uint8Array) {
+    const gl = this.gl;
+    this.packI420((plane, offset) => gl.readPixels(0, 0, plane.width, plane.height, gl.RGBA, gl.UNSIGNED_BYTE, out, offset));
+  }
+
+  /**
+   * Starts reading C as I420 without waiting for the GPU: the planes go into a buffer on its
+   * side, and `collectI420` copies them out once they're there, so the page draws the next
+   * frames meanwhile (export keeps a few on their way).
+   */
+  beginI420(): PendingRead {
+    const gl = this.gl;
+    const c = this.targets.c;
+    const bytes = c ? (c.width * c.height * 3) / 2 : 0;
+    if (bytes !== this.readBytes) {
+      for (const b of this.reads) gl.deleteBuffer(b);
+      this.reads = [];
+      this.readBytes = bytes;
+    }
+    let buffer = this.reads.pop();
+    if (!buffer) {
+      buffer = gl.createBuffer()!;
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
+      gl.bufferData(gl.PIXEL_PACK_BUFFER, bytes, gl.STREAM_READ);
+    }
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
+    try {
+      this.packI420((plane, offset) => gl.readPixels(0, 0, plane.width, plane.height, gl.RGBA, gl.UNSIGNED_BYTE, offset));
+    } catch (err) {
+      this.reads.push(buffer);
+      throw err;
+    } finally {
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    }
+    const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
+    gl.flush();
+    return { buffer, fence, bytes };
+  }
+
+  /** Copies a read `beginI420` started into `out` once the GPU has done it; the page runs meanwhile. */
+  async collectI420(read: PendingRead, out: Uint8Array): Promise<void> {
+    const gl = this.gl;
+    // A fence only changes between tasks: look again on the next one (then every millisecond).
+    for (let tries = 0; !this.lost && gl.clientWaitSync(read.fence, 0, 0) === gl.TIMEOUT_EXPIRED; tries++) await nextTask(tries < 8 ? 0 : 1);
+    gl.deleteSync(read.fence);
+    if (this.lost) throw new Error("The picture was lost (WebGL).");
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, read.buffer);
+    gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, out, 0, read.bytes);
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    if (read.bytes === this.readBytes) this.reads.push(read.buffer);
+    else gl.deleteBuffer(read.buffer);
+  }
+
+  /** Lets go of a read `beginI420` started that won't be collected. */
+  dropI420(read: PendingRead) {
+    this.gl.deleteSync(read.fence);
+    if (read.bytes === this.readBytes) this.reads.push(read.buffer);
+    else this.gl.deleteBuffer(read.buffer);
+  }
+
+  /** Draws C's I420 planes (width a multiple of 8) and has `read` take each, at its offset in the frame. */
+  private packI420(read: (plane: Target, offset: number) => void) {
     const c = this.targets.c;
     if (!c || this.lost) throw new Error("The picture was lost (WebGL).");
     const gl = this.gl;
@@ -670,7 +754,7 @@ export class Compositor {
       this.bind(plane);
       gl.uniform1i(this.up("uPlane"), i);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
-      gl.readPixels(0, 0, plane.width, plane.height, gl.RGBA, gl.UNSIGNED_BYTE, out, offsets[i]);
+      read(plane, offsets[i]);
     });
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
@@ -678,6 +762,7 @@ export class Compositor {
   dispose() {
     for (const k of ["a", "b", "c"] as const) this.drop(this.targets[k]);
     for (const p of this.planes) this.drop(p);
+    for (const b of this.reads) this.gl.deleteBuffer(b);
     this.gl.getExtension("WEBGL_lose_context")?.loseContext();
   }
 }

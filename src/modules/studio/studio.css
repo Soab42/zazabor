@@ -2,8 +2,15 @@
 
 .tone-photo { --app: #8b5cf6; --app-ink: #c4b0ff; --app-soft: rgba(139, 92, 246, 0.2); }
 .tone-video { --app: #f97350; --app-ink: #ffb199; --app-soft: rgba(249, 115, 80, 0.18); }
+/* The Video Editor's own marks: keyframes, audio and warnings. --ve-key-mark is the keyframe gold on
+   clip colours in the timeline (the same in both themes); --ve-key is it on the panels' background. */
+.tone-video { --ve-key: #ffd166; --ve-key-mark: #ffd166; --ve-audio: #34c38f; --ve-warn: #f0a33a; }
+/* A dark board under previews of what goes on the video (text styles, stickers, thumbnails), in
+   both themes: they're drawn as they'll look over a picture. */
+.tone-video { --ve-board: #1d1f25; --ve-board-ink: #c9c9cf; }
 :root[data-theme="light"] .tone-photo { --app: #7c3aed; --app-ink: #6d28d9; --app-soft: rgba(124, 58, 237, 0.12); }
 :root[data-theme="light"] .tone-video { --app: #ea580c; --app-ink: #c2410c; --app-soft: rgba(234, 88, 12, 0.12); }
+:root[data-theme="light"] .tone-video { --ve-key: #b8860b; --ve-audio: #14935f; --ve-warn: #b86e00; }
 .of-rail-btn.tone-photo, .of-rail-btn.tone-video { color: var(--app-ink); }
 .of-rail-btn.tone-photo.active, .of-rail-btn.tone-video.active { background: var(--app-soft); color: var(--app-ink); }
 

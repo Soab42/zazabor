@@ -103,11 +103,13 @@ pub async fn videoedit_export_audio(request: Request<'_>) -> Result<(), String> 
     blocking(move || export::audio(job, &pcm)).await
 }
 
-/// The next frame (body: I420 at the output size; header `x-job`); returns frames written.
+/// A frame (body: I420 at the output size; headers `x-job` and `x-seq`, its number from 0:
+/// the page sends a few at once); returns frames written.
 #[tauri::command]
 pub async fn videoedit_export_frame(request: Request<'_>) -> Result<u64, String> {
     let (job, frame) = job_and_body(&request)?;
-    blocking(move || export::frame(job, frame)).await
+    let seq = request.headers().get("x-seq").and_then(|v| v.to_str().ok()).and_then(|v| v.parse().ok());
+    blocking(move || export::frame(job, seq, frame)).await
 }
 
 #[tauri::command]
@@ -303,7 +305,7 @@ mod live_tests {
         }
         for format in ["mp4", "webm"] {
             let out = std::env::temp_dir().join(format!("videoedit-live.{format}"));
-            let spec = export::Spec { path: out.to_string_lossy().into(), width: 1080, height: 1920, fps: 30, format: format.into(), quality: "standard".into(), audio: true, codec: String::new() };
+            let spec = export::Spec { path: out.to_string_lossy().into(), width: 1080, height: 1920, fps: 30, format: format.into(), quality: "standard".into(), audio: true, codec: String::new(), speed: String::new() };
             let started = std::time::Instant::now();
             let job = export::begin(spec).unwrap();
             let pcm: Vec<u8> = (0..48_000 * 3).flat_map(|i| {
@@ -319,7 +321,7 @@ mod live_tests {
                         frame[y * w + x] = (((x + n * 8) / 60 + y / 60) % 2 * 160 + 40) as u8;
                     }
                 }
-                export::frame(job, frame).unwrap();
+                export::frame(job, Some(n as u64), frame).unwrap();
             }
             let done = export::finish(job).unwrap();
             println!("{format}: {} frames, {} bytes in {:?}", done.frames, done.bytes, started.elapsed());

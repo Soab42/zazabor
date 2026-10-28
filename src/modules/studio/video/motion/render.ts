@@ -1,6 +1,7 @@
 import { previewUrl } from "../../../../api";
 import type { Compositor, LayerDraw, Source } from "../gfx";
 import { mediaOf, placeAt, type Project } from "../model";
+import { blurMoments, blurOffsets, frameJitter, stillBelow, travelPixels } from "./blur";
 import { pieceTime, type Template, type TemplateClip } from "./format";
 import { loadFamily, familyLoaded } from "./fonts";
 import { templateTime, type Box } from "./layout";
@@ -11,13 +12,12 @@ import { readSvg } from "./files";
 
 /**
  * Template clips in the editor's engine: each draws on a canvas of its own at the output size,
- * which becomes one layer of the compositor. Export adds motion blur (several moments averaged)
- * while something moves, and waits for fonts and pictures; the preview draws with what's there
- * and redraws when the rest arrives.
+ * which becomes one layer of the compositor. Export adds motion blur (several moments averaged,
+ * as many as the motion needs: blur.ts) while something moves, and waits for fonts and pictures;
+ * the preview draws with what's there and redraws when the rest arrives.
  */
 
-/** Moments averaged for motion blur on export, and the shutter (fraction of a frame). */
-const BLUR_SAMPLES = 5;
+/** Export's shutter for motion blur (fraction of a frame). */
 const SHUTTER = 0.5;
 
 interface Held {
@@ -38,6 +38,10 @@ export class MotionRenderer {
   /** Pictures by path (slots' media and kits' logos). */
   private pictures = new Map<string, Loaded | Promise<void>>();
   private accum: HTMLCanvasElement | null = null;
+  /** Motion blur's still layers, drawn once per frame. */
+  private still: HTMLCanvasElement | null = null;
+  /** A Fast export: no motion blur, and animated backgrounds at half size (as the preview). */
+  fast = false;
 
   constructor(private gfx: Compositor, private redraw: () => void) {}
 
@@ -68,7 +72,7 @@ export class MotionRenderer {
       held.fonts = ready;
     }
     const picKey = [...scene.pictures.values()].map((x) => (x ? 1 : 0)).join("") + [...scene.outlines.values()].map((x) => (x ? 1 : 0)).join("");
-    const key = `${tt.toFixed(4)}|${W}x${H}|${final ? "x" : "p"}|${ready}|${picKey}|${JSON.stringify(c.values)}|${JSON.stringify(c.theme)}|${c.ungrouped ? 1 : 0}`;
+    const key = `${tt.toFixed(4)}|${W}x${H}|${final ? (this.fast ? "f" : "x") : "p"}|${ready}|${picKey}|${JSON.stringify(c.values)}|${JSON.stringify(c.theme)}|${c.ungrouped ? 1 : 0}`;
     if (held.key !== key) {
       if (held.canvas.width !== W || held.canvas.height !== H) {
         held.canvas.width = W;
@@ -80,25 +84,38 @@ export class MotionRenderer {
       held.hits = [];
       const fps = Math.max(1, p.canvas.fps || 30);
       const shutter = SHUTTER / fps;
-      if (final && moving(template, tt - shutter, tt + shutter)) {
-        // Motion blur: moments across the shutter, averaged (premultiplied colours add up).
+      const at = (offset: number) => templateTime(Math.max(0, piece.local + offset), piece.span, template.length, template.hold);
+      const moments = final && !this.fast && moving(template, tt - shutter, tt + shutter)
+        ? blurMoments(travelPixels(template, at(-shutter / 2), at(shutter / 2), W, H, c.theme.motion, c.values))
+        : 1;
+      if (moments > 1) {
+        // Motion blur: moments across the shutter, averaged (premultiplied colours add up). The
+        // still layers at the bottom are drawn once and laid under every moment.
+        const fit = (c: HTMLCanvasElement) => {
+          if (c.width !== W || c.height !== H) {
+            c.width = W;
+            c.height = H;
+          }
+          const x = c.getContext("2d")!;
+          x.setTransform(1, 0, 0, 1, 0, 0);
+          x.clearRect(0, 0, W, H);
+          return x;
+        };
         const acc = (this.accum ??= document.createElement("canvas"));
-        if (acc.width !== W || acc.height !== H) {
-          acc.width = W;
-          acc.height = H;
-        }
         const a = acc.getContext("2d")!;
+        const count = template.layers.length;
+        const below = stillBelow(template, at(-shutter / 2), at(shutter / 2));
+        const base = below > 0 ? (this.still ??= document.createElement("canvas")) : null;
+        if (base) drawScene(fit(base), W, H, tt, idle, scene, held.mem, held.hits, { from: 0, to: below, grade: false });
         g.save();
         g.globalCompositeOperation = "lighter";
-        for (let i = 0; i < BLUR_SAMPLES; i++) {
-          const offset = (i / (BLUR_SAMPLES - 1) - 0.5) * shutter;
-          const ti = templateTime(Math.max(0, piece.local + offset), piece.span, template.length, template.hold);
-          a.setTransform(1, 0, 0, 1, 0, 0);
-          a.clearRect(0, 0, W, H);
-          drawScene(a, W, H, ti, idle, scene, held.mem, i === Math.floor(BLUR_SAMPLES / 2) ? held.hits : null);
-          g.globalAlpha = 1 / BLUR_SAMPLES;
+        blurOffsets(moments, frameJitter(Math.round(t * fps))).forEach((offset, i) => {
+          fit(acc);
+          if (base) a.drawImage(base, 0, 0);
+          drawScene(a, W, H, at(offset * shutter), idle, scene, held.mem, i === Math.floor(moments / 2) ? held.hits : null, base ? { from: below, to: count, grade: true } : undefined);
+          g.globalAlpha = 1 / moments;
           g.drawImage(acc, 0, 0);
-        }
+        });
         g.restore();
       } else drawScene(g, W, H, tt, idle, scene, held.mem, held.hits);
       try {
@@ -159,7 +176,7 @@ export class MotionRenderer {
       pictures.set(f.id, got?.pic ?? null);
       outlines.set(f.id, got?.outline ?? null);
     }
-    return { template, values: c.values, theme: c.theme, pictures, outlines, graphicsOnly: c.ungrouped, placeholders: !final };
+    return { template, values: c.values, theme: c.theme, pictures, outlines, graphicsOnly: c.ungrouped, placeholders: !final, draft: !final || this.fast };
   }
 
   /** A picture by path (an SVG read as a picture and as paths), with its outline when asked for. */

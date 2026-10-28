@@ -30,13 +30,13 @@
   background: var(--glass-surface, var(--glass)); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
   box-shadow: inset 0 -0.5px 0 var(--line-strong);
 }
-.tt-heading { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.tt-heading { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 0 1 auto; }
 .tt-heading-icon {
   display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 10px;
   background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 .tt-heading-text { min-width: 0; }
-.tt-heading h1 { margin: 0; font-size: var(--text-lg); font-weight: 700; letter-spacing: var(--text-lg-ls); white-space: nowrap; }
+.tt-heading h1 { margin: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--text-lg); font-weight: 700; letter-spacing: var(--text-lg-ls); white-space: nowrap; }
 .tt-sub { margin: 1px 0 0; color: var(--muted); font-size: var(--text-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .tt-presence {
@@ -62,11 +62,12 @@
 
 /* ---- stat cards */
 
-.tt-cards { display: flex; gap: 10px; overflow-x: auto; padding: 2px 2px 6px; margin: -2px -2px 0; scroll-snap-type: x proximity; scrollbar-width: thin; }
+/* All eight in a row while they fit, then two rows of four, then four rows of two (never a row
+   that scrolls sideways with cards out of sight). */
+.tt-cards { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 10px; }
 .tt-card {
-  flex: 1 0 148px; display: flex; align-items: center; gap: 11px; min-width: 148px; padding: 12px 14px;
+  display: flex; align-items: center; gap: 11px; min-width: 0; padding: 12px 14px;
   border-radius: var(--radius-lg); background: var(--control); box-shadow: inset 0 0 0 0.5px var(--line), inset 0 1px 0 var(--shine);
-  scroll-snap-align: start;
   transition: background-color var(--dur-med) var(--ease-out), box-shadow var(--dur-med) var(--ease-out);
 }
 .tt-chip-icon {
@@ -75,7 +76,7 @@
   box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--tone) 30%, transparent);
 }
 .tt-card-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.tt-card-value { font: 650 19px/1.15 var(--mono); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; color: var(--text); }
+.tt-card-value { font: 650 19px/1.15 var(--mono); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; color: var(--text); white-space: nowrap; }
 .tt-stat-label { color: var(--faint); font-size: var(--text-xs); font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; }
 .tt-card.ticking { background: color-mix(in srgb, var(--tone) 10%, var(--control)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 45%, transparent), 0 4px 16px -8px color-mix(in srgb, var(--tone) 55%, transparent); }
 .tt-card.ticking .tt-card-value { color: var(--tone-ink); }
@@ -130,7 +131,7 @@
 .tt-table { border-radius: var(--radius-lg); background: rgba(var(--fg), 0.03); box-shadow: inset 0 0 0 0.5px var(--line); overflow: hidden; }
 .tt-table[hidden] { display: none; }
 .tt-row {
-  display: grid; grid-template-columns: minmax(200px, 2.4fr) minmax(90px, 1.1fr) 112px 112px 84px 118px; align-items: center; gap: 12px;
+  display: grid; grid-template-columns: minmax(160px, 2.4fr) minmax(70px, 1.1fr) minmax(96px, 112px) minmax(96px, 112px) minmax(64px, 84px) minmax(100px, 118px); align-items: center; gap: 12px;
   min-height: 46px; padding: 0 14px;
 }
 .tt-row + .tt-row, .tt-rows .tt-row:first-child { box-shadow: inset 0 0.5px 0 var(--line); }
@@ -173,14 +174,12 @@
 
 .tt-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
-/* A narrow window: each row becomes a card, and the bar drops its subtitle. */
-@container (max-width: 860px) {
-  .tt-sub { display: none; }
-  .tt-presence-text { display: none; }
-  .tt-timer-btn { min-width: 0; }
+/* Narrower pages: the cards wrap, the bar drops its subtitle and then its longer labels, and below
+   900px each row of the log becomes a card. */
+@container (max-width: 1300px) {
+  .tt-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
-@container (max-width: 760px) {
-  .tt-scroll { padding: 16px 14px 40px; }
+@container (max-width: 900px) {
   .tt-head { display: none; }
   .tt-table { background: none; box-shadow: none; overflow: visible; }
   .tt-rows { display: flex; flex-direction: column; gap: 8px; }
@@ -193,7 +192,44 @@
   .tt-cell[data-label]::before { content: attr(data-label); margin-right: 5px; color: var(--faint); font-size: 10.5px; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; }
   .tt-type { margin-left: auto; }
   .tt-type::before { display: none; }
+}
+@container (max-width: 860px) {
+  .tt-sub { display: none; }
+  .tt-presence-text { display: none; }
+  .tt-timer-btn { min-width: 0; }
+}
+@container (max-width: 760px) {
+  .tt-scroll { padding: 16px 14px 40px; }
+  .tt-card { gap: 9px; padding: 10px 12px; }
+  .tt-card .tt-chip-icon { width: 28px; height: 28px; border-radius: 8px; }
+  .tt-card-value { font-size: 16px; }
   .search.tt-search { width: 100%; }
+}
+@container (max-width: 680px) {
+  .tt-report-btn { padding: 0 9px; }
+  .tt-report-btn .tt-btn-label { display: none; }
+}
+@container (max-width: 600px) {
+  /* Each card stacks its label over its time, so four still fit across. */
+  .tt-card { display: grid; grid-template: "icon label" auto "value value" auto / auto minmax(0, 1fr); align-items: center; gap: 5px 7px; padding: 9px 10px; }
+  .tt-card-text { display: contents; }
+  .tt-card .tt-chip-icon { grid-area: icon; width: 20px; height: 20px; border-radius: 6px; }
+  .tt-card .tt-chip-icon svg { width: 12px; height: 12px; }
+  .tt-card .tt-stat-label { grid-area: label; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tt-card-value { grid-area: value; font-size: 15px; }
+  .tt-bar { gap: 8px; padding: 0 12px 0 14px; }
+  .tt-heading-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .tt-timer-more { display: none; }
+  .tt-range { flex: 1 0 100%; }
+  .tt-range .tt-datetime-wrap { flex: 1; width: auto; }
+}
+@container (max-width: 470px) {
+  .tt-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container (max-width: 420px) {
+  .tt-presence { padding-left: 10px; }
+  .tt-presence .tt-btn-label { display: none; }
+  .tt-presence .btn.small { padding: 0 7px; }
 }
 
 /* ---- dialogs */

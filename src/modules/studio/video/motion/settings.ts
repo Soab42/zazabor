@@ -1,4 +1,4 @@
-import { BUILT_IN_KITS, DEFAULT_KIT_ID, normalizeKit, normalizeTheme, type BrandKit, type Theme } from "./brand";
+import { BUILT_IN_KITS, DEFAULT_KIT_ID, lookTheme, normalizeKit, normalizeTheme, OWN_LOOK, themeOf, type BrandKit, type Theme } from "./brand";
 import { normalizeTemplate, type Template } from "./format";
 
 /**
@@ -22,7 +22,10 @@ export interface SavedTemplate {
 export interface MotionSettings {
   /** The user's own kits (the built-in ones aren't stored). */
   kits: BrandKit[];
+  /** The kit new templates get, or OWN_LOOK: each template's own look. */
   defaultKit: string;
+  /** The user chose `defaultKit` (Midnight was everyone's default before templates had looks). */
+  kitChosen?: boolean;
   mine: SavedTemplate[];
   /** The browser previews fields in Bangla. */
   bangla: boolean;
@@ -41,9 +44,27 @@ export function kitById(s: MotionSettings, id: string | null): BrandKit | undefi
   return id ? allKits(s).find((k) => k.id === id) : undefined;
 }
 
-/** The kit new templates get (the first built-in one when the default was deleted). */
+/** The kit new templates get (the first built-in one while they get their own looks). */
 export function defaultKit(s: MotionSettings): BrandKit {
   return kitById(s, s.defaultKit) ?? BUILT_IN_KITS[0];
+}
+
+/** New templates show their own looks (no default kit chosen). */
+export function usesOwnLook(s: MotionSettings): boolean {
+  return s.defaultKit === OWN_LOOK;
+}
+
+/** The kit new templates get, or OWN_LOOK. */
+export function setDefaultKit(s: MotionSettings, id: string): void {
+  s.defaultKit = id === OWN_LOOK || kitById(s, id) ? id : OWN_LOOK;
+  s.kitChosen = s.defaultKit !== OWN_LOOK;
+}
+
+/** The theme and kit a new `template` starts with: its own look, or the default kit's. */
+export function themeFor(template: Template, s: MotionSettings): { theme: Theme; kit: string } {
+  if (usesOwnLook(s)) return { theme: lookTheme(template.look), kit: OWN_LOOK };
+  const kit = defaultKit(s);
+  return { theme: themeOf(kit), kit: kit.id };
 }
 
 function normalizeSaved(raw: unknown): SavedTemplate | null {
@@ -71,14 +92,18 @@ export function normalizeMotionSettings(raw: unknown): MotionSettings {
     .filter((k): k is BrandKit => !!k && !builtIn.has(k.id))
     .slice(0, MAX_KITS);
   for (const k of kits) delete k.builtIn;
+  const kitChosen = !!r.kitChosen;
+  const stored = typeof r.defaultKit === "string" ? r.defaultKit : OWN_LOOK;
   const s: MotionSettings = {
     kits,
-    defaultKit: typeof r.defaultKit === "string" ? r.defaultKit : DEFAULT_KIT_ID,
+    defaultKit: stored === DEFAULT_KIT_ID && !kitChosen ? OWN_LOOK : stored,
+    kitChosen,
     mine: (Array.isArray(r.mine) ? r.mine : []).map(normalizeSaved).filter((x): x is SavedTemplate => !!x).slice(0, MAX_MINE),
     bangla: !!r.bangla,
     sounds: r.sounds === undefined ? true : !!r.sounds,
   };
-  if (!kitById(s, s.defaultKit)) s.defaultKit = DEFAULT_KIT_ID;
+  if (s.defaultKit !== OWN_LOOK && !kitById(s, s.defaultKit)) s.defaultKit = OWN_LOOK;
+  if (s.defaultKit === OWN_LOOK) s.kitChosen = false;
   return s;
 }
 

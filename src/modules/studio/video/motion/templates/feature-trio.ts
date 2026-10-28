@@ -2,6 +2,8 @@ import { FORMAT_VERSION, type Layer, type Template } from "../format";
 import { ICON_CHOICES } from "../icons";
 import type { Frame, Shape } from "../layout";
 import { ALL_SHAPES, FULL, across, frame, per, showHide } from "./build";
+import { hookAt0, live, strict916 } from "./common-a";
+import { CLEAR_SKY } from "./looks";
 
 /**
  * Feature Trio: a heading and three feature cards (icon, title, a line about it) that rise in one
@@ -55,25 +57,25 @@ function card(i: number): Layer {
     opacity: showHide(t, 0.3, out, 0.3), dy: [[t, 0.08, "out"], [t + 0.6, 0], [out, 0, "in"], [out + 0.3, -0.04]],
     scale: [[t, 0.94, "out"], [t + 0.6, 1]],
     children: [
-      { id: `card${i + 1}-bg`, kind: "rect", frame: at("card"), radius: "theme", fill: "@surface", stroke: "@text/0.1", strokeWidth: 0.002,
+      { id: `card${i + 1}-bg`, kind: "rect", frame: at("card"), radius: "theme", fill: "@card", stroke: "@text/0.1", strokeWidth: 0.002,
         shadow: { color: "#000000/0.25", blur: 0.04, y: 0.015 } },
       { id: `card${i + 1}-circle`, kind: "ellipse", frame: at("circle"), fill: "@primary/0.18", scale: [[t + 0.1, 0.4, "spring"], [t + 0.7, 1]] },
       { id: `card${i + 1}-icon`, kind: "icon", field: `icon${i + 1}`, frame: at("icon"), color: "@primary", strokeWidth: 1.9, draw: [[t + 0.2, 0, "inOut"], [t + 0.95, 1]] },
       {
-        id: `card${i + 1}-title`, kind: "text", field: `f${i + 1}`, font: "heading", size: 0.05, minSize: 0.032, lines: 1, color: "@text", align: "left",
+        id: `card${i + 1}-title`, kind: "text", field: `f${i + 1}`, font: "heading", size: 0.05, minSize: 0.044, lines: 1, color: "@text", align: "left",
         frame: at("title"), textAt: { "16:9": { size: 0.045, align: "center" } },
         animate: { unit: "word", t: t + 0.15, stagger: 0.06, duration: 0.45, from: { opacity: 0, dy: 0.5 } },
       },
       {
-        id: `card${i + 1}-text`, kind: "text", field: `d${i + 1}`, font: "body", size: 0.033, minSize: 0.024, lines: 2, color: "@text/0.68", align: "left",
-        frame: at("text"), textAt: { "16:9": { size: 0.03, align: "center" } },
+        id: `card${i + 1}-text`, kind: "text", field: `d${i + 1}`, font: "body", role: "detail", size: 0.036, minSize: 0.036, lines: 2, color: "@text/0.68", align: "left",
+        frame: at("text"), textAt: { "16:9": { size: 0.036, align: "center" } },
         animate: { unit: "line", t: t + 0.3, stagger: 0.08, duration: 0.45, from: { opacity: 0, dy: 0.4 } },
       },
     ],
   };
 }
 
-export const featureTrio: Template = {
+export const featureTrio: Template = strict916(hookAt0({
   version: FORMAT_VERSION,
   id: "feature-trio",
   name: "Feature Trio",
@@ -83,6 +85,7 @@ export const featureTrio: Template = {
   length: 8,
   hold: [3.2, EXIT],
   shapes: ALL_SHAPES,
+  look: CLEAR_SKY,
   fields: [
     { id: "heading", kind: "text", label: "Heading", en: "Why you'll love it", bn: "কেন আপনার ভালো লাগবে", limit: 40 },
     { id: "icon1", kind: "choice", label: "Icon 1", en: "bolt", options: ICON_CHOICES },
@@ -97,15 +100,15 @@ export const featureTrio: Template = {
   ],
   hits: [{ t: 0.15, sfx: "whoosh" }, { t: 0.75, sfx: "pop" }, { t: 0.75 + CARD_STEP, sfx: "pop" }, { t: 0.75 + CARD_STEP * 2, sfx: "pop" }],
   layers: [
-    { id: "bg", kind: "rect", frame: FULL, fill: { kind: "linear", angle: 160, stops: [[0, "@bg"], [1, "@deep"]] } },
-    { id: "blobs", kind: "fx", fx: "blobs", frame: FULL, amount: 0.35 },
+    live("bg", "waves", { intensity: 0.7, vignette: 0.12, speed: 0.8, seed: 1 }),
+    live("bokeh", "bokeh", { over: true, intensity: 0.4, soft: 0.8, seed: 12 }),
     {
-      id: "heading", kind: "text", field: "heading", font: "heading", size: 0.08, minSize: 0.05, lines: 2, color: "@text",
+      id: "heading", kind: "text", field: "heading", font: "heading", size: 0.08, minSize: 0.07, lines: 2, color: "@text",
       frame: per({
         "9:16": frame(0.5, 0.185, 0.76, 0.2), "16:9": frame(0.5, 0.15, 1.5, 0.12),
         "1:1": frame(0.5, 0.12, 0.86, 0.14), "4:5": frame(0.5, 0.115, 0.86, 0.16),
       }),
-      textAt: { "16:9": { size: 0.07, lines: 1 }, "1:1": { size: 0.065 } },
+      textAt: { "16:9": { size: 0.07, lines: 1 }, "1:1": { size: 0.07 } },
       animate: { unit: "word", t: 0.15, stagger: 0.07, duration: 0.55, from: { opacity: 0, dy: 0.8 }, mask: true },
       exit: { unit: "word", t: EXIT, stagger: 0.04, duration: 0.3, from: { opacity: 0, dy: -0.6 }, mask: true },
     },
@@ -122,4 +125,4 @@ export const featureTrio: Template = {
     card(2),
     { id: "grain", kind: "fx", fx: "grain", frame: FULL, amount: 0.04 },
   ],
-};
+}, ["heading"]));

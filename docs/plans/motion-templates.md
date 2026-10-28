@@ -76,13 +76,19 @@ animation (section 6.3).
 
 ## 4. The motion design language ("premium")
 
+> **`motion-rulebook.md` overrides this section wherever they differ** (2026-10-27): safe band,
+> size floors, reading time, frame 0, easing and springs, durations, contrast, backgrounds and
+> category playbooks. What follows is the original summary.
+
 The rules every template follows, written down so the collection feels like one designer's:
 
 - **Timing.** Entrances 400–700 ms, exits about 60% of that, nothing faster than 150 ms. Hold
   times long enough to read: about 250 ms per word, at least 1.5 s per text block.
 - **Easing.** No linear motion except for continuous loops. The default curve is an expressive
   ease-out (cubic-bezier(0.16, 1, 0.3, 1)). Springs, with stiffness and damping per Brand Kit motion
-  feel, drive pops and settles. Overshoot only in the Playful feel.
+  feel, drive position and scale only (opacity, colour and blur never spring). Smooth doesn't
+  overshoot, Snappy overshoots at most 1.5% (damping 0.82 gives about 1.1%), and Playful about
+  16%. Exits accelerate with cubic-bezier(0.3, 0, 0.8, 0.15).
 - **Staggers.** Letters 18–35 ms apart, words 60–90 ms, cards 90–140 ms. Direction follows reading
   order.
 - **Reveals over fades.** Mask wipes, clip-path reveals, text rising from behind a baseline, line
@@ -98,6 +104,16 @@ The rules every template follows, written down so the collection feels like one 
   type scale by ratio (1.25 or 1.333), and at most two fonts per template.
 - **Sound.** Each template has suggested hit points (whoosh on a wipe, pop on a badge), mapped to
   round 3's sound effects and played only if the user keeps them on.
+- **Live backgrounds** (added 2026-10-27, after the first six read as plain). Every template has
+  at least two moving background layers for depth (a `background` shader layer, see
+  `motion/background.ts`, plus a second one `over` it, or particles or light), never a flat or
+  static fill. Background motion is slow (8–20 s cycles) and subtle so text stays readable;
+  contrast is checked over the moving background at its brightest moment (WCAG AA: 4.5:1 for
+  body text, 3:1 for large). Background colours come from the Brand Kit. Presets vary across the
+  collection so templates don't look alike; overlays (lower thirds) keep the life inside their
+  plate. Foreground depth: background layers can be softened (`soft`), foreground edges can
+  take a light wrap (`lightWrap`), and shadows can fall away from the template's moving `light`
+  (`shadow.follow`).
 
 ## 5. Fonts
 
@@ -322,6 +338,31 @@ emblem without a logo), Name Bar (lower third, overlay) and Hook + Follow (hook,
 follow card). Each works in all four shapes, inside the safe areas (tested), with Bangla
 defaults.
 
+**The second collection** (28 templates, 2026-10-27):
+
+- **Logo reveals:** Liquid Drop, Glitch Logo, Dot Grid, Light Leak, Minimal Logo.
+- **Lower thirds and titles:** Chapter Title, plus Subscribe, Underline and News Bar over video.
+- **Hooks and end screens:** Three Reasons, Link in Bio, Follow Card, Thank You.
+- **Fashion and beauty:** Editorial, Lookbook, Swatches, Serif Card.
+- **Food and restaurant:** Menu Card, Today's Special, Ingredients, Delivery (generic "your
+  favourite delivery app" wording, no app names).
+- **Real estate and services:** Property Card, Agent Intro, Map Pin (a city map drawn in code).
+- **Festive, Bangla first:** Eid Offer, Pohela Boishakh, Victory Day, Sharodiya.
+
+All 28 work in the four shapes and follow the rule book's tested rules: roles and size floors,
+the strict 9:16 band, frame 0, reading time and flashes. Each has two live background layers
+(one inside the plate for the overlays), with the preset pairs varied by category. Empty picture
+slots show stand-ins drawn in code, and no third-party photos, art or logos are used.
+Victory Day is a sunrise over hills rather than the flag, so no text sits on the flag. The
+shared pieces are in `templates/common-b.ts`: frames, text entrances, small vector drawings,
+`backdrop()` and `scrim()`.
+Each template also has its own `look` (palette, font pair, Bangla face, roundness, feel, grade
+and grain); ten of them are light. The smoke test (2026-10-27, debug build on a nested display
+with software WebGL) exported a 43.6 s, 1080p30 H.264 MP4 of seven of them, festive ones in
+Bangla: 28 MB, at 0.08× real time with two live backgrounds a clip. Frame grabs from it weren't
+possible on that machine (no software H.264 decoder), so the frames were only checked in the
+app's preview and the contact sheets.
+
 **Smoke test** (2026-10-27, debug build on a nested display with software WebGL):
 
 - All six templates were checked mid-animation in 9:16 and 16:9, with Price Drop in Bangla.
@@ -352,3 +393,51 @@ The tests:
 - WebKitGTK has no canvas `filter`, so blur falls back to scaling down and up. That's coarse on
   small soft shapes such as the hero's floor shadow.
 - T3–T4: the other templates.
+
+**Engine round 2 and 22 more templates (Template fork A, 2026-10-27)**
+
+- **Format v2** (`format.ts`, version 1 documents read unchanged). New layer kinds:
+  - `background`: live WebGL2 shaders in `background.ts`. Presets mesh, aurora, rays, bokeh,
+    glass, grid, waves and drift. They use the Brand Kit's colours, every parameter can be
+    keyframed, an `over` layer stacks on another, previews render at half size, and there's a
+    Canvas 2D fallback.
+  - `device`: phone, laptop and browser frames with a media slot, scrolling content, and built-in
+    screens while the slot is empty.
+  - `art`: vector products (earbuds, sneaker, bottle, watch, headphones, speaker) and app screens
+    (`art.ts`), used as the default media.
+  - `chart`: bars that grow, or a filling ring.
+  - `qr`: an encoder written for the app in `qr.ts` (byte mode, level M, versions 1–10). It's
+    checked by decoding with OpenCV.
+
+  Also new:
+  - fx confetti, sparks and dust (seeded, fewer on small canvases), and a before/after divider;
+  - path morphs, `turnY` card turns and group clips (rect, round, ellipse);
+  - iris, diagonal and blinds reveals;
+  - counters from a fixed value, countdown clocks and marquee tickers;
+  - a template `light` that rays aim from, shadows that `follow` it, and `lightWrap` on layers.
+- **Rule book in the engine:**
+  - `safeArea()` is the strict 9:16 band (x 65–950, y 269–1248), and `secondaryArea()` reaches
+    down to y 1440.
+  - Text `role`s carry size floors that the player enforces.
+  - Bangla draws with no tracking or italic, at line height ≥ 1.5, and the danda stays with its word.
+  - Balanced wrapping never splits a word.
+  - Opacity and blur never spring, and "in" is the rule book's exit curve.
+  - Grain is coarse and ≤ 3%.
+- **Templates (22):**
+  - Launch: Introducing, Turntable, Spec Call-outs, Dark Luxury, Colourways.
+  - Sale: Flash Countdown, Percent Burst, Limited Stock, Buy One Get One, Coupon Code.
+  - Feature: Before / After, Detail Zoom, Three Steps, Stat Counters.
+  - App & tech: Phone Showcase, Laptop Screen, Scroll Through, Notifications, Get the App (QR).
+  - Testimonials: Quote Card, Review Carousel, Customer Counter.
+
+  The first six now have live backgrounds too. The older layouts are fitted into the strict band
+  by `strict916()`, and `hookAt0()` makes frame 0 the hook (both in `templates/common-a.ts`).
+- **Tests:** safe band by role, size floors, reading time, frame 0, ≤ 3 flashes a second, at
+  least two moving background layers, background parameters, Brand Kit binding and keyframing,
+  the exit curve and springs, morphs, particles, charts, countdowns, QR structure, word-safe
+  wrapping and the danda.
+- **Left:**
+  - A device slot shows a video's first frame, not the playing recording.
+  - Loudness (−14 LUFS) waits for an export pass.
+  - Contrast is checked by a harness that samples the moving background, not by a node test.
+  - Clips are stretched in template time, so a countdown ticks slower when its hold is stretched.

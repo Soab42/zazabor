@@ -69,7 +69,8 @@ const CURVES: Record<Feel, { out: (u: number) => number; spring: (u: number) => 
   playful: { out: bezier(0.34, 1.32, 0.64, 1), spring: spring(0.48, 2) },
 };
 
-const IN = bezier(0.7, 0, 0.84, 0);
+/** Exits accelerate away: M3's emphasized accelerate (motion-rulebook.md §6.2). */
+const IN = bezier(0.3, 0, 0.8, 0.15);
 const IN_OUT = bezier(0.65, 0, 0.35, 1);
 const BACK = bezier(0.34, 1.56, 0.64, 1);
 
@@ -112,6 +113,23 @@ export function valueAt(a: Anim | undefined, t: number, fallback: number, feel: 
   const [t0, v0, e] = a[i];
   const [t1, v1] = a[i + 1];
   return v0 + (v1 - v0) * ease(e, (t - t0) / Math.max(1e-9, t1 - t0), feel);
+}
+
+/**
+ * An effect's value (opacity, blur, colour): like `valueAt`, but a "spring" or "back" key eases out
+ * instead, because only position, scale and rotation may overshoot (motion-rulebook.md §6.2).
+ */
+export function effectAt(a: Anim | undefined, t: number, fallback: number, feel: Feel = "smooth"): number {
+  if (a === undefined || typeof a === "number" || !a.length) return valueAt(a, t, fallback, feel);
+  if (t <= a[0][0]) return a[0][1];
+  const last = a[a.length - 1];
+  if (t >= last[0]) return last[1];
+  let i = 0;
+  while (i < a.length - 2 && a[i + 1][0] <= t) i++;
+  const [t0, v0, e] = a[i];
+  const [t1, v1] = a[i + 1];
+  // The smooth feel's curves never overshoot, whatever the kit's feel is.
+  return v0 + (v1 - v0) * ease(e === "spring" || e === "back" ? "out" : e, (t - t0) / Math.max(1e-9, t1 - t0), "smooth");
 }
 
 /** When an animated value starts and stops changing (null for a constant). */

@@ -65,12 +65,42 @@ export const PAIRINGS: { id: string; label: string; heading: [string, number]; b
 
 export const bundledFamily = (family: string) => BUNDLED.find((b) => b.family === family);
 
+/**
+ * Bundled fonts are registered under their names with this in front. `document.fonts` is the whole
+ * page's, and the app's own font stack names Inter: a face called "Inter" would switch every
+ * module's text to it the moment a template loads it. Projects keep the real names; drawing goes
+ * through `faceCss` / `faceStack`.
+ */
+const FACE = "Zazabor Motion ";
+
+/** The name a bundled family is registered under (other families are the system's, unchanged). */
+export const faceName = (family: string) => (bundledFamily(family) ? FACE + family : family);
+
+const faceCache = new Map<string, string>();
+
+/** A CSS font-family list with its bundled families under their registered names, for drawing or previews. */
+export function faceCss(fontCss: string): string {
+  let out = faceCache.get(fontCss);
+  if (out === undefined) {
+    out = fontCss.split(",").map((part) => {
+      const name = part.trim().replace(/^["']|["']$/g, "");
+      return bundledFamily(name) ? `"${FACE}${name}"` : part.trim();
+    }).join(", ");
+    if (faceCache.size > 500) faceCache.clear();
+    faceCache.set(fontCss, out);
+  }
+  return out;
+}
+
 /** A CSS font family list: the family, the theme's Bangla font for Bengali letters, then a generic one. */
 export function familyStack(family: string, bangla?: string): string {
   const generic = bundledFamily(family)?.kind === "serif" ? "serif" : "sans-serif";
   const list = [family, bangla && bangla !== family ? bangla : null, "Noto Sans Bengali"].filter((f): f is string => !!f);
   return [...list.map((f) => `"${f.replace(/"/g, "")}"`), generic].join(", ");
 }
+
+/** `familyStack` for drawing: with the registered face names. */
+export const faceStack = (family: string, bangla?: string) => faceCss(familyStack(family, bangla));
 
 const loads = new Map<string, Promise<void>>();
 /** Families whose files have loaded, and those that couldn't be read (drawn with the fallback, not asked for again). */
@@ -86,7 +116,7 @@ export function loadFamily(family: string): Promise<void> {
     p = Promise.all(b.files.map(async ([file, weight, style]) => {
       // Commas stay as they are: a dev server takes "%2C" literally.
       const url = `/fonts/${b.dir}/${encodeURI(file)}`;
-      const face = new FontFace(b.family, `url("${url}")`, { weight, style, display: "block" });
+      const face = new FontFace(FACE + b.family, `url("${url}")`, { weight, style, display: "block" });
       await face.load();
       document.fonts.add(face);
     })).then(() => {
@@ -105,7 +135,7 @@ export const familyLoaded = (family: string) => !bundledFamily(family) || done.h
 
 /** The bundled families a CSS font-family list names. */
 function bundledIn(fontCss: string): Bundled[] {
-  const names = fontCss.split(",").map((n) => n.trim().replace(/^["']|["']$/g, ""));
+  const names = fontCss.split(",").map((n) => n.trim().replace(/^["']|["']$/g, "").replace(FACE, ""));
   return BUNDLED.filter((b) => names.includes(b.family));
 }
 

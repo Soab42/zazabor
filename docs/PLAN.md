@@ -406,6 +406,7 @@ spreadsheet).
 [`plans/photo-editor.md`](plans/photo-editor.md) (a mini Photoshop).
 [`plans/video-editor.md`](plans/video-editor.md) (a mini CapCut).
 [`plans/motion-templates.md`](plans/motion-templates.md) (premium motion templates and Brand Kits for product videos and reels).
+[`plans/motion-rulebook.md`](plans/motion-rulebook.md) (the design rule book and QA checklist for those templates).
 
 Native Wayland video (no XWayland).
 

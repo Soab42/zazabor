@@ -138,7 +138,21 @@ export interface Transition {
   duration: number;
 }
 
-export interface MediaClip {
+/**
+ * How a clip comes on and goes off. Main track: `transition` only. Off it (overlays, texts,
+ * stickers, templates): an in and an out of the clip's own, and `transition` between it and the
+ * clip before on its track while that one ends where this one starts.
+ */
+export interface LayerTransitions {
+  /** Into this clip from the one before, centred on the cut between them. */
+  transition?: Transition;
+  /** Off the main track: comes on over the clip's first seconds. */
+  transIn?: Transition;
+  /** Off the main track: goes off over its last seconds. */
+  transOut?: Transition;
+}
+
+export interface MediaClip extends LayerTransitions {
   id: string;
   type: "media";
   media: string;
@@ -158,8 +172,6 @@ export interface MediaClip {
   fx: Fx;
   /** Ken Burns motion on a picture. */
   motion: boolean;
-  /** Into this clip from the one before (main track). */
-  transition?: Transition;
   keys?: Keys;
   mask?: Mask | null;
   frame?: Frame | null;
@@ -194,7 +206,7 @@ export interface TextStyle {
   align: "left" | "center" | "right";
 }
 
-export interface TextClip {
+export interface TextClip extends LayerTransitions {
   id: string;
   type: "text";
   start: number;
@@ -216,7 +228,7 @@ export interface TextClip {
   sticker?: string;
 }
 
-export type Clip = MediaClip | TextClip | TemplateClip;
+export type Clip = MediaClip | TextClip | (TemplateClip & LayerTransitions);
 export type { TemplateClip };
 export type TrackKind = "main" | "overlay" | "text" | "audio";
 
@@ -594,8 +606,11 @@ export function split(p: Project, id: string, t: number): Clip | null {
     }
   }
   clip.duration = left;
+  // The left piece keeps how the clip comes on, the right one how it goes off.
+  delete right.transition;
+  delete right.transIn;
+  delete clip.transOut;
   if (right.type === "media" && clip.type === "media") {
-    delete right.transition;
     right.fadeIn = 0;
     clip.fadeOut = 0;
   }
@@ -714,6 +729,122 @@ export function moveMain(p: Project, id: string, index: number) {
   layoutMain(p);
 }
 
+// ---- many clips at once
+
+/**
+ * Select All (Ctrl+A): every clip on the track of the selection (the main track when nothing is
+ * selected); with that track already wholly selected, or a selection across tracks, every clip.
+ */
+export function selectAllIds(p: Project, selected: Iterable<string>): string[] {
+  const chosen = new Set(selected);
+  const all = p.tracks.flatMap((t) => t.clips.map((c) => c.id));
+  const tracks = p.tracks.filter((t) => t.clips.some((c) => chosen.has(c.id)));
+  const track = chosen.size ? (tracks.length === 1 ? tracks[0] : null) : mainTrack(p);
+  if (!track || !track.clips.length) return all;
+  const ids = track.clips.map((c) => c.id);
+  return ids.every((id) => chosen.has(id)) ? all : ids;
+}
+
+/**
+ * Moves the selected clips off the main track by `dt` together (main-track clips stay: that
+ * track is magnetic). `lead` is the clip being dragged, which may change to `lead.track`.
+ */
+export function moveGroup(p: Project, ids: string[], dt: number, lead?: { id: string; track?: string }) {
+  const moving = ids.map((id) => findClip(p, id)).filter((f): f is NonNullable<typeof f> => !!f && f.track.kind !== "main");
+  if (!moving.length) return;
+  dt = Math.max(dt, -Math.min(...moving.map((f) => f.clip.start)));
+  // All of them leave their tracks first, so they don't bump into each other on the way.
+  for (const f of moving) f.track.clips.splice(f.track.clips.indexOf(f.clip), 1);
+  for (const { clip, track } of moving) {
+    clip.start += dt;
+    const target = clip.id === lead?.id ? p.tracks.find((t) => t.id === lead.track && t.kind === track.kind) ?? track : track;
+    if (overlaps(target, clip.start, clipEnd(clip), clip.id)) placeFree(p, clip, track.kind as Exclude<TrackKind, "main">, target.id);
+    else {
+      target.clips.push(clip);
+      target.clips.sort((a, b) => a.start - b.start);
+    }
+  }
+  tidyTracks(p);
+}
+
+/** Where main-track clips dropped at `t` go: before the first other clip whose middle is after t. */
+export function mainIndexAmong(p: Project, t: number, except: string[]): number {
+  const clips = mainTrack(p).clips.filter((c) => !except.includes(c.id));
+  const i = clips.findIndex((c) => t < c.start + c.duration / 2);
+  return i < 0 ? clips.length : i;
+}
+
+/** Moves the selected main-track clips, in their order, to `index` among the others. */
+export function moveMainBlock(p: Project, ids: string[], index: number) {
+  const main = mainTrack(p);
+  const block = main.clips.filter((c) => ids.includes(c.id));
+  if (!block.length) return;
+  const rest = main.clips.filter((c) => !ids.includes(c.id));
+  const at = Math.max(0, Math.min(index, rest.length));
+  main.clips = [...rest.slice(0, at), ...block, ...rest.slice(at)];
+  layoutMain(p);
+}
+
+/** Copied clips, with their tracks and the media they use (a paste works in any project). */
+export interface ClipCopy {
+  clips: { clip: Clip; kind: TrackKind; track: string }[];
+  media: Media[];
+}
+
+export function copyClips(p: Project, ids: Iterable<string>): ClipCopy | null {
+  const chosen = new Set(ids);
+  const clips: ClipCopy["clips"] = [];
+  for (const track of p.tracks) {
+    for (const c of track.clips) if (chosen.has(c.id)) clips.push({ clip: structuredClone(c), kind: track.kind, track: track.id });
+  }
+  if (!clips.length) return null;
+  const used = new Set<string>();
+  for (const { clip } of clips) {
+    if (clip.type === "media") used.add(clip.media);
+    else if (clip.type === "template") for (const id of Object.values(clip.slots)) used.add(id);
+  }
+  return { clips, media: p.media.filter((m) => used.has(m.id)).map((m) => structuredClone(m)) };
+}
+
+/**
+ * Pastes a copy with its earliest clip at `t`: main-track clips go in, in order, at the cut
+ * nearest `t`; the others keep their places relative to each other, on tracks of their kind (on
+ * `track`, or the one they came from, when it has room). Returns the new clips' ids.
+ */
+export function pasteClips(p: Project, copy: ClipCopy, t: number, track?: string): string[] {
+  // The media they use: what the project has (the same file), else added.
+  const map = new Map<string, string>();
+  for (const m of copy.media) {
+    const have = p.media.find((x) => x.id === m.id && x.path === m.path) ?? p.media.find((x) => x.path === m.path && !x.missing);
+    if (have) map.set(m.id, have.id);
+    else {
+      const added = { ...structuredClone(m), id: p.media.some((x) => x.id === m.id) ? uid() : m.id };
+      p.media.push(added);
+      map.set(m.id, added.id);
+    }
+  }
+  const t0 = Math.min(...copy.clips.map((x) => x.clip.start));
+  const ids: string[] = [];
+  let index = mainIndexAt(p, t);
+  for (const { clip: original, kind, track: from } of copy.clips) {
+    const clip = structuredClone(original) as Clip;
+    clip.id = uid();
+    delete clip.transition;
+    if (clip.type === "media") clip.media = map.get(clip.media) ?? clip.media;
+    else if (clip.type === "template") for (const [k, v] of Object.entries(clip.slots)) clip.slots[k] = map.get(v) ?? v;
+    if (kind === "main") {
+      if (clip.type !== "media") continue;
+      insertMain(p, clip, index++);
+    } else {
+      clip.start = Math.max(0, t + (original.start - t0));
+      const into = p.tracks.find((x) => x.id === track && x.kind === kind) ? track : from;
+      placeFree(p, clip, kind, into);
+    }
+    ids.push(clip.id);
+  }
+  return ids;
+}
+
 /** The time nearest `t` among edges, the playhead and 0, within `range`; else `t`. */
 export function snap(p: Project, t: number, range: number, except: string[] = [], extra: number[] = []): number {
   let best = t, distance = range;
@@ -766,10 +897,12 @@ export interface Scene {
   progress: number;
   /** Overlay pictures and texts, bottom to top. */
   layers: Clip[];
+  /** The layers coming on or going off, by clip id. */
+  phases: Record<string, LayerPhase>;
 }
 
 export function sceneAt(p: Project, t: number): Scene {
-  const scene: Scene = { a: null, b: null, transition: null, progress: 0, layers: [] };
+  const scene: Scene = { a: null, b: null, transition: null, progress: 0, layers: [], phases: {} };
   const main = mainTrack(p);
   if (!main.hidden) {
     const clips = main.clips as MediaClip[];
@@ -797,10 +930,78 @@ export function sceneAt(p: Project, t: number): Scene {
   }
   for (const track of p.tracks.slice(1)) {
     if (track.hidden || track.kind === "audio") continue;
-    const c = clipAt(track, t);
-    if (c) scene.layers.push(c);
+    for (const { clip, phase } of layerClipsAt(track, t)) {
+      scene.layers.push(clip);
+      if (phase) scene.phases[clip.id] = phase;
+    }
   }
   return scene;
+}
+
+// ---- transitions off the main track
+
+/** A layer part way through coming on (`side` "in") or going off: `p` 0 is gone, 1 is whole. */
+export interface LayerPhase {
+  kind: TransitionKind;
+  side: "in" | "out";
+  p: number;
+  /** Across a cut: the clip on the other side moves at the same time, in step. */
+  cross?: true;
+}
+
+/** Whether clip `i` of a track starts where the clip before it ends (a cut a transition can sit on). */
+export function touchesPrevious(track: Track, i: number): boolean {
+  const a = track.clips[i - 1], b = track.clips[i];
+  return !!a && !!b && Math.abs(clipEnd(a) - b.start) < 1e-3;
+}
+
+/** The transition between clip `i` of a free track and the one before it, if they touch (length kept to what fits). */
+export function cutTransition(track: Track, i: number): Transition | null {
+  const c = track.clips[i];
+  if (!c?.transition || c.transition.duration <= 0 || !touchesPrevious(track, i)) return null;
+  return { kind: c.transition.kind, duration: Math.min(c.transition.duration, maxTransition(track, i)) };
+}
+
+/** A clip's own in and out lengths, kept inside the clip (half each when it has both). */
+export function layerSpans(c: Clip): { in: number; out: number } {
+  const half = c.transIn && c.transOut ? c.duration / 2 : c.duration;
+  return {
+    in: c.transIn ? Math.max(0, Math.min(c.transIn.duration, half)) : 0,
+    out: c.transOut ? Math.max(0, Math.min(c.transOut.duration, half)) : 0,
+  };
+}
+
+/**
+ * The clips of a free track showing at `t`, in drawing order, each with the transition it's in.
+ * At a cut with a transition, the clip before plays on for half its length while it goes off and
+ * the next one starts half its length early as it comes on (as on the main track); those two
+ * clips' own out and in don't play at that cut.
+ */
+export function layerClipsAt(track: Track, t: number): { clip: Clip; phase: LayerPhase | null }[] {
+  const out: { clip: Clip; phase: LayerPhase | null }[] = [];
+  const clips = track.clips;
+  for (let i = 0; i < clips.length; i++) {
+    const c = clips[i];
+    const into = cutTransition(track, i);
+    const onward = cutTransition(track, i + 1);
+    const from = c.start - (into ? into.duration / 2 : 0);
+    const to = clipEnd(c) + (onward ? onward.duration / 2 : 0);
+    if (t < from - 1e-6 || t >= to - 1e-6) continue;
+    const own = layerSpans(c);
+    let phase: LayerPhase | null = null;
+    if (into && t < c.start + into.duration / 2) {
+      phase = { kind: into.kind, side: "in", p: (t - from) / into.duration, cross: true };
+    } else if (onward && t >= clipEnd(c) - onward.duration / 2) {
+      phase = { kind: onward.kind, side: "out", p: (to - t) / onward.duration, cross: true };
+    } else if (!into && c.transIn && own.in > 0 && t < c.start + own.in) {
+      phase = { kind: c.transIn.kind, side: "in", p: (t - c.start) / own.in };
+    } else if (!onward && c.transOut && own.out > 0 && t >= clipEnd(c) - own.out) {
+      phase = { kind: c.transOut.kind, side: "out", p: (clipEnd(c) - t) / own.out };
+    }
+    if (phase) phase.p = Math.max(0, Math.min(1, phase.p));
+    out.push({ clip: c, phase });
+  }
+  return out;
 }
 
 /** Seconds into the file for a clip at `t`, kept inside the file (transitions read past cuts). */
@@ -847,6 +1048,15 @@ function normalizeKeys(raw: unknown): Keys | undefined {
   return Object.keys(out).length ? out : undefined;
 }
 
+/** A template clip as read, with the transitions the template reader doesn't know about. */
+function withTransitions(raw: unknown, clip: TemplateClip | null): Clip | null {
+  if (!clip) return null;
+  const r = raw as LayerTransitions;
+  const out: Clip = clip;
+  for (const k of ["transition", "transIn", "transOut"] as const) if (r[k] && typeof r[k] === "object") out[k] = { kind: r[k]!.kind, duration: Number(r[k]!.duration) };
+  return out;
+}
+
 /** Makes a parsed project file safe to use: missing fields get defaults. */
 export function normalizeProject(raw: unknown, fallbackAspect: Aspect = "9:16"): Project {
   const r = (raw ?? {}) as Partial<Project>;
@@ -864,12 +1074,16 @@ export function normalizeProject(raw: unknown, fallbackAspect: Aspect = "9:16"):
   const known = (id: string) => !!templateById(id);
   for (const t of p.tracks) {
     t.clips = t.clips
-      .map((c) => (c && (c as { type?: string }).type === "template" ? normalizeTemplateClip(c, mediaIds, known) : c))
+      .map((c) => (c && (c as { type?: string }).type === "template" ? withTransitions(c, normalizeTemplateClip(c, mediaIds, known)) : c))
       .filter((c): c is Clip => !!c && (c.type === "text" || c.type === "template" || (c.type === "media" && mediaIds.has(c.media))));
     for (const c of t.clips) {
       c.place = { ...defaultPlace(), ...(c.place ?? {}) };
       c.keys = normalizeKeys(c.keys);
       if (!c.keys) delete c.keys;
+      for (const k of ["transition", "transIn", "transOut"] as const) {
+        const tr = c[k];
+        if (tr && (typeof tr.kind !== "string" || !Number.isFinite(tr.duration) || tr.duration <= 0)) delete c[k];
+      }
       if (c.type === "media") {
         c.fx = { ...defaultFx(), ...(c.fx ?? {}) };
         if (c.curve && (!Array.isArray(c.curve.points) || c.curve.points.length < 2 || !c.curve.points.every((v) => Number.isFinite(v) && v > 0))) c.curve = null;

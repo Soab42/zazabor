@@ -1,11 +1,13 @@
 import { api, type BuiltinTrack } from "../../../api";
+import { listening, onListening, stopListening, toggleListening } from "../../../shared/listen";
 import { h } from "../../../ui/dom";
 import { icon, type IconName } from "../../../ui/icons";
-import { LOOKS, TRANSITION_GROUPS, type LookId, type TransitionKind } from "../../gallery/slideshow/settings";
+import { LOOKS, TRANSITION_GROUPS, transitionLabel, type LookId, type TransitionKind } from "../../gallery/slideshow/settings";
 import { editApi, type SoundEffect } from "./api";
 import type { CaptionsPanel } from "./captions";
 import type { MediaStore } from "./media";
-import type { Media, MediaClip, Project } from "./model";
+import type { Clip, Media, Project, Track } from "./model";
+import { LAYER_TRANSITION_GROUPS } from "./overlays";
 import { MEDIA_DRAG, TEXT_DRAG, formatTime } from "./timeline";
 import { TEXT_PRESETS } from "./text";
 import { STICKERS } from "./stickers";
@@ -17,6 +19,19 @@ import { STICKERS } from "./stickers";
  */
 
 export type PanelTab = "media" | "audio" | "text" | "templates" | "stickers" | "captions" | "transitions" | "filters";
+
+/**
+ * Where a transition goes: on a cut ("cut", into `clip` from the one before: any cut on the main
+ * track; off it, only while `touching`), or a layer's own way on ("in") or off ("out").
+ */
+export type TransitionSlot = "cut" | "in" | "out";
+
+export interface TransitionTarget {
+  clip: Clip;
+  track: Track;
+  /** Off the main track: the clip before on its track ends where this one starts. */
+  touching: boolean;
+}
 
 export interface PanelHost {
   project(): Project;
@@ -36,9 +51,14 @@ export interface PanelHost {
   captions: CaptionsPanel;
   /** Offers to install the codecs clips need, then checks those clips again. */
   installCodecs(): void;
-  /** The cut a transition goes on: the selected main clip, or the cut nearest the playhead. */
-  transitionTarget(): MediaClip | null;
-  applyTransition(kind: TransitionKind | null, duration: number, all: boolean): void;
+  /**
+   * What the Transitions tab sets: the selected clip off the main track (a layer), else the
+   * selected main clip's cut, or the main track's cut nearest the playhead.
+   */
+  transitionTarget(): TransitionTarget | null;
+  /** Sets (or with null removes) a transition on the target; `all`: on every cut, or every clip, of its track. */
+  applyTransition(slot: TransitionSlot, kind: TransitionKind | null, duration: number, all: boolean): void;
+  toast(text: string): void;
   /** The look of the selected clips (null when mixed or nothing is selected). */
   currentLook(): LookId | "none" | null;
   applyLook(look: LookId | "none", all: boolean): void;
@@ -75,21 +95,78 @@ export class Panel {
   private tab: PanelTab = "media";
   private tracks: BuiltinTrack[] | null = null;
   private sounds: SoundEffect[] | null = null;
-  private preview: { ctx: AudioContext; node: AudioBufferSourceNode | null } | null = null;
   private transitionLength = 0.6;
+  /** Which of a layer's transitions the Transitions tab sets. */
+  private slot: TransitionSlot = "in";
+  /** The file this panel started playing (listening before adding). */
+  private listened: string | null = null;
+  private readonly stopWatching: () => void;
 
   constructor(private host: PanelHost) {
     this.tabs = h("div", { class: "ve-panel-tabs", role: "tablist" });
     this.body = h("div", { class: "ve-panel-body" });
     this.el = h("aside", { class: "ve-panel" }, this.tabs, this.body);
+    this.stopWatching = onListening(() => this.drawListenButtons());
     this.drawTabs();
     this.refresh();
   }
 
   show(tab: PanelTab) {
+    if (tab !== "audio") this.stopListening();
     this.tab = tab;
     this.drawTabs();
     this.refresh();
+  }
+
+  /** The Transitions tab, on a layer's in, out or the cut before it. */
+  showTransition(slot: TransitionSlot) {
+    this.slot = slot;
+    this.show("transitions");
+  }
+
+  /** Stops what this panel plays (the editor plays, the panel closes). */
+  stopListening() {
+    if (this.listened && listening() === this.listened) stopListening();
+    this.listened = null;
+  }
+
+  dispose() {
+    this.stopListening();
+    this.stopWatching();
+  }
+
+  /** A play/stop button for listening to `path` before adding it; `idle` is its icon while silent. */
+  private listenButton(path: string, name: string, cls: string, idle: IconName = "play", size = 15): HTMLButtonElement {
+    const b = h("button", {
+      class: cls, type: "button", draggable: "false",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        this.listened = path;
+        toggleListening(path).catch(() => this.host.toast(`${name} can't be played here.`));
+      },
+      // Not the card's double-click (which adds the file).
+      ondblclick: (e: Event) => e.stopPropagation(),
+    });
+    b.dataset.listen = path;
+    b.dataset.name = name;
+    b.dataset.idle = idle;
+    b.dataset.size = String(size);
+    this.drawListenButton(b);
+    return b;
+  }
+
+  private drawListenButton(b: HTMLButtonElement) {
+    const on = listening() === b.dataset.listen;
+    const name = b.dataset.name ?? "";
+    b.classList.toggle("playing", on);
+    b.title = on ? `Stop ${name}` : `Listen to ${name}`;
+    b.setAttribute("aria-label", b.title);
+    b.setAttribute("aria-pressed", String(on));
+    b.replaceChildren(icon(on ? "stop" : (b.dataset.idle as IconName), Number(b.dataset.size)));
+  }
+
+  private drawListenButtons() {
+    for (const b of this.body.querySelectorAll<HTMLButtonElement>("button[data-listen]")) this.drawListenButton(b);
   }
 
   private drawTabs() {
@@ -146,7 +223,9 @@ export class Panel {
       },
       ondblclick: () => !m.missing && this.host.addMedia(m.id),
     },
-      m.kind === "audio" ? h("div", { class: "ve-card-thumb audio" }, icon("music", 28)) : thumb,
+      m.kind === "audio"
+        ? h("div", { class: "ve-card-thumb audio" }, m.missing ? icon("music", 28) : this.listenButton(m.path, m.name, "ve-card-listen", "play", 18))
+        : thumb,
       h("div", { class: "ve-card-meta" },
         icon(kindIcon, 13),
         h("span", { class: "ve-card-name" }, m.name),
@@ -193,7 +272,7 @@ export class Panel {
       this.tracks.length ? h("h3", { class: "ve-panel-h" }, "Zazabor soundtracks") : null,
       ...this.tracks.map((t) =>
         h("div", { class: "ve-track-row" },
-          h("div", { class: "ve-track-icon" }, icon("music", 16)),
+          this.listenButton(t.path, t.title, "ve-track-icon ve-listen", "play", 16),
           h("div", { class: "ve-track-text" }, h("div", { class: "ve-track-title" }, t.title), h("div", { class: "ve-track-sub" }, `${t.vibe} · ${t.bpm} BPM · ${formatTime(t.seconds, 30, false)}`)),
           h("button", { class: "icon-btn small", type: "button", title: "Add at the playhead", "aria-label": `Add ${t.title}`, onclick: () => this.host.addMusic(t.path) }, icon("plus", 16)),
         )),
@@ -214,34 +293,11 @@ export class Panel {
       h("h3", { class: "ve-panel-h" }, "Sound effects"),
       h("div", { class: "ve-sfx-grid" }, ...this.sounds.map((s) =>
         h("div", { class: "ve-sfx" },
-          h("button", { class: "ve-sfx-play", type: "button", title: `Listen to ${s.title}`, "aria-label": `Listen to ${s.title}`, onclick: () => void this.listen(s) }, icon("veSound", 15)),
+          this.listenButton(s.path, s.title, "ve-sfx-play", "veSound", 15),
           h("span", { class: "ve-sfx-name" }, s.title),
           h("button", { class: "icon-btn small", type: "button", title: "Add at the playhead", "aria-label": `Add ${s.title}`, onclick: () => this.host.addSound(s.path) }, icon("plus", 15)),
         ))),
     ];
-  }
-
-  /** Plays a sound effect once (decoded by the editor's backend, so any format works). */
-  private async listen(s: SoundEffect) {
-    try {
-      const pcm = await editApi.audio(s.path, true);
-      if (!this.preview) this.preview = { ctx: new AudioContext({ sampleRate: 48000 }), node: null };
-      const { ctx } = this.preview;
-      this.preview.node?.stop();
-      const frames = pcm.length / 2;
-      const buffer = ctx.createBuffer(2, Math.max(1, frames), 48000);
-      for (let ch = 0; ch < 2; ch++) {
-        const out = buffer.getChannelData(ch);
-        for (let i = 0; i < frames; i++) out[i] = pcm[i * 2 + ch] / 32768;
-      }
-      const node = ctx.createBufferSource();
-      node.buffer = buffer;
-      node.connect(ctx.destination);
-      node.start();
-      this.preview.node = node;
-    } catch {
-      // Listening is a nicety; adding still works.
-    }
   }
 
   private stickersTab(): Node[] {
@@ -287,33 +343,61 @@ export class Panel {
 
   private transitionsTab(): Node[] {
     const target = this.host.transitionTarget();
-    const current = target?.transition?.kind ?? null;
+    const layer = !!target && target.track.kind !== "main";
+    if (layer && this.slot === "cut" && !target.touching) this.slot = "in";
+    const slot: TransitionSlot = layer ? this.slot : "cut";
+    const c = target?.clip;
+    const now = (slot === "in" ? c?.transIn : slot === "out" ? c?.transOut : c?.transition) ?? null;
+    const current = now?.kind ?? null;
+    const apply = (kind: TransitionKind | null, all = false) => this.host.applyTransition(slot, kind, this.transitionLength, all);
     const length = h("input", {
-      type: "range", min: "0.2", max: "2", step: "0.1", value: String(target?.transition?.duration ?? this.transitionLength),
+      type: "range", min: "0.2", max: "2", step: "0.1", value: String(now?.duration ?? this.transitionLength),
       oninput: (e: Event) => {
         this.transitionLength = Number((e.target as HTMLInputElement).value);
         lengthValue.textContent = `${this.transitionLength.toFixed(1)} s`;
-        if (current) this.host.applyTransition(current, this.transitionLength, false);
+        if (current) apply(current);
       },
     });
     const lengthValue = h("span", { class: "ve-value" }, `${Number(length.value).toFixed(1)} s`);
     this.transitionLength = Number(length.value);
+    let note = "Put two clips on the main track, then pick a transition for the cut between them. Select an overlay, a text or a sticker to give it an in and an out.";
+    if (target && !layer) note = "Pick one for the selected cut (the orange marks on the main track).";
+    else if (layer) {
+      note = slot === "cut"
+        ? "Plays across the cut on this layer: the clip before goes off as the selected one comes on."
+        : `How the selected ${target.clip.type === "text" ? (target.clip.sticker ? "sticker" : "text") : target.clip.type === "template" ? "template" : "overlay"} comes on (In) and goes off (Out).`;
+    }
+    const allLabel = !layer ? "Apply to all cuts" : slot === "cut" ? "All cuts on this layer" : "Whole layer";
+    const slots: [TransitionSlot, string][] = [["in", "In"], ["out", "Out"], ...(target?.touching ? [["cut", "Between"] as [TransitionSlot, string]] : [])];
+    const kindOf = (s: TransitionSlot) => (s === "in" ? c?.transIn : s === "out" ? c?.transOut : c?.transition)?.kind;
+    const groups = layer ? LAYER_TRANSITION_GROUPS : TRANSITION_GROUPS;
     return [
-      h("p", { class: "ve-panel-note" }, target ? "Pick one for the selected cut (the orange marks on the main track)." : "Put two clips on the main track, then pick a transition for the cut between them."),
+      h("p", { class: "ve-panel-note" }, note),
+      layer ? h("div", { class: "segmented ve-seg ve-slot-seg", role: "tablist" }, ...slots.map(([s, label]) => {
+        const kind = kindOf(s);
+        return h("button", {
+          type: "button", class: s === slot ? "active" : "", role: "tab", "aria-selected": String(s === slot),
+          title: `${s === "cut" ? "Between this clip and the one before" : label}: ${kind ? transitionLabel(kind) : "none"}`,
+          onclick: () => {
+            this.slot = s;
+            this.refresh();
+          },
+        }, label, kind ? h("span", { class: "ve-slot-dot" }) : null);
+      })) : null,
       h("div", { class: "ve-row" }, h("label", null, "Length"), length, lengthValue),
       h("div", { class: "ve-row ve-row-buttons" },
-        h("button", { class: "btn small", type: "button", disabled: !current, onclick: () => this.host.applyTransition(null, 0, false) }, "Remove"),
-        h("button", { class: "btn small", type: "button", disabled: !current, onclick: () => current && this.host.applyTransition(current, this.transitionLength, true) }, "Apply to all cuts"),
+        h("button", { class: "btn small", type: "button", disabled: !current, onclick: () => apply(null) }, "Remove"),
+        h("button", { class: "btn small", type: "button", disabled: !current, onclick: () => current && apply(current, true) }, allLabel),
       ),
-      ...TRANSITION_GROUPS.flatMap((group) => [
+      ...groups.flatMap((group) => [
         h("h3", { class: "ve-panel-h" }, group.label),
         h("div", { class: "ve-chip-grid" }, ...group.items.map(([kind, label]) =>
           h("button", {
             class: `ve-chip${kind === current ? " active" : ""}`, type: "button", disabled: !target,
-            onclick: () => this.host.applyTransition(kind, this.transitionLength, false),
+            onclick: () => apply(kind),
           }, label))),
       ]),
-    ];
+    ].filter(Boolean) as Node[];
   }
 
   private filtersTab(): Node[] {

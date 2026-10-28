@@ -31,6 +31,8 @@ export function graphemes(text: string): string[] {
 
 /** Words and the spaces between them, in order ("Hello, world" → ["Hello,", " ", "world"]). */
 export function wordsOf(text: string): string[] {
+  // A danda (।, ॥) belongs to the word before it (Bangla sets it without a space), so it never wraps alone.
+  text = text.replace(/\s+([।॥])/g, "$1");
   return text.split(/(\s+)/).filter((s) => s.length > 0);
 }
 
@@ -73,7 +75,10 @@ export function wrapBalanced(text: string, width: number, measure: Measure): str
   const paragraphs = text.split("\n");
   const greedy = paragraphs.flatMap((p) => wrapGreedy(p, width, measure));
   if (greedy.length <= paragraphs.length) return greedy;
-  let lo = width * 0.4, hi = width;
+  // Never narrower than the widest word, or evening out would break a word in two.
+  const widest = Math.max(0, ...paragraphs.flatMap((p) => wordsOf(p).filter((w) => !/^\s+$/.test(w)).map((w) => measure(w))));
+  if (widest > width) return greedy;
+  let lo = Math.max(width * 0.4, widest), hi = width;
   for (let i = 0; i < 14; i++) {
     const mid = (lo + hi) / 2;
     const n = paragraphs.flatMap((p) => wrapGreedy(p, mid, measure)).length;

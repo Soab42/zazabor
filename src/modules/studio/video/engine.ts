@@ -13,6 +13,7 @@ import { PEAK_RATE, type MediaStore } from "./media";
 import { drawText, textKey, textLook } from "./text";
 import { drawSticker, stickerHeight, stickerImage, stickerOf, type Sticker } from "./stickers";
 import { MotionRenderer } from "./motion/render";
+import { applyLayerLook, layerLook } from "./overlays";
 import { familiesLoadedIn, loadFamiliesIn } from "./motion/fonts";
 
 /**
@@ -531,9 +532,15 @@ export class Engine {
     this.gfx.combine(kind, scene.progress, scene.b ? hash(scene.b.id) : 0, t);
     const over: LayerDraw[] = [];
     for (const layer of scene.layers) {
-      if (layer.type === "media") over.push(...this.mediaLayer(layer, t, W, H, keyPrefix, exact, false, fetch));
-      else if (layer.type === "template") over.push(...this.motion.layer(p, layer, t, W, H, exact, exact !== null || !fetch));
-      else over.push(...this.textLayer(layer, t, W, H, exact));
+      // Across a cut with a transition, a clip shows a little past its ends: a video reads on in
+      // its file (as on the main track); a text or template holds its first or last moment.
+      const held = Math.max(layer.start, Math.min(t, clipEnd(layer) - 1e-3));
+      let draws: LayerDraw[];
+      if (layer.type === "media") draws = this.mediaLayer(layer, t, W, H, keyPrefix, exact, false, fetch);
+      else if (layer.type === "template") draws = this.motion.layer(p, layer, held, W, H, exact, exact !== null || !fetch);
+      else draws = this.textLayer(layer, held, W, H, exact);
+      const phase = scene.phases[layer.id];
+      over.push(...(phase ? applyLayerLook(draws, layerLook(phase, W, H)) : draws));
     }
     this.gfx.drawInto("c", over, null);
     if (!exact && fetch) this.prefetch(t, W, H, keyPrefix);
@@ -591,12 +598,8 @@ export class Engine {
     };
     for (const layer of [...scene.layers].reverse()) {
       if (layer.type === "text") {
-        const drawn = this.texts.get(layer.id);
-        if (!drawn) continue;
-        const look = textLook(layer, t - layer.start);
-        const place = placeAt(layer, t - layer.start);
-        const s = place.scale * look.scale;
-        if (inside([place.x * W, (place.y + look.dy) * H], [drawn.size.width * s, drawn.size.height * s], (place.rotation * Math.PI) / 180)) return layer;
+        const box = this.textBox(layer, t);
+        if (box && inside(box.center, box.size, box.rotation)) return layer;
       } else if (layer.type === "template") {
         if (this.motion.hit(layer, t, x, y, W, H)) return layer;
       } else {
@@ -607,6 +610,17 @@ export class Engine {
       }
     }
     return scene.a;
+  }
+
+  /** Where a text clip was drawn at `t` (composition pixels, rotation in radians); null before it was drawn. */
+  textBox(c: TextClip, t: number): { center: [number, number]; size: [number, number]; rotation: number } | null {
+    const drawn = this.texts.get(c.id);
+    if (!drawn) return null;
+    const local = Math.max(0, Math.min(c.duration, t - c.start));
+    const look = textLook(c, local);
+    const place = placeAt(c, local);
+    const s = place.scale * look.scale;
+    return { center: [place.x * this.width, (place.y + look.dy) * this.height], size: [drawn.size.width * s, drawn.size.height * s], rotation: (place.rotation * Math.PI) / 180 };
   }
 
   /** Warms up decoders of clips about to start, so cuts don't stall. */

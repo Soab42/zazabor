@@ -11,7 +11,7 @@ use super::media;
 use gst::prelude::*;
 use gstreamer as gst;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
@@ -33,6 +33,9 @@ pub struct Spec {
     /// MP4's video encoder: "vaapi", "x264", "nvh264", "x265" or "nvh265" (empty: the best one).
     #[serde(default)]
     pub codec: String,
+    /// "fast": the encoder's quicker setting (the page also skips motion blur); else "best".
+    #[serde(default)]
+    pub speed: String,
 }
 
 #[derive(Serialize)]
@@ -41,6 +44,8 @@ pub struct Done {
     pub bytes: u64,
     pub seconds: f64,
     pub frames: u64,
+    /// Seconds frames waited for the encoder to take them (it was the slowest step that long).
+    pub waited: f64,
 }
 
 /// One of MP4's video encoders, for the dialog.
@@ -143,10 +148,43 @@ struct Job {
     fps: u32,
     frame_bytes: usize,
     frames: u64,
+    order: Order,
+    waited: Duration,
     part: PathBuf,
     dest: PathBuf,
     bridge: Option<JoinHandle<()>>,
     started: Instant,
+}
+
+/// How far ahead of its turn a frame may arrive (the page keeps a few on their way at once).
+const MOST_EARLY: u64 = 8;
+
+/// The page sends a few frames at once, so they can arrive out of order: early ones wait here
+/// for their turn.
+#[derive(Default)]
+struct Order {
+    /// The next frame the encoder takes.
+    next: u64,
+    early: BTreeMap<u64, Vec<u8>>,
+}
+
+impl Order {
+    /// Takes frame `seq` (from 0); returns the frames now due, in order.
+    fn arrive(&mut self, seq: u64, data: Vec<u8>) -> Result<Vec<(u64, Vec<u8>)>, String> {
+        if seq < self.next || self.early.contains_key(&seq) {
+            return Err(format!("Frame {} arrived twice.", seq + 1));
+        }
+        if seq >= self.next + MOST_EARLY {
+            return Err("The frames arrived too far out of order.".into());
+        }
+        self.early.insert(seq, data);
+        let mut due = Vec::new();
+        while let Some(data) = self.early.remove(&self.next) {
+            due.push((self.next, data));
+            self.next += 1;
+        }
+        Ok(due)
+    }
 }
 
 fn jobs() -> &'static Mutex<HashMap<u32, Arc<Mutex<Job>>>> {
@@ -184,6 +222,7 @@ fn description(spec: &Spec, codec: &str, aac: Option<&str>) -> (String, Option<S
     let frame = (w * h * 3 / 2) as u64;
     let pcm = "audio/x-raw,format=S16LE,rate=48000,channels=2,layout=interleaved";
     let gop = fps * 2;
+    let fast = spec.speed == "fast";
     let source = format!("appsrc name=video format=time block=true max-bytes={} caps=\"{raw}\" ! queue ! videoconvert", frame * 3);
     let audio_source = format!("appsrc name=audio format=time block=false max-bytes=0 caps=\"{pcm}\" ! queue max-size-buffers=0 max-size-bytes=0 max-size-time=0 ! audioconvert ! audioresample");
     let mut parts = Vec::new();
@@ -209,11 +248,11 @@ fn description(spec: &Spec, codec: &str, aac: Option<&str>) -> (String, Option<S
         match codec {
             // Straight into the muxer: x264 writes AVC, and h265parse makes HVC1.
             "x264" => {
-                parts.push(format!("{source} ! video/x-raw,format=I420 ! x264enc pass=qual quantizer={q} speed-preset=faster threads={threads} key-int-max={gop} bframes=0 ! video/x-h264,stream-format=avc,alignment=au,profile=high ! queue ! mux.video_0"));
+                parts.push(format!("{source} ! video/x-raw,format=I420 ! x264enc pass=qual quantizer={q} speed-preset={} threads={threads} key-int-max={gop} bframes=0 ! video/x-h264,stream-format=avc,alignment=au,profile=high ! queue ! mux.video_0", if fast { "veryfast" } else { "faster" }));
                 (parts.join("  "), None)
             }
             "x265" => {
-                parts.push(format!("{source} ! video/x-raw,format=I420 ! x265enc speed-preset=faster qp={q} key-int-max={gop} ! h265parse ! video/x-h265,stream-format=hvc1,alignment=au ! queue ! mux.video_0"));
+                parts.push(format!("{source} ! video/x-raw,format=I420 ! x265enc speed-preset={} qp={q} key-int-max={gop} ! h265parse ! video/x-h265,stream-format=hvc1,alignment=au ! queue ! mux.video_0", if fast { "veryfast" } else { "faster" }));
                 (parts.join("  "), None)
             }
             "nvh265" => {
@@ -226,7 +265,8 @@ fn description(spec: &Spec, codec: &str, aac: Option<&str>) -> (String, Option<S
                 let encoder = if codec == "nvh264" {
                     format!("video/x-raw,format=I420 ! nvh264enc rc-mode=constqp qp-const={q} gop-size={gop} bframes=0 aud=false")
                 } else {
-                    format!("video/x-raw,format=NV12 ! vaapih264enc init-qp={q} keyframe-period={gop} max-bframes=0 aud=false")
+                    // Quality level 7 is the driver's quickest; 4 is its default.
+                    format!("video/x-raw,format=NV12 ! vaapih264enc init-qp={q} keyframe-period={gop} max-bframes=0 aud=false{}", if fast { " quality-level=7" } else { "" })
                 };
                 let encode = format!("{source} ! {encoder} ! video/x-h264,stream-format=byte-stream,alignment=au ! appsink name=encoded sync=false");
                 (parts.join("  "), Some(encode))
@@ -334,6 +374,8 @@ pub fn begin(spec: Spec) -> Result<u32, String> {
         fps: spec.fps,
         frame_bytes: (spec.width * spec.height * 3 / 2) as usize,
         frames: 0,
+        order: Order::default(),
+        waited: Duration::ZERO,
         part,
         dest,
         bridge: bridge_thread,
@@ -387,8 +429,9 @@ pub fn audio(id: u32, pcm: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-/// One I420 frame at the output size; blocks while the encoder catches up.
-pub fn frame(id: u32, data: Vec<u8>) -> Result<u64, String> {
+/// One I420 frame at the output size, number `seq` (from 0; none: the next); blocks while the
+/// encoder catches up. A frame that arrives before its turn waits for the ones before it.
+pub fn frame(id: u32, seq: Option<u64>, data: Vec<u8>) -> Result<u64, String> {
     let job = job(id)?;
     let mut job = lock(&job);
     if data.len() != job.frame_bytes {
@@ -398,20 +441,31 @@ pub fn frame(id: u32, data: Vec<u8>) -> Result<u64, String> {
         drop(job);
         return Err(fail(id, why));
     }
-    let n = job.frames;
+    let seq = seq.unwrap_or(job.order.next);
+    let due = match job.order.arrive(seq, data) {
+        Ok(due) => due,
+        Err(why) => {
+            drop(job);
+            return Err(fail(id, why));
+        }
+    };
     let fps = job.fps as u64;
-    let mut buffer = gst::Buffer::from_mut_slice(data);
-    {
-        let b = buffer.get_mut().expect("new buffer");
-        b.set_pts(gst::ClockTime::from_nseconds(n * 1_000_000_000 / fps));
-        b.set_duration(gst::ClockTime::from_nseconds((n + 1) * 1_000_000_000 / fps - n * 1_000_000_000 / fps));
+    for (n, data) in due {
+        let mut buffer = gst::Buffer::from_mut_slice(data);
+        {
+            let b = buffer.get_mut().expect("new buffer");
+            b.set_pts(gst::ClockTime::from_nseconds(n * 1_000_000_000 / fps));
+            b.set_duration(gst::ClockTime::from_nseconds((n + 1) * 1_000_000_000 / fps - n * 1_000_000_000 / fps));
+        }
+        let pushed = Instant::now();
+        if job.video.emit_by_name::<gst::FlowReturn>("push-buffer", &[&buffer]) != gst::FlowReturn::Ok {
+            let why = job.error().unwrap_or_else(|| "The video couldn't be encoded.".into());
+            drop(job);
+            return Err(fail(id, why));
+        }
+        job.waited += pushed.elapsed();
+        job.frames += 1;
     }
-    if job.video.emit_by_name::<gst::FlowReturn>("push-buffer", &[&buffer]) != gst::FlowReturn::Ok {
-        let why = job.error().unwrap_or_else(|| "The video couldn't be encoded.".into());
-        drop(job);
-        return Err(fail(id, why));
-    }
-    job.frames += 1;
     Ok(job.frames)
 }
 
@@ -419,7 +473,12 @@ pub fn frame(id: u32, data: Vec<u8>) -> Result<u64, String> {
 pub fn finish(id: u32) -> Result<Done, String> {
     let job = job(id)?;
     let mut job = lock(&job);
+    if !job.order.early.is_empty() {
+        drop(job);
+        return Err(fail(id, "A frame went missing on its way to the encoder.".into()));
+    }
     let _ = job.video.emit_by_name::<gst::FlowReturn>("end-of-stream", &[]);
+    let ending = Instant::now();
     let bus = job.pipeline.bus().ok_or("no bus")?;
     let deadline = Instant::now() + Duration::from_secs(300);
     let outcome = loop {
@@ -440,11 +499,12 @@ pub fn finish(id: u32) -> Result<Done, String> {
             }
         }
     };
+    eprintln!("[video-editor] export: {} frames; they waited {:.2} s for the encoder, and ending the file took {:.2} s", job.frames, job.waited.as_secs_f64(), ending.elapsed().as_secs_f64());
     job.stop();
     if let Some(thread) = job.bridge.take() {
         let _ = thread.join();
     }
-    let (part, dest, frames, started) = (job.part.clone(), job.dest.clone(), job.frames, job.started);
+    let (part, dest, frames, started, waited) = (job.part.clone(), job.dest.clone(), job.frames, job.started, job.waited);
     drop(job);
     lock(jobs()).remove(&id);
     if let Err(why) = outcome {
@@ -457,6 +517,7 @@ pub fn finish(id: u32) -> Result<Done, String> {
         path: dest.to_string_lossy().into_owned(),
         seconds: started.elapsed().as_secs_f64(),
         frames,
+        waited: waited.as_secs_f64(),
     })
 }
 
@@ -477,7 +538,40 @@ mod tests {
     use super::*;
 
     fn spec(format: &str, audio: bool) -> Spec {
-        Spec { path: "/tmp/x.mp4".into(), width: 1080, height: 1920, fps: 30, format: format.into(), quality: "standard".into(), audio, codec: String::new() }
+        Spec { path: "/tmp/x.mp4".into(), width: 1080, height: 1920, fps: 30, format: format.into(), quality: "standard".into(), audio, codec: String::new(), speed: String::new() }
+    }
+
+    #[test]
+    fn frames_that_overtake_each_other_go_to_the_encoder_in_order() {
+        let mut order = Order::default();
+        let frame = |n: u8| vec![n; 4];
+        // 0 and 1 swapped, then 2, 4, 3: each comes out once, in order, with its own bytes.
+        assert_eq!(order.arrive(1, frame(1)).unwrap(), vec![]);
+        assert_eq!(order.arrive(0, frame(0)).unwrap(), vec![(0, frame(0)), (1, frame(1))]);
+        assert_eq!(order.arrive(2, frame(2)).unwrap(), vec![(2, frame(2))]);
+        assert_eq!(order.arrive(4, frame(4)).unwrap(), vec![]);
+        assert_eq!(order.arrive(3, frame(3)).unwrap(), vec![(3, frame(3)), (4, frame(4))]);
+        assert!(order.early.is_empty());
+        // Twice, or far ahead of its turn: refused.
+        assert!(order.arrive(4, frame(4)).is_err());
+        assert!(order.arrive(5 + MOST_EARLY, frame(9)).is_err());
+        // Any arrival order of a window comes out whole and in order.
+        let mut order = Order::default();
+        let mut out = Vec::new();
+        for seq in [2u64, 0, 3, 1, 7, 5, 6, 4, 8] {
+            out.extend(order.arrive(seq, frame(seq as u8)).unwrap().into_iter().map(|(n, d)| (n, d[0])));
+        }
+        assert_eq!(out, (0..9).map(|n| (n, n as u8)).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn fast_exports_use_the_encoders_quicker_settings() {
+        let mut fast = spec("mp4", false);
+        fast.speed = "fast".into();
+        assert!(description(&fast, "vaapi", None).1.unwrap().contains("aud=false quality-level=7"));
+        assert!(!description(&spec("mp4", false), "vaapi", None).1.unwrap().contains("quality-level"));
+        assert!(description(&fast, "x264", None).0.contains("speed-preset=veryfast"));
+        assert!(description(&spec("mp4", false), "x264", None).0.contains("speed-preset=faster"));
     }
 
     /// A system with exactly these elements (NVIDIA's start only if listed in `nv`).

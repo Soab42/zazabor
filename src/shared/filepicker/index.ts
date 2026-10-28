@@ -16,6 +16,7 @@ import { icon, type IconName } from "../../ui/icons";
 import { openMenu } from "../../ui/menu";
 import type { DialogFilter } from "../dialog";
 import { fileThumb } from "../file-thumbs";
+import { canListen, listening, onListening, stopListening, toggleListening } from "../listen";
 import { ThumbLoader } from "../thumbs";
 import "./filepicker.css";
 
@@ -138,6 +139,11 @@ class FilePicker {
   private readonly typeSelect = h("select", { class: "fp-type", "aria-label": "File type" });
   private readonly summary = h("span", { class: "fp-summary" });
   private readonly primary = h("button", { class: "btn primary", type: "button" });
+  /** Listen to the chosen sound before opening it (Space in the list). */
+  private readonly listenBtn = h("button", { class: "btn fp-listen", type: "button", hidden: true });
+  /** The file this picker started playing. */
+  private listened: string | null = null;
+  private readonly stopWatching: () => void;
 
   constructor(private readonly options: PickerOptions, private readonly done: (paths: string[] | null) => void) {
     this.mode = options.mode;
@@ -188,7 +194,12 @@ class FilePicker {
     }
     this.primary.textContent = this.mode === "save" ? "Save" : this.mode === "folder" ? "Select Folder" : "Open";
     this.primary.addEventListener("click", () => void this.accept());
-    foot.append(this.summary, h("span", { class: "spacer" }),
+    this.listenBtn.addEventListener("click", () => {
+      this.toggleListen();
+      this.body.focus({ preventScroll: true });
+    });
+    this.stopWatching = onListening(() => this.drawListen());
+    foot.append(this.listenBtn, this.summary, h("span", { class: "spacer" }),
       h("button", { class: "btn", type: "button", onclick: () => this.finish(null) }, "Cancel"), this.primary);
 
     const card = h("div", { class: "modal fp", role: "dialog", "aria-modal": "true", "aria-label": title },
@@ -279,6 +290,8 @@ class FilePicker {
       store("recent", recent);
     }
     for (const u of this.unlisten) void u.then((fn) => fn());
+    this.stopWatching();
+    if (this.listened && listening() === this.listened) stopListening();
     window.removeEventListener("keydown", this.onWindowKey, true);
     this.overlay.remove();
     if (!document.querySelector(".fp-overlay")) document.body.classList.remove("file-picker-open");
@@ -521,8 +534,18 @@ class FilePicker {
     this.body.style.setProperty("--cols", String(this.cols));
   }
 
+  /** Marks the selection on the items drawn, without binding them again: a press whose node was
+   *  replaced under the pointer gets no click, so no double-click either. */
   private paint() {
-    this.list?.refresh();
+    this.list?.forEachRendered((el) => {
+      const items = this.view === "icon" ? (Array.from(el.children) as HTMLElement[]) : [el];
+      for (const item of items) {
+        const e = this.shown[Number(item.dataset.index)];
+        if (!e) continue;
+        item.classList.toggle("selected", this.sel.selection.has(e.path));
+        item.classList.toggle("focus", this.sel.focus === e.path);
+      }
+    });
   }
 
   private createRow(): HTMLElement {
@@ -624,7 +647,10 @@ class FilePicker {
       this.paint();
       this.refreshFoot();
     });
-    this.body.addEventListener("dblclick", (e) => {
+    // A double-click opens on its second press, as GTK's chooser does: the press count doesn't
+    // depend on the two clicks landing on the same node, as a dblclick event does.
+    this.body.addEventListener("mousedown", (e) => {
+      if (e.button !== 0 || e.detail !== 2) return;
       const i = this.indexAt(e.target);
       if (i >= 0) void this.activate(this.shown[i]);
     });
@@ -687,6 +713,7 @@ class FilePicker {
     if (target !== this.body && !this.body.contains(target) && e.key !== "Enter") return;
     if (e.key === "Enter") return this.handled(e, () => void this.accept(true));
     if (e.key === "Backspace") return this.handled(e, () => this.goUp());
+    if (e.key === " " && !mod && this.listenable()) return this.handled(e, () => this.toggleListen());
     if (mod && lower === "a" && this.options.multiple) {
       return this.handled(e, () => {
         selectAll(this.sel, this.shown);
@@ -769,7 +796,37 @@ class FilePicker {
     this.finish([path]);
   }
 
+  // ---- listening
+
+  /** The sound to listen to: the focused file when it's chosen, else the only one chosen. */
+  private listenable(): FsEntry | null {
+    if (this.mode !== "open") return null;
+    const chosen = this.selected().filter((e) => !e.dir);
+    const entry = chosen.find((e) => e.path === this.sel.focus) ?? (chosen.length === 1 ? chosen[0] : null);
+    return entry && canListen(entry.path) ? entry : null;
+  }
+
+  private toggleListen() {
+    const entry = this.listenable();
+    if (!entry) return;
+    this.listened = entry.path;
+    toggleListening(entry.path).catch(() => this.flash(`“${entry.name}” can't be played here.`));
+  }
+
+  /** The Listen button follows the chosen file; choosing another stops what this picker played. */
+  private drawListen() {
+    const entry = this.listenable();
+    const now = listening();
+    if (this.listened && now === this.listened && entry?.path !== this.listened) stopListening();
+    const on = !!entry && listening() === entry.path;
+    this.listenBtn.hidden = !entry;
+    this.listenBtn.classList.toggle("active", on);
+    this.listenBtn.title = on ? "Stop (Space)" : "Listen before choosing (Space)";
+    this.listenBtn.replaceChildren(icon(on ? "stop" : "play", 14), on ? "Stop" : "Listen");
+  }
+
   private refreshFoot() {
+    this.drawListen();
     const chosen = this.selected();
     if (this.mode === "open") {
       const files = chosen.filter((e) => !e.dir);

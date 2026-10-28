@@ -3,8 +3,9 @@ import { icon, type IconName } from "../../../ui/icons";
 import type { MediaStore } from "./media";
 import { PEAK_RATE } from "./media";
 import {
-  beatTimes, clipEnd, keyTimes, sourceTime, mainIndexAt, mainTrack, mediaOf, moveFree, moveMain, MIN_CLIP, projectDuration, snap, trimEnd, trimStart,
-  type Clip, type MediaClip, type Project, type Track, type TrackKind,
+  beatTimes, clipEnd, keyTimes, layerSpans, sourceTime, mainIndexAmong, mainIndexAt, mainTrack, mediaOf, moveGroup, moveMainBlock, MIN_CLIP, projectDuration, snap,
+  touchesPrevious, trimEnd, trimStart,
+  type Clip, type Project, type Track, type TrackKind,
 } from "./model";
 
 /**
@@ -30,9 +31,14 @@ export interface TimelineHost {
   endDrag(): void;
   dropMedia(mediaId: string, where: { kind: "main"; index: number } | { kind: "overlay" | "audio"; time: number; track?: string }): void;
   dropText(presetId: string, time: number): void;
+  /** The Transitions tab for a cut (the clip after it). */
   openTransition(clipId: string): void;
   /** Split, delete and friends from the toolbar. */
   command(name: "split" | "delete" | "duplicate"): void;
+  /** Right-click: on a clip, or on a track's empty space at `time` (track null: below the tracks). */
+  contextMenu(e: MouseEvent, clip: Clip | null, track: Track | null, time: number): void;
+  /** Double-click on a text or a template: its text, ready to type. */
+  editText(clipId: string): void;
   fps(): number;
 }
 
@@ -54,7 +60,8 @@ interface Row {
 
 type Drag =
   | { kind: "scrub" }
-  | { kind: "move"; id: string; grab: number; startX: number; moved: boolean; main: boolean; trackKind: TrackKind }
+  /** `ids`: the clips moving with it (the selection, on the same kind of track: main or not); `from`: its start. */
+  | { kind: "move"; id: string; ids: string[]; from: number; grab: number; startX: number; moved: boolean; main: boolean; trackKind: TrackKind; add: boolean }
   | { kind: "trim"; id: string; side: "start" | "end"; moved: boolean };
 
 export function formatTime(t: number, fps = 30, frames = true): string {
@@ -63,6 +70,13 @@ export function formatTime(t: number, fps = 30, frames = true): string {
   const s = Math.floor(total % 60);
   const f = Math.floor((total % 1) * fps + 1e-6);
   return frames ? `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}:${String(f).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/** A "#rrggbb" colour with alpha (any other colour as it is). */
+function withAlpha(color: string, alpha: number): string {
+  if (!/^#[0-9a-f]{6}$/i.test(color)) return color;
+  const v = parseInt(color.slice(1), 16);
+  return `rgba(${(v >> 16) & 255}, ${(v >> 8) & 255}, ${v & 255}, ${alpha})`;
 }
 
 export class Timeline {
@@ -124,6 +138,7 @@ export class Timeline {
     this.canvas.addEventListener("pointerdown", (e) => this.down(e));
     this.canvas.addEventListener("pointermove", (e) => this.hover(e));
     this.canvas.addEventListener("dblclick", (e) => this.dblclick(e));
+    this.canvas.addEventListener("contextmenu", (e) => this.rightClick(e));
     this.view.addEventListener("wheel", (e) => this.wheel(e), { passive: false });
     this.ruler.addEventListener("wheel", (e) => this.wheel(e), { passive: false });
     this.view.addEventListener("dragover", (e) => this.dragOver(e));
@@ -179,13 +194,23 @@ export class Timeline {
     return null;
   }
 
-  /** The cut marker under a point on the main track (the clip after the cut). */
-  private cutAtPoint(x: number, y: number): MediaClip | null {
-    const p = this.host.project();
-    const row = this.rows.find((r) => r.track === mainTrack(p));
-    if (!row || y < row.y + row.h - 22 || y > row.y + row.h + 2) return null;
-    for (const c of mainTrack(p).clips.slice(1)) {
-      if (Math.abs(this.x(c.start) - x) < 9) return c as MediaClip;
+  /**
+   * The clips with a cut marker before them: every cut on the main track; on overlay tracks,
+   * clips that start where the one before ends; on text tracks, only such cuts with a
+   * transition (captions touch all the time).
+   */
+  private cutsOf(track: Track): Clip[] {
+    if (track.kind === "main") return track.clips.slice(1);
+    if (track.kind === "audio") return [];
+    return track.clips.filter((c, i) => touchesPrevious(track, i) && (track.kind === "overlay" || !!c.transition));
+  }
+
+  /** The cut marker under a point (the clip after the cut). */
+  private cutAtPoint(x: number, y: number): Clip | null {
+    const row = this.rowAt(y);
+    if (!row || y < row.y + row.h - Math.min(22, row.h) || y > row.y + row.h + 2) return null;
+    for (const c of this.cutsOf(row.track)) {
+      if (Math.abs(this.x(c.start) - x) < 9) return c;
     }
     return null;
   }
@@ -287,8 +312,12 @@ export class Timeline {
   private palette() {
     const s = getComputedStyle(this.el);
     const v = (n: string, f: string) => s.getPropertyValue(n).trim() || f;
+    this.mark = v("--ve-key-mark", "#ffd166");
     return { text: v("--text", "#f5f5f7"), muted: v("--muted", "#9a9aa1"), line: v("--line", "rgba(255,255,255,0.1)"), font: s.fontFamily || "sans-serif" };
   }
+
+  /** The keyframe gold (studio.css `--ve-key-mark`): keyframes, beats and the snap line. */
+  private mark = "#ffd166";
 
   private draw() {
     this.raf = 0;
@@ -352,7 +381,7 @@ export class Timeline {
         if (x1 < -2 || x0 > width + 2) continue;
         this.drawClip(g, clip, row, x0, x1, pal);
       }
-      if (row.track.kind === "main") this.drawCuts(g, row);
+      this.drawCuts(g, row);
     }
     if (this.dropRow) {
       g.strokeStyle = "#f97350";
@@ -369,7 +398,7 @@ export class Timeline {
     }
     if (this.snapLine !== null) {
       const x = Math.round(this.x(this.snapLine)) + 0.5;
-      g.strokeStyle = "#ffd166";
+      g.strokeStyle = this.mark;
       g.lineWidth = 1;
       g.beginPath();
       g.moveTo(x, 0);
@@ -508,11 +537,26 @@ export class Timeline {
       // Beat marks.
       const beats = beatTimes(clip);
       if (beats.length) {
-        g.fillStyle = "rgba(255, 209, 102, 0.9)";
+        g.fillStyle = withAlpha(this.mark, 0.9);
         for (const b of beats) {
           const bx = this.x(b);
           if (bx >= x0 && bx <= x1) g.fillRect(Math.round(bx) - 0.5, y + hh - 9, 1.5, 7);
         }
+      }
+    }
+    // A layer's own in and out: orange ramps at its ends.
+    if (row.track.kind !== "main" && row.track.kind !== "audio" && (clip.transIn || clip.transOut)) {
+      const spans = layerSpans(clip);
+      g.fillStyle = "rgba(249, 115, 80, 0.55)";
+      for (const [edge, span, dir] of [[x0, spans.in, 1], [x1, spans.out, -1]] as const) {
+        const len = span * this.pps;
+        if (len < 1) continue;
+        g.beginPath();
+        g.moveTo(edge, y + hh);
+        g.lineTo(edge, y);
+        g.lineTo(edge + dir * len, y + hh);
+        g.closePath();
+        g.fill();
       }
     }
     // Keyframes: diamonds along the clip's foot.
@@ -522,7 +566,7 @@ export class Timeline {
       for (const kt of keyTimes(clip)) {
         const kx = this.x(clip.start + kt);
         if (kx < x0 - 1 || kx > x1 + 1) continue;
-        g.fillStyle = selected ? "#ffd166" : "rgba(255, 209, 102, 0.75)";
+        g.fillStyle = selected ? this.mark : withAlpha(this.mark, 0.75);
         g.strokeStyle = "rgba(0,0,0,0.6)";
         g.lineWidth = 1;
         g.beginPath();
@@ -563,9 +607,7 @@ export class Timeline {
   }
 
   private drawCuts(g: CanvasRenderingContext2D, row: Row) {
-    const clips = row.track.clips as MediaClip[];
-    for (let i = 1; i < clips.length; i++) {
-      const c = clips[i];
+    for (const c of this.cutsOf(row.track)) {
       const x = this.x(c.start);
       if (x < -20 || x > this.width + 20) continue;
       if (c.transition) {
@@ -620,7 +662,18 @@ export class Timeline {
   private dblclick(e: MouseEvent) {
     const { x, y } = this.local(e);
     const cut = this.cutAtPoint(x, y);
-    if (cut) this.host.openTransition(cut.id);
+    if (cut) return this.host.openTransition(cut.id);
+    const hit = this.clipAtPoint(x, y);
+    if (hit && ((hit.clip.type === "text" && !hit.clip.sticker) || hit.clip.type === "template")) this.host.editText(hit.clip.id);
+  }
+
+  private rightClick(e: MouseEvent) {
+    e.preventDefault();
+    if (this.drag) return;
+    const { x, y } = this.local(e);
+    const hit = this.clipAtPoint(x, y);
+    const row = this.rowAt(y);
+    this.host.contextMenu(e, hit?.clip ?? null, hit?.row.track ?? (row && y >= row.y && y <= row.y + row.h ? row.track : null), Math.max(0, this.t(x)));
   }
 
   private snapped(t: number, except: string[]) {
@@ -665,11 +718,19 @@ export class Timeline {
       this.host.seek(Math.max(0, this.t(x)));
     } else {
       const add = e.shiftKey || e.ctrlKey || e.metaKey;
-      if (!this.host.selection.has(hit.clip.id) || add) this.host.select([hit.clip.id], add);
+      const wasSelected = this.host.selection.has(hit.clip.id);
+      if (!wasSelected || add) this.host.select([hit.clip.id], add);
       if (hit.edge) {
         this.drag = { kind: "trim", id: hit.clip.id, side: hit.edge, moved: false };
       } else {
-        this.drag = { kind: "move", id: hit.clip.id, grab: this.t(x) - hit.clip.start, startX: x, moved: false, main: hit.row.track.kind === "main", trackKind: hit.row.track.kind };
+        // Selected clips move together: on the main track the selected main clips as a block, off
+        // it the selected clips off it, each on its own track.
+        const main = hit.row.track.kind === "main";
+        const p = this.host.project();
+        const ids = this.host.selection.has(hit.clip.id)
+          ? p.tracks.filter((t) => (t.kind === "main") === main).flatMap((t) => t.clips).filter((c) => this.host.selection.has(c.id)).map((c) => c.id)
+          : [hit.clip.id];
+        this.drag = { kind: "move", id: hit.clip.id, ids, from: hit.clip.start, grab: this.t(x) - hit.clip.start, startX: x, moved: false, main, trackKind: hit.row.track.kind, add: add || !wasSelected };
       }
     }
     const move = (ev: PointerEvent) => this.dragMove(ev);
@@ -709,26 +770,26 @@ export class Timeline {
     }
     this.canvas.style.cursor = "grabbing";
     if (d.main) {
-      this.insertAt = this.insertionTime(this.t(x), d.id);
+      this.insertAt = this.insertionTime(this.t(x), d.ids);
       this.redraw(false);
       return;
     }
-    const start = this.snapStart(Math.max(0, this.t(x) - d.grab), d.id);
+    const start = this.snapStart(Math.max(0, this.t(x) - d.grab), d.id, d.ids);
     const row = this.rowAt(y);
     const target = row && row.track.kind === d.trackKind ? row.track.id : undefined;
-    this.host.dragTo((p) => moveFree(p, d.id, start, target));
+    this.host.dragTo((p) => moveGroup(p, d.ids, start - d.from, { id: d.id, track: target }));
     this.redraw(false);
   }
 
-  /** Snaps a moving clip by its start or its end, whichever is closer to something. */
-  private snapStart(start: number, id: string) {
+  /** Snaps a moving clip by its start or its end, whichever is closer to something (not the clips moving with it). */
+  private snapStart(start: number, id: string, moving: string[]) {
     if (!this.snapOn) return start;
     const clip = this.host.project().tracks.flatMap((t) => t.clips).find((c) => c.id === id);
     const length = clip?.duration ?? 0;
     const range = 8 / this.pps;
     const p = this.host.project();
-    const a = snap(p, start, range, [id], [this.host.time()]);
-    const b = snap(p, start + length, range, [id], [this.host.time()]);
+    const a = snap(p, start, range, moving, [this.host.time()]);
+    const b = snap(p, start + length, range, moving, [this.host.time()]);
     if (a !== start && (b === start + length || Math.abs(a - start) <= Math.abs(b - start - length))) {
       this.snapLine = a;
       return a;
@@ -741,11 +802,11 @@ export class Timeline {
     return start;
   }
 
-  /** Where a main-track clip dragged to `t` would go: the start of the clip it lands before. */
-  private insertionTime(t: number, except?: string) {
+  /** Where main-track clips dragged to `t` would go: the start of the clip they land before. */
+  private insertionTime(t: number, except: string[] = []) {
     const p = this.host.project();
-    const clips = mainTrack(p).clips.filter((c) => c.id !== except);
-    const i = mainIndexAt(p, t, except);
+    const clips = mainTrack(p).clips.filter((c) => !except.includes(c.id));
+    const i = mainIndexAmong(p, t, except);
     let at = 0;
     for (let k = 0; k < i; k++) at += clips[k].duration;
     return at;
@@ -759,9 +820,11 @@ export class Timeline {
     if (d.kind === "move" && d.main && d.moved) {
       const { x } = this.local(e);
       const p = this.host.project();
-      const index = mainIndexAt(p, this.t(x), d.id);
-      this.host.dragTo((q) => moveMain(q, d.id, index));
+      const index = mainIndexAmong(p, this.t(x), d.ids);
+      this.host.dragTo((q) => moveMainBlock(q, d.ids, index));
     }
+    // A plain click on one of several selected clips selects just that one.
+    if (d.kind === "move" && !d.moved && !d.add && this.host.selection.size > 1) this.host.select([d.id], false);
     this.insertAt = null;
     if (d.moved) this.host.endDrag();
     this.redraw(false);

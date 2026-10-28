@@ -4,9 +4,10 @@ import { icon } from "../../../ui/icons";
 import { LOOKS, TRANSITION_GROUPS, type LookId, type TransitionKind } from "../../gallery/slideshow/settings";
 import {
   CURVE_PRESETS, curveMean, defaultFrame, defaultFx, defaultMask, defaultPlace, findClip, hasKeys, keyAt, keyTimes, layoutMain, maxDuration,
-  maxTransition, mediaOf, MIN_CLIP, propAt, removeKey, setKey, setProp, sourceSpan, trimEnd,
-  type Clip, type CurvePreset, type Ease, type EffectId, type KeyProp, type MediaClip, type Project, type TextAnim, type TextClip,
+  maxTransition, mediaOf, MIN_CLIP, propAt, removeKey, setKey, setProp, sourceSpan, touchesPrevious, trimEnd,
+  type Clip, type CurvePreset, type Ease, type EffectId, type KeyProp, type LayerTransitions, type MediaClip, type Project, type TextAnim, type TextClip,
 } from "./model";
+import { LAYER_TRANSITION_GROUPS } from "./overlays";
 import { TEXT_ANIMS, TEXT_FONTS } from "./text";
 import { STICKERS, stickerOf } from "./stickers";
 
@@ -55,6 +56,8 @@ export class Inspector {
   private shown = "";
   private syncs: Sync[] = [];
   private lastTimeSync = 0;
+  /** The selected clip is off the main track and starts where the clip before it ends. */
+  private touching = false;
 
   constructor(private host: InspectorHost) {
     this.el = h("aside", { class: "ve-inspector" });
@@ -69,7 +72,10 @@ export class Inspector {
     const c = found?.clip;
     const shape = c?.type === "media" ? `${c.freeze !== undefined}:${!!c.fx.key}:${!!c.mask}:${!!c.frame}:${!!c.fx.lut}:${c.fx.effect !== "none"}:${!!c.curve}`
       : c?.type === "template" ? `${c.name}:${c.kit}:${!!c.ungrouped}` : "";
-    const key = found ? `${found.clip.id}:${found.track.kind}:${shape}` : `project:${p.canvas.aspect}:${p.media.length}`;
+    // Off the main track, the transition rows shown follow what's set and whether it touches the clip before.
+    this.touching = !!found && found.track.kind !== "main" && touchesPrevious(found.track, found.index);
+    const layer = c ? `${!!c.transIn}:${!!c.transOut}:${!!c.transition}:${this.touching}` : "";
+    const key = found ? `${found.clip.id}:${found.track.kind}:${shape}:${layer}` : `project:${p.canvas.aspect}:${p.media.length}`;
     if (!force && key === this.shown) {
       for (const s of this.syncs) s();
       return;
@@ -79,9 +85,20 @@ export class Inspector {
     const scroll = this.el.scrollTop;
     if (!found) this.el.replaceChildren(...this.projectView());
     else if (found.clip.type === "text") this.el.replaceChildren(...this.textView(found.clip));
-    else if (found.clip.type === "template") this.el.replaceChildren(...(this.host.templateView?.(found.clip.id, this.syncs) ?? []), this.placement(found.clip.id, false));
-    else this.el.replaceChildren(...this.mediaView(found.clip, found.track.kind, found.index));
+    else if (found.clip.type === "template") {
+      this.el.replaceChildren(...(this.host.templateView?.(found.clip.id, this.syncs) ?? []), this.placement(found.clip.id, false), this.layerTransitions(found.clip.id));
+    } else this.el.replaceChildren(...this.mediaView(found.clip, found.track.kind, found.index));
     this.el.scrollTop = scroll;
+  }
+
+  /** Scrolls to a section and puts the keyboard in its first field (`field`: which, by selector). */
+  reveal(title: string, field = "input, textarea, select") {
+    const section = [...this.el.querySelectorAll<HTMLElement>(".ve-section")].find((s) => s.querySelector("h3")?.textContent === title);
+    if (!section) return;
+    section.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    const input = section.querySelector<HTMLInputElement | HTMLTextAreaElement>(field);
+    input?.focus({ preventScroll: true });
+    if (input instanceof HTMLTextAreaElement || (input instanceof HTMLInputElement && input.type === "text")) input.select();
   }
 
   /** The playhead moved: keyframed values and the diamonds follow (at most ten times a second). */
@@ -405,6 +422,7 @@ export class Inspector {
         clip.beats?.length ? h("p", { class: "ve-panel-note" }, `${clip.beats.length} beats marked: clips snap to them.`) : null,
       ));
     }
+    if (visual && trackKind !== "main") out.push(this.layerTransitions(id));
     if (trackKind === "main" && index > 0) {
       const kinds = TRANSITION_GROUPS.flatMap((g) => g.items.map(([k, l]) => [k, l] as [TransitionKind, string]));
       const options: [TransitionKind | "none", string][] = [["none", "None"], ...kinds];
@@ -422,6 +440,28 @@ export class Inspector {
       ));
     }
     return out;
+  }
+
+  /** Off the main track: how the clip comes on and goes off, and the cut from the clip before when they touch. */
+  private layerTransitions(id: string): HTMLElement {
+    const c = () => this.live(id);
+    const kinds: [TransitionKind | "none", string][] = [["none", "None"], ...LAYER_TRANSITION_GROUPS.flatMap((g) => g.items)];
+    const now = this.live(id);
+    const rows = (label: string, key: keyof LayerTransitions): HTMLElement[] => [
+      this.select(label, kinds, () => c()?.[key]?.kind ?? "none", (v) => this.edit(id, key, (x) => {
+        if (v === "none") delete x[key];
+        else x[key] = { kind: v, duration: x[key]?.duration ?? 0.5 };
+      })),
+      ...(now?.[key] ? [this.slider("Length", { min: 0.2, max: 2, step: 0.1, get: () => c()?.[key]?.duration ?? 0.5, set: (v) => this.edit(id, `${key}-length`, (x) => {
+        const tr = x[key];
+        if (tr) tr.duration = v;
+      }), format: (v) => `${v.toFixed(1)} s` })] : []),
+    ];
+    return this.section("Transitions",
+      ...rows("In", "transIn"),
+      ...rows("Out", "transOut"),
+      ...(this.touching ? [h("p", { class: "ve-panel-note" }, "This clip starts where the one before it ends. A transition between them plays across the cut, instead of that clip's out and this one's in."), ...rows("Between", "transition")] : []),
+    );
   }
 
   /** A sticker: which one, its colour and size, and how it comes and goes. */
@@ -447,6 +487,7 @@ export class Inspector {
           trimEnd(q, x.id, x.start + v);
         }), format: (v) => `${v.toFixed(1)} s` }),
       ),
+      this.layerTransitions(id),
       this.placement(id, false),
     ];
   }
@@ -455,7 +496,9 @@ export class Inspector {
     if (clip.sticker) return this.stickerView(clip);
     const id = clip.id;
     const c = () => this.live<TextClip>(id);
-    const area = h("textarea", { class: "ve-textarea", rows: 3, value: clip.text, spellcheck: "true" });
+    const area = h("textarea", { class: "ve-textarea", rows: 3, spellcheck: "true" });
+    // The property, not the attribute (which h() would set for a string): a textarea shows its value.
+    area.value = clip.text;
     area.addEventListener("input", () => this.edit<TextClip>(id, "text", (x) => (x.text = area.value)));
     this.syncs.push(() => {
       if (document.activeElement !== area) area.value = c()?.text ?? "";
@@ -466,6 +509,7 @@ export class Inspector {
     return [
       h("header", { class: "ve-inspector-head" }, icon("textBox", 16), h("span", null, "Text")),
       this.section("Text", area,
+        h("p", { class: "ve-panel-note" }, "Or double-click the text on the preview to type on the video."),
         this.select("Font", fonts, () => c()?.style.font ?? "sans-serif", (v) => style("font", v)),
         this.slider("Size", { min: 12, max: 200, step: 1, get: () => c()?.style.size ?? 56, set: (v) => style("size", v), format: (v) => String(Math.round(v)) }),
         this.choice("Style", [["regular", "Regular"], ["bold", "Bold"], ["italic", "Italic"]] as const,
@@ -493,6 +537,7 @@ export class Inspector {
           trimEnd(q, x.id, x.start + v);
         }), format: (v) => `${v.toFixed(1)} s` }),
       ),
+      this.layerTransitions(id),
       this.placement(id, false),
     ];
   }

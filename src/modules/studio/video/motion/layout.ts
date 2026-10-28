@@ -65,8 +65,18 @@ export function resolve(r: Responsive, W: number, H: number): Box {
 export function safeArea(W: number, H: number): Box {
   const shape = shapeOf(W, H);
   const m = Math.min(W, H) * 0.05;
-  if (shape === "9:16") return { x: W * 0.06, y: H * 0.1, w: W * 0.82, h: H * 0.68 };
+  // The union of Reels, Shorts and TikTok (motion-rulebook.md §4.1): x 65–950, y 269–1248 of 1080×1920.
+  if (shape === "9:16") return { x: W * 0.06, y: H * 0.14, w: W * 0.82, h: H * 0.51 };
   return { x: m, y: m, w: W - 2 * m, h: H - 2 * m };
+}
+
+/**
+ * Where secondary text (body lines, details) and product pictures may go: in 9:16 down to y 1440
+ * of 1920, where a long caption might cover them; elsewhere the same as the safe area.
+ */
+export function secondaryArea(W: number, H: number): Box {
+  const safe = safeArea(W, H);
+  return shapeOf(W, H) === "9:16" ? { ...safe, h: H * 0.75 - safe.y } : safe;
 }
 
 export const inside = (inner: Box, outer: Box, slack = 0.5) =>

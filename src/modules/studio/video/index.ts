@@ -1,8 +1,9 @@
 import { api } from "../../../api";
 import { open, save } from "../../../shared/dialog";
 import { readText } from "../../../shared/quicklook/api";
-import { basename, dirname, h, stripExtension } from "../../../ui/dom";
+import { basename, dirname, h, isTypingTarget, stripExtension } from "../../../ui/dom";
 import { icon } from "../../../ui/icons";
+import { closeMenu, openMenu, type MenuItem } from "../../../ui/menu";
 import { BUILTIN_MUSIC, THEMES, type LookId, type TransitionKind } from "../../gallery/slideshow/settings";
 import { openDialog } from "../../time/dialog";
 import { errorText } from "../../time/api";
@@ -13,18 +14,20 @@ import { Engine, mainClipAt } from "./engine";
 import { offerCodecInstall, openExport } from "./export";
 import { Inspector } from "./inspector";
 import { MotionFeatures } from "./motion/editor";
+import { templateOf } from "./motion/templates";
 import { parseCube } from "./lut";
 import { AUDIO_EXTENSIONS, MediaStore, PEAK_RATE, PICTURE_EXTENSIONS, probeMedia, VIDEO_EXTENSIONS } from "./media";
 import {
-  clipEnd, findClip, insertMain, layoutMain, mainIndexAt, mainTrack, mediaClip, mediaOf, newProject, newTrack, normalizeProject, placeAt, placeFree,
-  projectDuration, remove, setProp, sourceTime, split, TEXT_SECONDS, tidyTracks, trimEnd, trimStart, uid, defaultPlace,
-  type Clip, type Media, type MediaClip, type Project, type TextClip,
+  clipEnd, copyClips, findClip, insertMain, layoutMain, mainIndexAt, mainTrack, mediaClip, mediaOf, MIN_CLIP, newProject, newTrack, normalizeProject,
+  pasteClips, placeAt, placeFree, projectDuration, remove, selectAllIds, setProp, sourceTime, split, TEXT_SECONDS, tidyTracks, touchesPrevious, trimEnd,
+  trimStart, uid, defaultPlace,
+  type Clip, type ClipCopy, type Media, type MediaClip, type Project, type TextClip, type Track,
 } from "./model";
 import { parseSrt, writeSrt } from "./srt";
 import { CaptionsPanel } from "./captions";
 import type { Cue } from "./api";
 import { STICKER_SIZE, stickerOf } from "./stickers";
-import { Panel } from "./panels";
+import { Panel, type TransitionSlot, type TransitionTarget } from "./panels";
 import { TEXT_PRESETS } from "./text";
 import { formatTime, Timeline } from "./timeline";
 import "./video-editor.css";
@@ -95,6 +98,9 @@ class History {
 
 let counter = 0;
 
+/** Clips copied with Ctrl+C or Ctrl+X, for pasting into this project or another one. */
+let clipboard: ClipCopy | null = null;
+
 class VideoEditor implements StudioApp {
   readonly kind = "video" as const;
   readonly el: HTMLElement;
@@ -134,6 +140,8 @@ class VideoEditor implements StudioApp {
   private recordBtn: HTMLButtonElement;
   /** Picking a chroma key colour from the preview for this clip. */
   private picking: string | null = null;
+  /** Typing a text clip's words in a box on the preview. */
+  private textEditor: { id: string; el: HTMLElement } | null = null;
 
   constructor(private host: StudioHost, aspect: Aspect) {
     this.project = newProject(aspect);
@@ -178,9 +186,11 @@ class VideoEditor implements StudioApp {
       dropText: (preset, time) => this.addText(preset, time),
       openTransition: (clipId) => {
         this.select([clipId], false);
-        this.panel.show("transitions");
+        this.panel.showTransition("cut");
       },
       command: (name) => this.command(name),
+      contextMenu: (e, clip, track, time) => this.contextMenu(e, clip, track, time),
+      editText: (id) => this.editText(id),
       fps: () => this.project.canvas.fps,
     });
 
@@ -222,7 +232,8 @@ class VideoEditor implements StudioApp {
       captions: this.captions,
       installCodecs: () => void this.installCodecs(),
       transitionTarget: () => this.transitionTarget(),
-      applyTransition: (kind, duration, all) => this.applyTransition(kind, duration, all),
+      applyTransition: (slot, kind, duration, all) => this.applyTransition(slot, kind, duration, all),
+      toast: (text) => this.host.toast(text),
       currentLook: () => this.currentLook(),
       applyLook: (look, all) => this.applyLook(look, all),
       templates: { render: () => this.motion.renderTab() },
@@ -360,6 +371,7 @@ class VideoEditor implements StudioApp {
   private undo() {
     const s = this.history.undo(JSON.stringify(this.project));
     if (s === null) return;
+    this.closeTextEditor();
     this.project = JSON.parse(s) as Project;
     this.markDirty();
     this.refresh({ sound: true });
@@ -369,6 +381,7 @@ class VideoEditor implements StudioApp {
   private redo() {
     const s = this.history.redo(JSON.stringify(this.project));
     if (s === null) return;
+    this.closeTextEditor();
     this.project = JSON.parse(s) as Project;
     this.markDirty();
     this.refresh({ sound: true });
@@ -381,6 +394,7 @@ class VideoEditor implements StudioApp {
       if (add && this.selection.has(id)) this.selection.delete(id);
       else this.selection.add(id);
     }
+    if (this.textEditor && (this.selection.size !== 1 || !this.selection.has(this.textEditor.id))) this.closeTextEditor();
     this.timeline.redraw(false);
     this.inspector.refresh();
     this.panel.selectionChanged();
@@ -409,6 +423,11 @@ class VideoEditor implements StudioApp {
   }
 
   private onPlayState(playing: boolean) {
+    if (playing) {
+      // The project's own sound takes over from listening in the Audio tab.
+      this.panel.stopListening();
+      this.closeTextEditor();
+    }
     this.playBtn.replaceChildren(icon(playing ? "pause" : "play", 22));
     this.playBtn.title = playing ? "Pause (Space)" : "Play (Space)";
     this.onTime(this.engine.time, false);
@@ -495,6 +514,24 @@ class VideoEditor implements StudioApp {
       };
       this.canvas.addEventListener("pointermove", move);
       this.canvas.addEventListener("pointerup", up);
+    });
+    const hitAt = (e: MouseEvent) => {
+      const rect = this.canvas.getBoundingClientRect();
+      const sx = this.engine.size.width / rect.width, sy = this.engine.size.height / rect.height;
+      return this.engine.clipAtPoint(this.engine.time, (e.clientX - rect.left) * sx, (e.clientY - rect.top) * sy);
+    };
+    // Double-click a text (or a template) to type its words.
+    this.canvas.addEventListener("dblclick", (e) => {
+      const hit = hitAt(e);
+      if (hit && hasText(hit)) this.editText(hit.id);
+    });
+    // Right-click: the same menu as on the timeline, for the layer under the pointer.
+    this.canvas.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      if (this.picking) return;
+      const hit = hitAt(e);
+      const found = hit ? findClip(this.project, hit.id) : null;
+      this.contextMenu(e, found?.clip ?? null, found?.track ?? null, this.engine.time);
     });
   }
 
@@ -695,35 +732,47 @@ class VideoEditor implements StudioApp {
 
   // ---- transitions and looks
 
-  private transitionTarget(): MediaClip | null {
-    const main = mainTrack(this.project).clips as MediaClip[];
+  private transitionTarget(): TransitionTarget | null {
+    // A selected overlay, text, sticker or template: its own in and out.
+    for (const id of this.selection) {
+      const f = findClip(this.project, id);
+      if (f && f.track.kind !== "main" && f.track.kind !== "audio") return { clip: f.clip, track: f.track, touching: touchesPrevious(f.track, f.index) };
+    }
+    const track = mainTrack(this.project);
+    const main = track.clips;
     const selected = main.find((c, i) => i > 0 && this.selection.has(c.id));
-    if (selected) return selected;
+    if (selected) return { clip: selected, track, touching: true };
     if (main.length < 2) return null;
     // The cut nearest the playhead.
     const t = this.engine.time;
-    return main.slice(1).reduce((best, c) => (Math.abs(c.start - t) < Math.abs(best.start - t) ? c : best));
+    return { clip: main.slice(1).reduce((best, c) => (Math.abs(c.start - t) < Math.abs(best.start - t) ? c : best)), track, touching: true };
   }
 
-  private applyTransition(kind: TransitionKind | null, duration: number, all: boolean) {
+  private applyTransition(slot: TransitionSlot, kind: TransitionKind | null, duration: number, all: boolean) {
     const target = this.transitionTarget();
     if (!target) return;
+    const { clip: c, track: { id: trackId } } = target;
+    const main = target.track.kind === "main";
+    const key = slot === "in" ? "transIn" : slot === "out" ? "transOut" : "transition";
     this.change((p) => {
-      const main = mainTrack(p).clips as MediaClip[];
-      const targets = all ? main.slice(1) : main.filter((c) => c.id === target.id);
-      for (const c of targets) {
-        if (kind) c.transition = { kind, duration };
-        else delete c.transition;
+      const track = p.tracks.find((x) => x.id === trackId);
+      if (!track) return;
+      // All: every cut of the track (off the main track, where clips touch), or every clip's in or out.
+      const targets = track.clips.filter((x, i) => (all ? slot !== "cut" || (main ? i > 0 : touchesPrevious(track, i)) : x.id === c.id));
+      for (const x of targets) {
+        if (kind) x[key] = { kind, duration };
+        else delete x[key];
       }
-      layoutMain(p);
-    }, all ? "" : `transition:${target.id}`);
+      if (main) layoutMain(p);
+    }, all ? "" : `transition:${slot}:${c.id}`);
     this.selection.clear();
-    this.selection.add(target.id);
+    this.selection.add(c.id);
     this.panel.refresh();
     this.inspector.refresh();
     if (kind) {
-      // Show it: play from just before the cut.
-      this.seek(Math.max(0, target.start - duration / 2 - 0.4));
+      // Show it: from just before it.
+      const at = slot === "cut" ? c.start - duration / 2 - 0.4 : slot === "in" ? c.start - 0.3 : clipEnd(c) - duration - 0.4;
+      this.seek(Math.max(0, at));
     }
   }
 
@@ -787,8 +836,9 @@ class VideoEditor implements StudioApp {
           const copy = structuredClone(found.clip) as Clip;
           copy.id = uid();
           copies.push(copy.id);
+          // The copy comes right after the clip: no transition across that cut.
+          delete copy.transition;
           if (found.track.kind === "main") {
-            if (copy.type === "media") delete copy.transition;
             insertMain(p, copy as MediaClip, found.index + 1);
           } else {
             copy.start = clipEnd(found.clip);
@@ -798,6 +848,176 @@ class VideoEditor implements StudioApp {
       });
       this.select(copies, false);
     }
+  }
+
+  // ---- copy and paste, select all
+
+  /** Ctrl+C and Ctrl+X: the selected clips onto the editor's clipboard (cut removes them). */
+  private copy(cut: boolean) {
+    const copy = copyClips(this.project, this.selection);
+    if (!copy) return;
+    clipboard = copy;
+    if (cut) this.command("delete");
+  }
+
+  /** Ctrl+V: the copied clips at `t` (the playhead), on `track` when it's their kind. */
+  private paste(t = this.engine.time, track?: string) {
+    const copy = clipboard;
+    if (!copy) return;
+    let ids: string[] = [];
+    this.change((p) => (ids = pasteClips(p, copy, t, track)));
+    if (ids.length) this.select(ids, false);
+  }
+
+  /** Ctrl+A: the selection's track (the main track when nothing is selected); again, every track. `track`: that one's clips. */
+  private selectAll(track?: string) {
+    const on = track ? this.project.tracks.find((t) => t.id === track) : null;
+    this.select(on ? on.clips.map((c) => c.id) : selectAllIds(this.project, this.selection), false);
+  }
+
+  // ---- right-click menus
+
+  /** The timeline's and the preview's menu: a clip's actions, or the track's at `time`. */
+  private contextMenu(e: MouseEvent, clip: Clip | null, track: Track | null, time: number) {
+    const x = e.clientX, y = e.clientY;
+    if (!clip) return openMenu(x, y, this.trackMenu(track, time));
+    if (!this.selection.has(clip.id)) this.select([clip.id], false);
+    openMenu(x, y, this.clipMenu(clip, track));
+  }
+
+  private clipMenu(clip: Clip, track: Track | null): MenuItem[] {
+    const many = this.selection.size > 1;
+    const t = this.engine.time;
+    const chosen = this.targets();
+    const at = (c: Clip) => t > c.start + MIN_CLIP / 2 && t < clipEnd(c) - MIN_CLIP / 2;
+    const found = findClip(this.project, clip.id);
+    const kind = track?.kind ?? found?.track.kind;
+    const m = clip.type === "media" ? mediaOf(this.project, clip.media) : undefined;
+    const video = clip.type === "media" && m?.kind === "video" && clip.freeze === undefined;
+    const items: MenuItem[] = [];
+    if (!many && hasText(clip)) items.push({ label: "Edit Text", icon: "pencil", action: () => this.editText(clip.id) }, "separator");
+    items.push(
+      { label: "Split at Playhead", icon: "splitRight", shortcut: "S", disabled: !chosen.some(at), action: () => this.command("split") },
+      { label: "Trim Start to Playhead", shortcut: "Q", disabled: !chosen.some(at), action: () => this.trimToPlayhead("start") },
+      { label: "Trim End to Playhead", shortcut: "W", disabled: !chosen.some(at), action: () => this.trimToPlayhead("end") },
+      "separator",
+      { label: "Cut", icon: "cut", shortcut: "Ctrl+X", action: () => this.copy(true) },
+      { label: "Copy", icon: "copy", shortcut: "Ctrl+C", action: () => this.copy(false) },
+      { label: "Paste", icon: "paste", shortcut: "Ctrl+V", disabled: !clipboard, action: () => this.paste() },
+      { label: "Duplicate", icon: "copy", shortcut: "Ctrl+D", action: () => this.command("duplicate") },
+    );
+    const extra: MenuItem[] = [];
+    if (!many && kind && kind !== "main" && kind !== "audio") {
+      extra.push({ label: "Transitions…", icon: "sparkles", action: () => this.panel.showTransition("in") });
+    } else if (!many && kind === "main" && found && found.index > 0) {
+      extra.push({ label: "Transition…", icon: "sparkles", action: () => {
+        this.select([clip.id], false);
+        this.panel.showTransition("cut");
+      } });
+    }
+    if (!many && clip.type === "media" && m && m.kind !== "image" && clip.freeze === undefined) {
+      extra.push({ label: "Speed…", icon: "speed", action: () => requestAnimationFrame(() => this.inspector.reveal("Speed")) });
+    }
+    if (!many && video && clip.type === "media") {
+      extra.push({ label: `${clip.reverse ? "✓ " : ""}Reverse`, icon: "repeat", action: () => this.change((p) => {
+        const c = findClip(p, clip.id)?.clip;
+        if (c?.type === "media") c.reverse = c.reverse ? undefined : true;
+      }) });
+      if (kind === "main") extra.push({ label: "Freeze Frame", icon: "snowflake", disabled: !at(clip), action: () => this.freezeFrame() });
+    }
+    if (!many && kind === "audio" && clip.type === "media") extra.push({ label: "Mark Beats", icon: "music", action: () => void this.markBeats(clip.id) });
+    if (extra.length) items.push("separator", ...extra);
+    items.push(
+      "separator",
+      { label: "Select All on This Layer", icon: "checkSquare", shortcut: "Ctrl+A", action: () => this.selectAll(found?.track.id) },
+      "separator",
+      { label: "Delete", icon: "trash", shortcut: "Delete", danger: true, action: () => this.command("delete") },
+    );
+    if (kind !== "main") items.push({ label: "Ripple Delete", shortcut: "Shift+Delete", danger: true, action: () => this.command("delete", true) });
+    return items;
+  }
+
+  /** Empty space on a track (or below the tracks, `track` null). */
+  private trackMenu(track: Track | null, time: number): MenuItem[] {
+    const items: MenuItem[] = [
+      { label: "Paste", icon: "paste", shortcut: "Ctrl+V", disabled: !clipboard, action: () => this.paste(time, track?.id) },
+    ];
+    if (track?.clips.length) items.push({ label: "Select All on This Layer", icon: "checkSquare", shortcut: "Ctrl+A", action: () => this.selectAll(track.id) });
+    if (this.project.tracks.some((t) => t.clips.length)) items.push({ label: "Select All Clips", action: () => this.select(this.project.tracks.flatMap((t) => t.clips.map((c) => c.id)), false) });
+    if (track) {
+      const id = track.id;
+      const flag = (name: "muted" | "hidden") => this.change((p) => {
+        const x = p.tracks.find((k) => k.id === id);
+        if (x) x[name] = !x[name];
+      });
+      items.push("separator");
+      if (track.kind !== "text") items.push({ label: track.muted ? "Unmute Track" : "Mute Track", icon: track.muted ? "volume" : "mute", action: () => flag("muted") });
+      if (track.kind !== "audio") items.push({ label: track.hidden ? "Show Track" : "Hide Track", icon: track.hidden ? "eye" : "eyeOff", action: () => flag("hidden") });
+    }
+    return items;
+  }
+
+  // ---- editing a text
+
+  /** A text's words, ready to type: in a box on the preview (a template's in the inspector). */
+  private editText(id: string) {
+    const c = findClip(this.project, id)?.clip;
+    if (!c || !hasText(c)) return;
+    this.engine.pause();
+    this.select([id], false);
+    if (c.type === "template") {
+      requestAnimationFrame(() => this.inspector.reveal("Content", ".mo-text"));
+      return;
+    }
+    // The playhead onto the text, past its way in, so it shows whole.
+    const t = this.engine.time;
+    if (t < c.start + 0.05 || t >= clipEnd(c) - 0.05) this.seek(c.start + Math.min(0.9, c.duration / 2));
+    this.openTextEditor(c.id);
+  }
+
+  private openTextEditor(id: string) {
+    this.closeTextEditor();
+    const c = findClip(this.project, id)?.clip;
+    if (c?.type !== "text") return;
+    this.engine.drawNow();
+    const area = h("textarea", { class: "ve-textedit-area", rows: 2, spellcheck: "true", "aria-label": "Text" });
+    area.value = c.text;
+    const el = h("div", { class: "ve-textedit" }, area, h("div", { class: "ve-textedit-hint" }, "Enter starts a new line. Esc or a click elsewhere when done."));
+    this.frame.append(el);
+    this.textEditor = { id, el };
+    // Under the text (above it when there's no room), as wide as the text and at least 240 px.
+    const box = this.engine.textBox(c, this.engine.time);
+    const fw = this.frame.clientWidth, fh = this.frame.clientHeight;
+    const k = fw / Math.max(1, this.engine.size.width);
+    const cx = box ? box.center[0] * k : fw / 2, cy = box ? box.center[1] * k : fh / 2;
+    const half = box ? (box.size[1] * k) / 2 : 0;
+    const width = Math.min(fw - 16, Math.max(240, box ? box.size[0] * k + 24 : 240));
+    el.style.width = `${width}px`;
+    el.style.left = `${Math.max(8, Math.min(fw - width - 8, cx - width / 2))}px`;
+    const height = el.offsetHeight;
+    const below = cy + half + 8;
+    el.style.top = `${below + height <= fh - 8 ? below : Math.max(8, cy - half - 8 - height)}px`;
+    area.addEventListener("input", () => this.change((p) => {
+      const x = findClip(p, id)?.clip;
+      if (x?.type === "text") x.text = area.value;
+    }, `${id}:text`));
+    area.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" || (e.key === "Enter" && (e.ctrlKey || e.metaKey))) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.closeTextEditor();
+      }
+    });
+    area.addEventListener("blur", () => this.closeTextEditor());
+    area.focus();
+    area.select();
+  }
+
+  private closeTextEditor() {
+    const editor = this.textEditor;
+    if (!editor) return;
+    this.textEditor = null;
+    editor.el.remove();
   }
 
   /** Q and W: trims the clip's start or end to the playhead. */
@@ -1233,6 +1453,7 @@ class VideoEditor implements StudioApp {
       return;
     }
     this.exporting = true;
+    this.closeTextEditor();
     void openExport({
       project: () => this.project,
       store: this.store,
@@ -1262,6 +1483,9 @@ class VideoEditor implements StudioApp {
     if (this.recording) void this.stopRecording(true);
     if (this.picking) this.endPicking();
     this.engine.pause();
+    this.panel.stopListening();
+    this.closeTextEditor();
+    closeMenu();
   }
 
   handleKey(e: KeyboardEvent): boolean {
@@ -1299,6 +1523,13 @@ class VideoEditor implements StudioApp {
     }
     if (mod && lower === "e") {
       this.exportVideo();
+      return true;
+    }
+    // Select all, copy, cut and paste are a field's own while typing in one.
+    if (mod && !e.shiftKey && !e.altKey && ["a", "c", "x", "v"].includes(lower) && !isTypingTarget(e.target)) {
+      if (lower === "a") this.selectAll();
+      else if (lower === "v") this.paste();
+      else this.copy(lower === "x");
       return true;
     }
     if (mod) return false;
@@ -1365,6 +1596,7 @@ class VideoEditor implements StudioApp {
   dispose() {
     clearInterval(this.recoverTimer);
     this.captions.dispose();
+    this.panel.dispose();
     if (this.recording) void editApi.recordStop(this.recording.id, true).catch(() => undefined);
     // Closed on purpose (saved, or "Don't Save"): nothing to recover.
     this.dropSnapshot();
@@ -1398,6 +1630,12 @@ export const createVideoApp: StudioFactory = async (host, start) => {
   }
   return app;
 };
+
+/** A text (not a sticker), or a template with texts to fill in: what Edit Text is for. */
+function hasText(c: Clip): boolean {
+  if (c.type === "text") return !c.sticker;
+  return c.type === "template" && !!templateOf(c)?.fields.some((f) => f.kind === "text");
+}
 
 /** How far apart two #rrggbb colours are (0 = the same, about 440 = black and white). */
 function colorDistance(a: string, b: string): number {

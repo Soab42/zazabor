@@ -87,6 +87,8 @@ export interface ExportSpec {
   audio: boolean;
   /** MP4's encoder (empty: the best there is). */
   codec?: Codec["id"] | "";
+  /** "fast": no motion blur, animated backgrounds at half size, the encoder's faster setting. */
+  speed?: "best" | "fast";
 }
 
 export interface ExportDone {
@@ -94,6 +96,8 @@ export interface ExportDone {
   bytes: number;
   seconds: number;
   frames: number;
+  /** Seconds frames waited for the encoder to take them. */
+  waited: number;
 }
 
 /** A decoded frame: planar I420, `width` a multiple of 8. `data` is null when unchanged. */
@@ -147,7 +151,9 @@ export const editApi = {
   encoders: () => invoke<Encoders>("videoedit_encoders"),
   exportBegin: (spec: ExportSpec) => invoke<number>("videoedit_export_begin", { spec }),
   exportAudio: (job: number, pcm: Uint8Array) => invoke<void>("videoedit_export_audio", pcm, { headers: { "x-job": String(job) } }),
-  exportFrame: (job: number, frame: Uint8Array) => invoke<number>("videoedit_export_frame", frame, { headers: { "x-job": String(job) } }),
+  /** Frame number `seq` (counted from 0): sends can overtake each other, and the backend puts them back in order. */
+  exportFrame: (job: number, frame: Uint8Array, seq?: number) =>
+    invoke<number>("videoedit_export_frame", frame, { headers: seq === undefined ? { "x-job": String(job) } : { "x-job": String(job), "x-seq": String(seq) } }),
   exportFinish: (job: number) => invoke<ExportDone>("videoedit_export_finish", { job }),
   exportCancel: (job: number) => invoke<void>("videoedit_export_cancel", { job }),
   saveProject: (path: string, text: string) => invoke<void>("videoedit_project_save", { path, text }),

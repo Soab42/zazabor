@@ -5,6 +5,35 @@ import type { Feel } from "./ease";
  * to every template in a project. A template clip keeps the theme it was given (so a project looks
  * the same on another computer) and which parts the user changed by hand, which applying a kit
  * leaves alone until "Reset to kit". Pure (tested in tools/motion.test.ts).
+ *
+ * Template looks (API for template authors):
+ *   - A template may carry its own designed `look` (format.ts `Template.look`, type `Look` below):
+ *     `{ colors: { primary, secondary, accent, background, text }, heading: { family, weight },
+ *     body: { family, weight }, bangla?, radius?, motion?, backdrop?, grade?, grain? }`.
+ *     Fonts are bundled families (fonts.ts). Every paint a layer uses ("@primary", "@bg"…) then
+ *     resolves to the look's colours, so write layers with theme paints, not hex.
+ *   - `backdrop`: up to six paints (hex or "@…") for base background layers (not `over` ones) that
+ *     don't set their own `colors`, by slot as background.ts's BG_COLORS (0–2 the lights, 3 the
+ *     dark base, 4 the light base, 5 an extra). Only while the look is on: a Brand Kit uses its own
+ *     colours. A light look needs a light slot 3 and a mixing preset (mesh, waves, glass): the
+ *     others add light, which a light base can't show.
+ *   - "@card" is a card's fill that suits either: near-white on a light background, the deep
+ *     surface on a dark one.
+ *   - `grade`: a finishing colour grade over the whole frame (`warmth` -1 cool … 1 warm, `fade`
+ *     0…1 lifted blacks, `saturation` 0…1 how much colour stays, `tint` + `tintAmount` 0…0.3);
+ *     `grain` 0…0.06 is the backgrounds' film grain while the look is on. Overlay templates
+ *     (lower thirds over video) aren't graded.
+ *   - A clip shows its template's look while its `kit` is `OWN_LOOK` ("Template's own look", the
+ *     default for new templates unless the user picks a default kit). Applying a kit replaces it;
+ *     "Reset" on a clip whose kit is `OWN_LOOK` goes back to the look. A template without a look
+ *     shows the first built-in kit (Midnight).
+ *
+ *   Example:
+ *     look: {
+ *       colors: { primary: "#d4af37", secondary: "#1c1a16", accent: "#f2e3b3", background: "#0a0907", text: "#f7f3ea" },
+ *       heading: { family: "Playfair Display", weight: 700 }, body: { family: "Manrope", weight: 500 },
+ *       backdrop: ["#d4af37", "#8a6a2a", "#f2e3b3", "#050403", "#1a1610"], grade: { warmth: 0.3, fade: 0.08 }, grain: 0.03,
+ *     },
  */
 
 export interface FontRef {
@@ -21,6 +50,35 @@ export interface Colors {
   text: string;
 }
 
+/** A finishing colour grade (see the note at the top). */
+export interface Grade {
+  /** -1 cool … 1 warm. */
+  warmth?: number;
+  /** 0…1: lifted blacks, a softer filmic look. */
+  fade?: number;
+  /** 0…1: how much colour stays (1 all of it). */
+  saturation?: number;
+  /** A colour washed over everything, and how much (0…0.3). */
+  tint?: string;
+  tintAmount?: number;
+}
+
+/** A template's own designed look (see the note at the top). */
+export interface Look {
+  colors: Colors;
+  heading: FontRef;
+  body: FontRef;
+  bangla?: FontRef;
+  radius?: number;
+  motion?: Feel;
+  backdrop?: string[];
+  grade?: Grade;
+  grain?: number;
+}
+
+/** The `kit` of a clip that shows its template's own look. */
+export const OWN_LOOK = "@own";
+
 export interface Theme {
   colors: Colors;
   heading: FontRef;
@@ -32,6 +90,10 @@ export interface Theme {
   motion: Feel;
   /** A logo picture (path); templates with a logo slot use it until one is chosen there. */
   logo: string | null;
+  /** From a template's look only (a kit has none): background paints, a grade and grain. */
+  backdrop?: string[];
+  grade?: Grade;
+  grain?: number;
 }
 
 export interface BrandKit extends Theme {
@@ -81,10 +143,22 @@ export const BUILT_IN_KITS: readonly BrandKit[] = [
 export const DEFAULT_KIT_ID = "midnight";
 
 export function themeOf(kit: Theme): Theme {
-  return {
+  const theme: Theme = {
     colors: { ...kit.colors }, heading: { ...kit.heading }, body: { ...kit.body }, bangla: { ...kit.bangla },
     radius: kit.radius, motion: kit.motion, logo: kit.logo,
   };
+  setExtras(theme, kit);
+  return theme;
+}
+
+/** A look's background paints, grade and grain onto `theme` (none from a kit). */
+function setExtras(theme: Theme, from: Pick<Theme, "backdrop" | "grade" | "grain">) {
+  if (from.backdrop) theme.backdrop = [...from.backdrop];
+  else delete theme.backdrop;
+  if (from.grade) theme.grade = { ...from.grade };
+  else delete theme.grade;
+  if (from.grain !== undefined) theme.grain = from.grain;
+  else delete theme.grain;
 }
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -111,13 +185,80 @@ export function normalizeTheme(raw: unknown, fallback: Theme = BUILT_IN_KITS[0])
     radius: typeof r.radius === "number" && Number.isFinite(r.radius) ? Math.max(0, Math.min(1, r.radius)) : fallback.radius,
     motion: r.motion === "snappy" || r.motion === "smooth" || r.motion === "playful" ? r.motion : fallback.motion,
     logo: typeof r.logo === "string" && r.logo ? r.logo : null,
+    ...lookExtras(r),
   };
 }
 
 export function normalizeKit(raw: unknown): BrandKit | null {
   const r = raw as Partial<BrandKit> | undefined;
-  if (!r || typeof r.id !== "string" || !r.id || typeof r.name !== "string") return null;
-  return { ...normalizeTheme(r), id: r.id.slice(0, 64), name: r.name.trim().slice(0, 60) || "Brand Kit" };
+  if (!r || typeof r.id !== "string" || !r.id || r.id === OWN_LOOK || typeof r.name !== "string") return null;
+  // A kit is colours, fonts, roundness, motion and a logo; a look's grade and background paints aren't part of it.
+  const theme = normalizeTheme(r);
+  setExtras(theme, {});
+  return { ...theme, id: r.id.slice(0, 64), name: r.name.trim().slice(0, 60) || "Brand Kit" };
+}
+
+// As background.ts reads a layer's paints.
+const PAINT = /^(@[a-zA-Z]+|#[0-9a-fA-F]{6})(\/(0(\.\d+)?|1(\.0+)?|\.\d+))?$/;
+const within = (v: unknown, lo: number, hi: number) => (typeof v === "number" && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : undefined);
+
+function normalizeGrade(raw: unknown): Grade | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+  const g: Grade = {};
+  const warmth = within(r.warmth, -1, 1), fade = within(r.fade, 0, 1), saturation = within(r.saturation, 0, 1), tintAmount = within(r.tintAmount, 0, 0.3);
+  if (warmth) g.warmth = warmth;
+  if (fade) g.fade = fade;
+  if (saturation !== undefined && saturation < 1) g.saturation = saturation;
+  if (typeof r.tint === "string" && HEX.test(r.tint) && tintAmount) {
+    g.tint = r.tint.toLowerCase();
+    g.tintAmount = tintAmount;
+  }
+  return Object.keys(g).length ? g : undefined;
+}
+
+/** A look's background paints, grade and grain, checked (bad ones dropped). */
+function lookExtras(r: { backdrop?: unknown; grade?: unknown; grain?: unknown }): Pick<Theme, "backdrop" | "grade" | "grain"> {
+  const out: Pick<Theme, "backdrop" | "grade" | "grain"> = {};
+  if (Array.isArray(r.backdrop)) {
+    const paints = r.backdrop.filter((c): c is string => typeof c === "string" && PAINT.test(c)).slice(0, 6);
+    if (paints.length) out.backdrop = paints;
+  }
+  const grade = normalizeGrade(r.grade);
+  if (grade) out.grade = grade;
+  const grain = within(r.grain, 0, 0.06);
+  if (grain !== undefined) out.grain = grain;
+  return out;
+}
+
+/** A template's look read from a file: undefined when its colours or fonts are missing or bad. */
+export function normalizeLook(raw: unknown): Look | undefined {
+  const r = raw as Partial<Look> | undefined;
+  if (!r || typeof r !== "object" || !r.colors || !r.heading || !r.body) return undefined;
+  const c = r.colors as Partial<Colors>;
+  if (!COLOR_KEYS.every((k) => typeof c[k] === "string" && HEX.test(c[k]!))) return undefined;
+  const base = BUILT_IN_KITS[0];
+  const look: Look = {
+    colors: { primary: c.primary!.toLowerCase(), secondary: c.secondary!.toLowerCase(), accent: c.accent!.toLowerCase(), background: c.background!.toLowerCase(), text: c.text!.toLowerCase() },
+    heading: fontOr(r.heading, base.heading),
+    body: fontOr(r.body, base.body),
+  };
+  if (r.bangla) look.bangla = fontOr(r.bangla, base.bangla);
+  const radius = within(r.radius, 0, 1);
+  if (radius !== undefined) look.radius = radius;
+  if (r.motion === "snappy" || r.motion === "smooth" || r.motion === "playful") look.motion = r.motion;
+  return { ...look, ...lookExtras(r) };
+}
+
+/** The theme a template's look gives (no look: `fallback`, the first built-in kit). */
+export function lookTheme(look: Look | undefined, fallback: Theme = BUILT_IN_KITS[0]): Theme {
+  if (!look) return themeOf(fallback);
+  const theme: Theme = {
+    colors: { ...look.colors }, heading: { ...look.heading }, body: { ...look.body }, bangla: { ...(look.bangla ?? fallback.bangla) },
+    radius: look.radius ?? fallback.radius, motion: look.motion ?? fallback.motion, logo: null,
+  };
+  setExtras(theme, look);
+  return theme;
 }
 
 /** What a template clip keeps of its look. */
@@ -140,6 +281,7 @@ function setKey(theme: Theme, key: ThemeKey, from: Theme) {
 /** Applies a kit: every part not changed by hand takes the kit's. */
 export function applyKit(target: Themed, kit: BrandKit): void {
   for (const key of THEME_KEYS) if (!target.overrides.includes(key)) setKey(target.theme, key, kit);
+  setExtras(target.theme, kit);
   target.kit = kit.id;
 }
 
@@ -148,6 +290,22 @@ export function resetToKit(target: Themed, kit: BrandKit): void {
   target.theme = themeOf(kit);
   target.overrides = [];
   target.kit = kit.id;
+}
+
+/** "Template's own look": every part not changed by hand (but the logo) takes the look's (`lookTheme`). */
+export function applyLook(target: Themed, look: Theme): void {
+  for (const key of THEME_KEYS) if (key !== "logo" && !target.overrides.includes(key)) setKey(target.theme, key, look);
+  setExtras(target.theme, look);
+  target.kit = OWN_LOOK;
+}
+
+/** Reset on a clip showing its template's look: every part back to the look's (its logo kept). */
+export function resetToLook(target: Themed, look: Theme): void {
+  const logo = target.theme.logo;
+  target.theme = themeOf(look);
+  target.theme.logo = logo;
+  target.overrides = [];
+  target.kit = OWN_LOOK;
 }
 
 /** A change by hand: the part is set and remembered as the user's. */
@@ -186,6 +344,26 @@ export function contrast(a: string, b: string): number {
 /** Text on a colour: near-white or near-black, whichever reads better. */
 export function onColor(bg: string): string {
   return contrast("#ffffff", bg) >= contrast("#111111", bg) ? "#ffffff" : "#111111";
+}
+
+/** A paint: a theme colour ("@primary", "@surface", "@deep"…) or hex, with an optional "/alpha", as hex and alpha. */
+export function themeColor(p: string, theme: Theme): { hex: string; alpha: number } {
+  const [name, alphaText] = p.split("/");
+  const c = theme.colors;
+  const hex = name === "@primary" ? c.primary
+    : name === "@secondary" ? c.secondary
+    : name === "@accent" ? c.accent
+    : name === "@bg" || name === "@background" ? c.background
+    : name === "@text" ? c.text
+    : name === "@onPrimary" ? onColor(c.primary)
+    : name === "@onAccent" ? onColor(c.accent)
+    : name === "@surface" ? mix(c.background, c.text, 0.08)
+    : name === "@card" ? (luminance(c.background) > 0.4 ? mix(c.background, "#ffffff", 0.72) : mix(c.background, c.text, 0.08))
+    : name === "@deep" ? mix(c.background, "#000000", 0.45)
+    : name === "@primaryDeep" ? mix(c.primary, "#000000", 0.42)
+    : name;
+  const alpha = alphaText !== undefined ? Number(alphaText) : 1;
+  return { hex, alpha: Number.isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 1 };
 }
 
 export function mix(a: string, b: string, t: number): string {

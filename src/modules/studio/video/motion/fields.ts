@@ -1,7 +1,7 @@
 import { basename, h } from "../../../../ui/dom";
 import { icon } from "../../../../ui/icons";
 import { mediaOf } from "../model";
-import { COLOR_KEYS, overrideTheme, type Colors, type FontRef, type ThemeKey } from "./brand";
+import { COLOR_KEYS, OWN_LOOK, overrideTheme, type Colors, type FontRef, type ThemeKey } from "./brand";
 import { fieldValue, type Field, type Template, type TemplateClip } from "./format";
 import { BUNDLED, FONT_KINDS, PAIRINGS, loadFamily, weightFor } from "./fonts";
 import { allKits, defaultKit } from "./settings";
@@ -101,10 +101,12 @@ function lookSection(tools: MotionTools, actions: TemplateActions, id: string, c
   const s = tools.settings();
   const changed = (key: ThemeKey) => c().overrides.includes(key);
   const override = (key: ThemeKey, fn: (x: TemplateClip) => void) => tools.edit(id, `theme-${key}`, (x) => overrideTheme(x, key, () => fn(x)));
-  const kits = () => [...allKits(s).map((k) => [k.id, k.name] as [string, string]), ...(c().kit && allKits(s).some((k) => k.id === c().kit) ? [] : [["", "Custom"] as [string, string]])];
+  const known = (kit: string | null) => kit === OWN_LOOK || allKits(s).some((k) => k.id === kit);
+  const kits = () => [[OWN_LOOK, "Template's own look"] as [string, string], ...allKits(s).map((k) => [k.id, k.name] as [string, string]), ...(known(c().kit) ? [] : [["", "Custom"] as [string, string]])];
   const kitSelect = select(syncs, "Brand Kit", kits(), () => c().kit ?? "", (v) => {
     const kit = allKits(s).find((k) => k.id === v);
-    if (kit) tools.applyKit(id, kit);
+    if (v === OWN_LOOK) tools.applyOwnLook(id);
+    else if (kit) tools.applyKit(id, kit);
   });
   const families: [string, string][] = FONT_KINDS.flatMap(([kind, label]) => BUNDLED.filter((b) => b.kind === kind).map((b) => [b.family, `${b.family} · ${label}`] as [string, string]));
   const withCurrent = (ref: () => FontRef) => (families.some(([f]) => f === ref().family) ? families : [[ref().family, ref().family] as [string, string], ...families]);
@@ -130,6 +132,7 @@ function lookSection(tools: MotionTools, actions: TemplateActions, id: string, c
       ["Reset to kit", () => tools.resetToKit(id)],
       ["Brand Kits…", () => actions.openKits()],
       ["Use on all templates", () => {
+        if (c().kit === OWN_LOOK) return tools.applyOwnLookEverywhere();
         const kit = allKits(s).find((k) => k.id === c().kit) ?? defaultKit(s);
         tools.applyKitEverywhere(kit);
       }],

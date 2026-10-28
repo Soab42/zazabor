@@ -8,13 +8,13 @@ import {
   canvasSize, defaultPlace, findClip, mediaClip, mediaOf, placeFree, uid,
   type Media, type MediaClip, type Project, type TemplateClip, type TextClip,
 } from "../model";
-import { applyKit, resetToKit, themeOf, type BrandKit, type Theme } from "./brand";
+import { applyKit, applyLook, lookTheme, OWN_LOOK, resetToKit, resetToLook, type BrandKit, type Theme } from "./brand";
 import { fieldValue, type Template } from "./format";
 import { familyStack, loadFamily } from "./fonts";
 import { clipTimeAt, templateTime } from "./layout";
 import { parts, type Picture } from "./player";
 import { readSvg } from "./files";
-import { defaultKit, kitById, normalizeMotionSettings, type MotionSettings } from "./settings";
+import { defaultKit, kitById, normalizeMotionSettings, themeFor, usesOwnLook, type MotionSettings } from "./settings";
 import { templateOf } from "./templates";
 
 /**
@@ -78,12 +78,12 @@ export class MotionTools {
   // ---- adding templates
 
   /**
-   * Adds a template at the playhead on a track above the video, with the default Brand Kit (or
-   * `from`'s look, for My Templates) and, when that's on, its suggested sound effects.
+   * Adds a template at the playhead on a track above the video, with its own look or the default
+   * Brand Kit (or `from`'s look, for My Templates) and, when that's on, its suggested sound effects.
    */
   async use(template: Template, from?: { values: Record<string, string>; theme: Theme; slots: Record<string, Media> }): Promise<void> {
     const s = this.settings();
-    const kit = defaultKit(s);
+    const start = themeFor(template, s);
     const at = Math.max(0, this.host.time());
     const values: Record<string, string> = from ? { ...from.values } : {};
     if (!from && s.bangla) for (const f of template.fields) if (f.kind === "text" && f.bn !== undefined) values[f.id] = f.bn;
@@ -91,7 +91,7 @@ export class MotionTools {
     const clip: TemplateClip = {
       id: uid(), type: "template", start: at, duration: template.length,
       template: template.id, name: template.name, values, slots: {},
-      theme: from ? structuredClone(from.theme) : themeOf(kit), kit: from ? null : kit.id, overrides: [],
+      theme: from ? structuredClone(from.theme) : start.theme, kit: from ? null : start.kit, overrides: [],
       place: defaultPlace(),
     };
     if (!shipped) clip.doc = structuredClone(template);
@@ -236,10 +236,43 @@ export class MotionTools {
     for (const f of [kit.heading.family, kit.body.family, kit.bangla.family]) void loadFamily(f);
   }
 
+  /** Back to the clip's kit, or its template's own look (a clip from neither: what new templates get). */
   resetToKit(id: string) {
     const c = this.clip(id);
-    const kit = kitById(this.settings(), c?.kit ?? null) ?? defaultKit(this.settings());
-    this.edit(id, "kit-reset", (x) => resetToKit(x, kit));
+    if (!c) return;
+    const kit = kitById(this.settings(), c.kit);
+    if (c.kit === OWN_LOOK || (!kit && usesOwnLook(this.settings()))) {
+      const look = lookTheme(templateOf(c)?.look);
+      this.edit(id, "kit-reset", (x) => resetToLook(x, look));
+      this.loadFonts(look);
+    } else this.edit(id, "kit-reset", (x) => resetToKit(x, kit ?? defaultKit(this.settings())));
+  }
+
+  /** "Template's own look" on a clip (parts changed by hand stay). */
+  applyOwnLook(id: string) {
+    const c = this.clip(id);
+    if (!c) return;
+    const look = lookTheme(templateOf(c)?.look);
+    this.edit(id, "kit", (x) => applyLook(x, look));
+    this.loadFonts(look);
+  }
+
+  /** Every template clip in the project back to its own look (parts changed by hand stay). */
+  applyOwnLookEverywhere() {
+    this.host.change((p) => {
+      for (const t of p.tracks) {
+        for (const c of t.clips) {
+          if (c.type !== "template") continue;
+          const look = lookTheme(templateOf(c)?.look);
+          applyLook(c, look);
+          this.loadFonts(look);
+        }
+      }
+    }, "kit-all");
+  }
+
+  private loadFonts(theme: Theme) {
+    for (const f of [theme.heading.family, theme.body.family, theme.bangla.family]) void loadFamily(f);
   }
 
   /** Every template clip that came from a kit takes its changes (after editing the kit). */

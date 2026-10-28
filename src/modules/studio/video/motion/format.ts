@@ -1,6 +1,6 @@
 import type { Anim, EaseName } from "./ease";
 import type { Responsive, Shape } from "./layout";
-import { normalizeTheme, THEME_KEYS, type Theme, type ThemeKey } from "./brand";
+import { normalizeLook, normalizeTheme, THEME_KEYS, type Look, type Theme, type ThemeKey } from "./brand";
 import type { Keys, Placement } from "../model";
 
 /**
@@ -10,7 +10,8 @@ import type { Keys, Placement } from "../model";
  * `templates/`; a saved one travels as a `.zaztemplate` package (document + pictures).
  */
 
-export const FORMAT_VERSION = 1;
+/** 2 (2026-10-27): devices, art, charts, QR codes, particles, morphs, turns, masks and new reveals. Version 1 documents read unchanged. */
+export const FORMAT_VERSION = 2;
 
 /** A colour: "#rrggbb", a theme colour ("@primary", "@onPrimary"…), either with "/0.5" opacity. */
 export type Paint = string | Gradient;
@@ -22,7 +23,8 @@ export interface Gradient {
   stops: [number, string][];
 }
 
-export type RevealFrom = "bottom" | "top" | "left" | "right" | "center";
+/** Wipes: from a side, from the centre, an iris ("circle"), a slanted edge ("diagonal") or venetian strips ("blinds"). */
+export type RevealFrom = "bottom" | "top" | "left" | "right" | "center" | "circle" | "diagonal" | "blinds";
 
 interface LayerBase {
   id: string;
@@ -41,11 +43,16 @@ interface LayerBase {
   /** A wipe that shows the layer from one side (0 hidden … 1 whole). */
   reveal?: { from: RevealFrom; v: Anim; soft?: number };
   /** Soft drop shadow (sizes in short sides). */
-  shadow?: { color: Paint; blur: number; y: number };
+  /** `follow`: the shadow falls away from the template's `light` as it moves (the offset grows to `y`). */
+  shadow?: { color: Paint; blur: number; y: number; follow?: boolean };
   glow?: { color: Paint; blur: number };
+  /** Light from behind spilling onto the layer's edges (a light wrap), `width` in short sides. */
+  lightWrap?: { color?: Paint; amount?: number; width?: number };
   /** A band of light sweeping across the layer (0 before … 1 past it). */
   sheen?: { at: Anim; width?: number; angle?: number; strength?: number };
   blend?: GlobalCompositeOperation;
+  /** A turn around the upright axis in degrees (a card spinning on a turntable), with a little perspective. */
+  turnY?: Anim;
   /** Slow change over the whole clip, so a stretched hold still lives (amounts over the clip). */
   idle?: { scale?: number; dy?: number; rotate?: number };
   /** Drawn only while this media slot is empty (a stand-in), or only once it's filled. */
@@ -67,6 +74,8 @@ export interface PathLayer extends LayerBase {
   kind: "path";
   /** SVG path data in a `view` box (100 × 100 unless given), stretched to the frame. */
   d: string;
+  /** Morph to another path with the same commands (0 is `d`, 1 is `to`). */
+  morph?: { to: string; v: Anim };
   view?: [number, number];
   fill?: Paint;
   stroke?: Paint;
@@ -93,6 +102,13 @@ export interface TextAnimator {
   reverse?: boolean;
 }
 
+export type TextRole = "headline" | "cta" | "body" | "detail" | "fine";
+
+/** Smallest size per role, in short sides (motion-rulebook.md §5.1). */
+export const TEXT_FLOORS: Record<TextRole, number> = { headline: 0.07, cta: 0.044, body: 0.044, detail: 0.036, fine: 0.028 };
+
+export const roleOf = (l: Pick<TextLayer, "role" | "font" | "size">): TextRole => l.role ?? (l.font === "heading" && l.size >= 0.07 ? "headline" : "body");
+
 export interface TextLayer extends LayerBase {
   kind: "text";
   /** The field it shows, or fixed text. */
@@ -115,10 +131,24 @@ export interface TextLayer extends LayerBase {
   upper?: boolean;
   animate?: TextAnimator;
   exit?: TextAnimator;
-  /** Counts up from another field's number to this one's between two template times. */
-  counter?: { from: string; t: [number, number] };
+  /**
+   * What the text is for, which sets its smallest size (motion-rulebook.md §5.1) and where it may
+   * sit (§4.1): "headline" ≥ 0.07, "cta" (buttons, prices, offer numbers) ≥ 0.044, "body" ≥ 0.044,
+   * "detail" (kickers, notes, legal) ≥ 0.036, "fine" (decoration) ≥ 0.028. Headlines and CTAs are
+   * critical: in 9:16 they stay inside the strict band. Unset: heading-font text at 0.07 or more is
+   * a headline, anything else body.
+   */
+  role?: TextRole;
+  /** Counts to this field's number between two template times: from another field's number, or from `fromValue` (0 when neither). */
+  counter?: { from?: string; fromValue?: number; t: [number, number] };
+  /** A countdown: the field holds a time ("02:59:59", "45:00") that ticks down a second each second from `t`. */
+  clock?: { t: number };
+  /** One line repeated and scrolling sideways (a ticker band), `speed` box widths a second. */
+  marquee?: { speed: number; gap?: string };
   /** A strike-through line drawn across (0…1). */
   strike?: { draw: Anim; color: Paint; width: number };
+  /** A highlighter swiped behind the text, line after line (0…1 across all of it; the first `lines` only when given). */
+  marker?: { draw: Anim; color: Paint; lines?: number };
   /** Size, lines and alignment for some shapes. */
   textAt?: Partial<Record<Shape, { size?: number; minSize?: number; lines?: number; align?: "left" | "center" | "right" }>>;
 }
@@ -148,9 +178,15 @@ export interface IconLayer extends LayerBase {
 export interface GroupLayer extends LayerBase {
   kind: "group";
   children: Layer[];
+  /** Children show only inside the group's frame, as a rectangle, a rounded one or an ellipse (a loupe). */
+  clip?: "rect" | "round" | "ellipse";
 }
 
-export type FxKind = "grain" | "vignette" | "leak" | "blobs" | "stripes" | "rays" | "progress" | "dots";
+/**
+ * Particles (confetti, sparks, dust) burst at `burst` (template time) from the frame's centre or
+ * drift over it; the same every time. "divider": the before/after handle at `value` (0…1 across).
+ */
+export type FxKind = "grain" | "vignette" | "leak" | "blobs" | "stripes" | "rays" | "progress" | "dots" | "confetti" | "sparks" | "dust" | "divider";
 
 export interface FxLayer extends LayerBase {
   kind: "fx";
@@ -158,11 +194,93 @@ export interface FxLayer extends LayerBase {
   color?: Paint;
   color2?: Paint;
   amount?: number;
-  /** For "progress": how far (0…1). */
+  /** For "progress" and "divider": how far (0…1). */
   value?: Anim;
+  /** Particles: when the burst starts (template time). */
+  burst?: number;
 }
 
-export type Layer = RectLayer | PathLayer | TextLayer | ImageLayer | IconLayer | GroupLayer | FxLayer;
+/**
+ * A device with a screen: a phone (rounded, with the camera pill), a laptop, or a browser window.
+ * The screen shows a media slot (a screen recording or a screenshot) or, while it's empty, one of
+ * the built-in screens (`screen`, from art.ts). `scroll` moves tall content up (0 top … 1 bottom).
+ */
+export interface DeviceLayer extends LayerBase {
+  kind: "device";
+  device: "phone" | "laptop" | "browser";
+  slot?: string;
+  screen?: string;
+  scroll?: Anim;
+  /** The body's colour (a dark graphite when not given). */
+  body?: Paint;
+  /** Browser: the address shown (a field, or fixed text). */
+  url?: string;
+  urlField?: string;
+}
+
+/** A vector drawing that ships with the app: a product (earbuds, sneaker, bottle…) or an app screen. */
+export interface ArtLayer extends LayerBase {
+  kind: "art";
+  art: string;
+  /** The product's colour (the theme's primary when not given). */
+  tint?: Paint;
+  tint2?: Paint;
+  scroll?: Anim;
+}
+
+/** Bars that grow (values from a field, "40, 65, 90"), or a ring that fills to a percentage. */
+export interface ChartLayer extends LayerBase {
+  kind: "chart";
+  chart: "bars" | "ring";
+  field?: string;
+  values?: number[];
+  /** 0 nothing … 1 full. Bars grow one after another, `stagger` apart in that 0…1. */
+  grow: Anim;
+  stagger?: number;
+  color: Paint;
+  color2?: Paint;
+  track?: Paint;
+  /** Ring: the line's width in short sides. */
+  width?: number;
+}
+
+/** A QR code of a field's text (a link), drawn sharp, with a quiet zone. */
+export interface QrLayer extends LayerBase {
+  kind: "qr";
+  field: string;
+  color: Paint;
+  background?: Paint;
+  /** Modules appear in a sweep (0…1). */
+  draw?: Anim;
+}
+
+/** Live backgrounds, drawn by a WebGL2 shader (background.ts says what each does). */
+export type BackgroundPreset = "mesh" | "aurora" | "rays" | "bokeh" | "glass" | "grid" | "waves" | "drift";
+
+/**
+ * A moving background: a shader filling the frame, in the Brand Kit's colours unless `colors`
+ * says otherwise. Every number can be keyframed. `over`: drawn over the layers below with
+ * transparency instead of filling (bokeh, rays, drift and grid over a mesh, glass refracting them).
+ */
+export interface BackgroundLayer extends LayerBase {
+  kind: "background";
+  preset: BackgroundPreset;
+  /** Up to six paints ("@primary", "#123456"); the preset's own Brand Kit colours when not given. */
+  colors?: string[];
+  /** 1 is the preset's own pace (cycles of 8–20 s); 0 stands still. */
+  speed?: Anim;
+  /** 0…1.5: how much light and contrast (1 by default). */
+  intensity?: Anim;
+  seed?: number;
+  /** Film grain 0…0.1 (0.02), vignette 0…1 (0.35), camera drift and push-in 0…1 (0.5), depth blur 0…1 (0). */
+  grain?: Anim;
+  vignette?: Anim;
+  drift?: Anim;
+  soft?: Anim;
+  over?: boolean;
+}
+
+export type Layer = RectLayer | PathLayer | TextLayer | ImageLayer | IconLayer | GroupLayer | FxLayer | DeviceLayer | ArtLayer | ChartLayer | QrLayer | BackgroundLayer;
 
 export interface Field {
   id: string;
@@ -181,14 +299,22 @@ export interface Field {
   product?: boolean;
 }
 
-export type Category = "launch" | "sale" | "feature" | "logo" | "lower" | "hook";
+export type Category = "launch" | "sale" | "feature" | "app" | "review" | "fashion" | "food" | "estate" | "festive" | "logo" | "lower" | "hook";
+
+export const CATEGORY_IDS: readonly Category[] = ["launch", "sale", "feature", "app", "review", "fashion", "food", "estate", "festive", "logo", "lower", "hook"];
 
 export const CATEGORIES: { id: Category | "mine"; label: string }[] = [
   { id: "launch", label: "Product launch" },
   { id: "sale", label: "Sale & offers" },
   { id: "feature", label: "Feature highlight" },
+  { id: "app", label: "App & tech" },
+  { id: "review", label: "Testimonials" },
+  { id: "fashion", label: "Fashion & beauty" },
+  { id: "food", label: "Food & restaurant" },
+  { id: "estate", label: "Real estate & services" },
+  { id: "festive", label: "Festive" },
   { id: "logo", label: "Logo reveals" },
-  { id: "lower", label: "Lower thirds" },
+  { id: "lower", label: "Lower thirds & titles" },
   { id: "hook", label: "Reel hooks & end screens" },
   { id: "mine", label: "My Templates" },
 ];
@@ -210,6 +336,10 @@ export interface Template {
   hits?: { t: number; sfx: string }[];
   /** No background of its own: meant over video (lower thirds). */
   overlay?: boolean;
+  /** Where the light comes from (canvas fractions, may be keyframed): rays shine from it, `follow` shadows fall away from it. */
+  light?: { x: Anim; y: Anim };
+  /** The designer's own colours, fonts, background paints and grade, shown until a Brand Kit is applied (brand.ts). */
+  look?: Look;
 }
 
 /** A template on the timeline. */
@@ -227,6 +357,7 @@ export interface TemplateClip {
   /** Media slots: field id → the project's media id. */
   slots: Record<string, string>;
   theme: Theme;
+  /** The Brand Kit it came from, OWN_LOOK (the template's own look) or null. */
   kit: string | null;
   overrides: ThemeKey[];
   place: Placement;
@@ -236,6 +367,10 @@ export interface TemplateClip {
   /** "Ungroup to layers" made its texts and pictures into clips of their own. */
   ungrouped?: boolean;
 }
+
+/** A number, or keys of [time, number, ease?]. */
+const isAnim = (v: unknown): v is Anim => (typeof v === "number" && Number.isFinite(v))
+  || (Array.isArray(v) && v.length > 0 && v.length <= 256 && v.every((k) => Array.isArray(k) && Number.isFinite(k[0]) && Number.isFinite(k[1])));
 
 const str = (v: unknown, max = 2000) => (typeof v === "string" ? v.slice(0, max) : "");
 
@@ -255,11 +390,12 @@ export function normalizeTemplate(raw: unknown): Template | null {
   const length = typeof r.length === "number" && r.length > 0.2 && r.length < 600 ? r.length : 6;
   const hold: [number, number] = Array.isArray(r.hold) && r.hold.length === 2 && r.hold.every((v) => typeof v === "number") && r.hold[0] <= r.hold[1] && r.hold[1] <= length
     ? [Math.max(0, r.hold[0]), r.hold[1]] : [length * 0.4, length * 0.85];
+  const look = normalizeLook(r.look);
   return {
     version: FORMAT_VERSION,
     id: str(r.id, 64),
     name: str(r.name, 80) || "Template",
-    category: (["launch", "sale", "feature", "logo", "lower", "hook"] as Category[]).includes(r.category as Category) ? r.category as Category : "launch",
+    category: CATEGORY_IDS.includes(r.category as Category) ? r.category as Category : "launch",
     description: str(r.description, 400),
     tags: Array.isArray(r.tags) ? r.tags.filter((t) => typeof t === "string").slice(0, 20) : [],
     length,
@@ -269,6 +405,8 @@ export function normalizeTemplate(raw: unknown): Template | null {
     layers: r.layers.filter((l) => l && typeof l.id === "string" && typeof l.kind === "string" && l.frame && typeof l.frame === "object"),
     hits: Array.isArray(r.hits) ? r.hits.filter((h) => h && typeof h.t === "number" && typeof h.sfx === "string") : [],
     overlay: !!r.overlay,
+    ...(r.light && typeof r.light === "object" && isAnim(r.light.x) && isAnim(r.light.y) ? { light: { x: r.light.x, y: r.light.y } } : {}),
+    ...(look ? { look } : {}),
   };
 }
 

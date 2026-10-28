@@ -11,6 +11,8 @@ import { offerCodecInstall } from "./codecs";
 export { offerCodecInstall };
 import { mixdown, type Engine } from "./engine";
 import type { MediaStore } from "./media";
+import type { PendingRead } from "./gfx";
+import { FramePipe } from "./pipe";
 import { canvasSize, projectDuration, type Project } from "./model";
 import { formatTime } from "./timeline";
 
@@ -18,7 +20,9 @@ import { formatTime } from "./timeline";
  * Export: settings, then the job. The page draws each frame at the output size (the same
  * compositor as the preview), packs it to I420 on the GPU and hands it to the backend, which
  * encodes with VA-API H.264 into MP4 (or VP9 into WebM). The sound is mixed first with an
- * OfflineAudioContext from the same clips the preview plays.
+ * OfflineAudioContext from the same clips the preview plays. Frames overlap on their way: the
+ * page draws one while the GPU reads back the one before and the backend takes the one before
+ * that (pipe.ts).
  */
 
 export interface ExportHost {
@@ -33,6 +37,7 @@ export interface ExportHost {
 }
 
 type Quality = ExportSpec["quality"];
+type Speed = NonNullable<ExportSpec["speed"]>;
 
 interface Choice {
   format: "mp4" | "webm";
@@ -40,10 +45,16 @@ interface Choice {
   short: 720 | 1080;
   fps: number;
   quality: Quality;
+  speed: Speed;
   audio: boolean;
 }
 
 let last: Partial<Choice> = {};
+
+const SPEED_NOTES: Record<Speed, string> = {
+  best: "Motion blur on moving titles",
+  fast: "No motion blur; quicker",
+};
 
 function segmented<V extends string | number>(options: [V, string][], get: () => V, set: (v: V) => void, disabled: (v: V) => boolean = () => false) {
   const buttons = options.map(([v, label]) => {
@@ -67,6 +78,7 @@ export async function openExport(host: ExportHost): Promise<void> {
     short: last.short ?? 1080,
     fps: p.canvas.fps,
     quality: last.quality ?? "standard",
+    speed: last.speed ?? "best",
     audio: last.audio ?? true,
   };
   if (choice.format === "mp4" && !encoders.h264) choice.format = "webm";
@@ -89,6 +101,7 @@ export async function openExport(host: ExportHost): Promise<void> {
     const codecSelect = h("select", { class: "ve-select", onchange: () => (choice.codec = codecSelect.value as Codec["id"]) },
       ...encoders.codecs.map((c) => h("option", { value: c.id, disabled: !c.available, selected: c.id === choice.codec, title: c.available ? "" : `Needs ${c.needs}` }, c.available ? c.label : `${c.label} — needs ${c.needs}`)));
     const codecRow = row("Video codec", codecSelect);
+    const speedNote = h("span", { class: "ve-value" }, SPEED_NOTES[choice.speed]);
     codecRow.hidden = choice.format !== "mp4" || encoders.codecs.length === 0;
     const dialog = openDialog({
       title: "Export video",
@@ -108,6 +121,10 @@ export async function openExport(host: ExportHost): Promise<void> {
         }), size),
         row("Frame rate", segmented<number>([[24, "24"], [25, "25"], [30, "30"], [50, "50"], [60, "60"]], () => choice.fps, (v) => (choice.fps = v))),
         row("Quality", segmented<Quality>([["high", "High"], ["standard", "Standard"], ["small", "Smaller file"]], () => choice.quality, (v) => (choice.quality = v))),
+        row("Rendering", segmented<Speed>([["best", "Best"], ["fast", "Fast"]], () => choice.speed, (v) => {
+          choice.speed = v;
+          speedNote.textContent = SPEED_NOTES[v];
+        }), speedNote),
         h("div", { class: "ve-row" }, h("label", null, "Sound"), h("span", { class: "spacer" }), audioToggle),
         h("ul", { class: "ve-export-notes" }, ...notes.map((n) => h("li", null, n))),
       ],
@@ -137,10 +154,11 @@ export async function openExport(host: ExportHost): Promise<void> {
   if (!path) return;
   if (!path.toLowerCase().endsWith(`.${ext}`)) path += `.${ext}`;
   const { width, height } = canvasSize(p.canvas.aspect, settings.short);
-  await run(host, { path, width, height, fps: settings.fps, format: settings.format, quality: settings.quality, audio: settings.audio, codec: settings.format === "mp4" ? settings.codec : "" });
+  await run(host, { path, width, height, fps: settings.fps, format: settings.format, quality: settings.quality, speed: settings.speed, audio: settings.audio, codec: settings.format === "mp4" ? settings.codec : "" });
 }
 
-async function run(host: ExportHost, spec: ExportSpec) {
+/** Runs an export with these settings, showing its progress. */
+export async function run(host: ExportHost, spec: ExportSpec) {
   const p = host.project();
   const duration = projectDuration(p);
   const total = Math.max(1, Math.ceil(duration * spec.fps - 1e-6));
@@ -150,7 +168,7 @@ async function run(host: ExportHost, spec: ExportSpec) {
   const status = h("p", { class: "ve-progress-text" }, "Starting the encoder…");
   const dialog = openDialog({
     title: `Exporting ${basename(spec.path)}`,
-    subtitle: `${spec.width} × ${spec.height} · ${spec.fps} fps · ${spec.format === "webm" ? "VP9" : spec.codec?.endsWith("265") ? "HEVC" : "H.264"}`,
+    subtitle: `${spec.width} × ${spec.height} · ${spec.fps} fps · ${spec.format === "webm" ? "VP9" : spec.codec?.endsWith("265") ? "HEVC" : "H.264"}${spec.speed === "fast" ? " · Fast" : ""}`,
     icon: "download",
     tone: "work",
     class: "ve-export-dialog tone-video",
@@ -162,7 +180,9 @@ async function run(host: ExportHost, spec: ExportSpec) {
   });
   const engine = host.engine;
   engine.hold(true);
+  engine.motion.fast = spec.speed === "fast";
   let job: number | null = null;
+  let pipe: FramePipe<PendingRead> | null = null;
   const started = performance.now();
   try {
     job = await editApi.exportBegin(spec);
@@ -172,9 +192,11 @@ async function run(host: ExportHost, spec: ExportSpec) {
       if (cancelled) throw new Error("Cancelled");
       await editApi.exportAudio(job, pcm);
     }
-    const bytes = (spec.width * spec.height * 3) / 2;
-    const buffers = [new Uint8Array(bytes), new Uint8Array(bytes)];
-    let inflight: Promise<number> | null = null;
+    const id = job;
+    pipe = new FramePipe<PendingRead>({
+      collect: (read, out) => engine.gfx.collectI420(read, out),
+      send: (seq, frame) => editApi.exportFrame(id, frame, seq),
+    }, (spec.width * spec.height * 3) / 2);
     const loopStart = performance.now();
     const mixing = (loopStart - started) / 1000;
     let warming: Promise<void> = engine.warm(0, spec.width, spec.height, host.keyPrefix);
@@ -190,10 +212,7 @@ async function run(host: ExportHost, spec: ExportSpec) {
       }
       // The next frame's pictures decode while this one is read back and sent.
       warming = n + 1 < total ? engine.warm((n + 1) / spec.fps, spec.width, spec.height, host.keyPrefix) : Promise.resolve();
-      const buffer = buffers[n % 2];
-      engine.gfx.readI420(buffer);
-      if (inflight) await inflight;
-      inflight = editApi.exportFrame(job, buffer);
+      await pipe.push(engine.gfx.beginI420());
       if (n % 5 === 0 || n === total - 1) {
         const elapsed = (performance.now() - loopStart) / 1000;
         const fps = (n + 1) / Math.max(0.001, elapsed);
@@ -204,8 +223,8 @@ async function run(host: ExportHost, spec: ExportSpec) {
         await new Promise((r) => setTimeout(r, 0));
       }
     }
-    if (inflight) await inflight;
     if (cancelled) throw new Error("Cancelled");
+    await pipe.flush();
     status.textContent = "Finishing the file…";
     const done = await editApi.exportFinish(job);
     job = null;
@@ -213,13 +232,14 @@ async function run(host: ExportHost, spec: ExportSpec) {
     dialog.close();
     const seconds = (performance.now() - started) / 1000;
     const drawing = seconds - mixing;
-    void api.log("info", `[video-editor] exported ${done.frames} frames ${spec.width}x${spec.height} ${spec.codec || spec.format} in ${seconds.toFixed(1)} s (${(done.frames / seconds).toFixed(1)} fps, ${(done.frames / spec.fps / seconds).toFixed(2)}× real time; sound ${mixing.toFixed(1)} s, then frames at ${(done.frames / drawing).toFixed(1)} fps), ${done.bytes} bytes`).catch(() => undefined);
+    void api.log("info", `[video-editor] exported ${done.frames} frames ${spec.width}x${spec.height} ${spec.codec || spec.format} in ${seconds.toFixed(1)} s (${(done.frames / seconds).toFixed(1)} fps, ${(done.frames / spec.fps / seconds).toFixed(2)}× real time; sound ${mixing.toFixed(1)} s, then frames at ${(done.frames / drawing).toFixed(1)} fps; the encoder kept them waiting ${done.waited.toFixed(1)} s), ${spec.speed ?? "best"}, ${done.bytes} bytes`).catch(() => undefined);
     showToast(`Exported ${basename(done.path)} · ${formatBytes(done.bytes)} in ${formatTime(seconds, 30, false)}`, {
       label: "Show in Files",
       run: () => host.shell.open({ kind: "folder", path: dirname(done.path) }),
     }, 9000);
   } catch (err) {
     running = false;
+    pipe?.discard((read) => engine.gfx.dropI420(read));
     if (job !== null) await editApi.exportCancel(job).catch(() => undefined);
     dialog.close();
     if ((err as Error)?.message !== "Cancelled") {
@@ -228,6 +248,7 @@ async function run(host: ExportHost, spec: ExportSpec) {
     } else showToast("Export cancelled.");
   } finally {
     engine.releasePrefix(host.keyPrefix);
+    engine.motion.fast = false;
     engine.hold(false);
   }
 }
