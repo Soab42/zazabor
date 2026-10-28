@@ -25,7 +25,16 @@ catalog.json        kind "zazabor-content", format 1, published (Unix seconds),
 catalog.json.sig    the Ed25519 signature of catalog.json (base64)
 templates/<id>.json one template document each (the TS sources, as JSON)
 music/, sounds/, fonts/<family>/
+index.html, site.css, site.js, shots/, icons/, install.sh
+                    the product page and the one-line installer (content/site)
 ```
+
+The product page (`content/site`) reads `catalog.json` for its numbers, categories and playable
+soundtracks, and GitHub for the latest version. `install.sh` (`curl -fsSL
+https://soab42.github.io/zazabor-content/install.sh | sh`) installs the latest release the way
+`scripts/install-linux.sh` does, after checking `latest.json`'s signature with OpenSSL 3 and the
+archive's SHA-256. Its screenshots in `content/site/shots` are real ones, taken at 2× on a
+nested display.
 
 **In the app** (`src-tauri/src/content.rs`, `src/content.ts`):
 

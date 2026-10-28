@@ -2,11 +2,12 @@
 // sources in src/modules/studio/video/motion/templates), the fonts they use (public/fonts and
 // content/fonts), the soundtracks (content/music) and extra sound effects (content/sounds), with
 // catalog.json listing each file's size and SHA-256, signed with the release key
-// (tools/release/sign.mjs). tools/content/publish.sh puts it on the site.
+// (tools/release/sign.mjs), and the product page with its installer (content/site).
+// tools/content/publish.sh puts it on the site.
 //
 // Run: node tools/content/build.mjs [--out <dir>]
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { register } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -99,10 +100,10 @@ const catalog = {
 const json = JSON.stringify(catalog, null, 1);
 writeFileSync(join(out, "catalog.json"), json);
 writeFileSync(join(out, "catalog.json.sig"), signature(Buffer.from(json)) + "\n");
-// GitHub Pages: serve the files as they are.
+// GitHub Pages: serve the files as they are. The product page (content/site: index.html, its
+// pictures and the one-line installer) sits beside the library, which it reads for its numbers.
 writeFileSync(join(out, ".nojekyll"), "");
-writeFileSync(join(out, "index.html"), `<!doctype html><meta charset="utf-8"><title>Zazabor library</title>
-<p>Zazabor's content library: ${templates.length} motion templates, ${music.length} soundtracks, ${sounds.length} sound effects and ${fonts.length} font families, downloaded by the app when they're used.</p>`);
+cpSync(join(repo, "content", "site"), out, { recursive: true });
 
 const size = (dir) => readdirSync(dir, { withFileTypes: true }).reduce((n, e) => n + (e.isDirectory() ? size(join(dir, e.name)) : statSync(join(dir, e.name)).size), 0);
 console.log(`content-dist: ${templates.length} templates, ${music.length} soundtracks, ${sounds.length} sound effects, ${fonts.length} font families, ${(size(out) / 1048576).toFixed(1)} MB`);

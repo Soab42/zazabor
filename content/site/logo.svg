@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="100 100 824 824">
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#343945"/>
+      <stop offset="1" stop-color="#101217"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.28"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.10"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.62" r="0.5">
+      <stop offset="0" stop-color="#5fd39a" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#5fd39a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#6aa8ff"/>
+      <stop offset="1" stop-color="#2d63e6"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#6fe2a4"/>
+      <stop offset="1" stop-color="#1f9d61"/>
+    </linearGradient>
+    <linearGradient id="orange" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#ffc46b"/>
+      <stop offset="1" stop-color="#ff7417"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.45"/>
+      <stop offset="0.42" stop-color="#ffffff" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="card" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000" flood-opacity="0.42"/>
+    </filter>
+    <clipPath id="squircle">
+      <rect x="100" y="100" width="824" height="824" rx="186"/>
+    </clipPath>
+  </defs>
+
+  <!-- body: a dark graphite squircle, like Apple's Pro apps -->
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#body)"/>
+  <g clip-path="url(#squircle)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#glow)"/>
+  </g>
+  <rect x="102" y="102" width="820" height="820" rx="184" fill="none" stroke="url(#rim)" stroke-width="4"/>
+
+  <!-- three cascading cards: Files (blue folder), Gallery (green photo), Video (orange play) -->
+  <g transform="rotate(-7 402 400)" filter="url(#card)">
+    <path d="M202 296 q0-46 46-46 h96 q24 0 39 17 l22 25 h153 q46 0 46 46 v204 q0 46-46 46 h-310 q-46 0-46-46z" fill="url(#blue)"/>
+    <path d="M202 296 q0-46 46-46 h96 q24 0 39 17 l22 25 h153 q46 0 46 46 v204 q0 46-46 46 h-310 q-46 0-46-46z" fill="url(#sheen)"/>
+    <rect x="202" y="318" width="402" height="5" fill="#ffffff" fill-opacity="0.22"/>
+  </g>
+
+  <g transform="rotate(-2 512 500)" filter="url(#card)">
+    <rect x="310" y="348" width="404" height="304" rx="48" fill="url(#green)"/>
+    <rect x="310" y="348" width="404" height="304" rx="48" fill="url(#sheen)"/>
+    <circle cx="384" cy="416" r="30" fill="#ffffff" fill-opacity="0.95"/>
+    <path d="M338 616 l92-112 l58 68 l38-42 l74 86z" fill="#ffffff" fill-opacity="0.9"/>
+  </g>
+
+  <g transform="rotate(4 622 600)" filter="url(#card)">
+    <rect x="420" y="448" width="404" height="304" rx="48" fill="url(#orange)"/>
+    <rect x="420" y="448" width="404" height="304" rx="48" fill="url(#sheen)"/>
+    <path d="M582 548 q0-26 23-13 l118 68 q22 13 0 26 l-118 68 q-23 13-23-13z" fill="#ffffff"/>
+  </g>
+</svg>
