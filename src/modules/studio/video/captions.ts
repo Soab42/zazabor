@@ -5,6 +5,7 @@ import { ask } from "../photo/ask";
 import { editApi, type CaptionModel, type CaptionSpan, type Cue } from "./api";
 import { mediaOf, type MediaClip, type Project } from "./model";
 import { TEXT_PRESETS } from "./text";
+import { callout, colorRow, note, segRow, selectRow, type Syncs } from "./controls";
 
 /**
  * Auto captions (the Captions tab): the clips' speech becomes captions with word timing, by
@@ -84,14 +85,9 @@ export class CaptionsPanel {
     const models = this.models ?? [];
     const chosen = models.find((m) => m.id === this.model);
     const downloading = models.find((m) => m.downloading);
-    const select = (label: string, options: [string, string][], value: string, set: (v: string) => void) =>
-      h("div", { class: "ve-row" }, h("label", null, label),
-        h("select", { class: "ve-select", onchange: (e: Event) => set((e.target as HTMLSelectElement).value) },
-          ...options.map(([v, l]) => h("option", { value: v, selected: v === value }, l))));
-    const segmented = (label: string, options: [string, string][], value: string, set: (v: string) => void) =>
-      h("div", { class: "ve-row" }, h("label", null, label),
-        h("div", { class: "segmented ve-seg" }, ...options.map(([v, l]) =>
-          h("button", { type: "button", class: v === value ? "active" : "", onclick: () => (set(v), this.refresh()) }, l))));
+    // The pane is drawn again on each change; its controls' syncs only matter for the colour well.
+    const syncs: Syncs = [];
+    const resync = () => syncs.forEach((f) => f());
 
     const status = (m: CaptionModel) =>
       m.installed ? "Ready" : m.downloading ? `Downloading ${Math.floor((m.partial / m.bytes) * 100)}%` : m.partial > 0 ? `Paused at ${Math.floor((m.partial / m.bytes) * 100)}%` : `${mb(m.bytes)} download`;
@@ -114,39 +110,42 @@ export class CaptionsPanel {
 
     const error = models.find((m) => m.error && !m.downloading);
     const action = chosen && !chosen.installed ? `Download ${chosen.label} (${mb(chosen.bytes)}) and generate` : "Generate captions";
+    const installed = models.filter((m) => m.installed || m.partial > 0);
     const root = h("div", { class: "ve-captions" },
-      h("p", { class: "ve-panel-note" }, "Listens to the clips' speech on this computer and writes captions that light up word by word. Nothing is uploaded."),
-      segmented("From", [["all", "All clips"], ["selected", "Selected"]], this.scope, (v) => (this.scope = v as "all" | "selected")),
-      select("Language", CAPTION_LANGUAGES, this.language, (v) => {
+      note("Writes captions from the clips' speech, lit up word by word. It runs on this computer; nothing is uploaded.", "vc-lede"),
+      segRow(syncs, "From", [["all", "All clips"], ["selected", "Selected"]] as const, () => this.scope, (v) => {
+        this.scope = v;
+        this.refresh();
+      }),
+      selectRow(syncs, "Language", CAPTION_LANGUAGES, () => this.language, (v) => {
         this.language = v;
         // Small is the better of the two at Bangla, though neither gets it right yet.
         if (v === "bn") this.model = "small";
         this.refresh();
       }),
-      select("Model", modelOptions, this.model, (v) => {
+      selectRow(syncs, "Model", modelOptions, () => this.model, (v) => {
         this.model = v as CaptionModel["id"];
         this.refresh();
       }),
-      h("p", { class: "ve-panel-note ve-cap-hint" }, chosen?.note ?? ""),
-      select("Style", TEXT_PRESETS.map((p) => [p.id, p.label] as [string, string]), this.preset, (v) => (this.preset = v)),
-      h("div", { class: "ve-row" }, h("label", null, "Highlight"),
-        h("input", { type: "checkbox", class: "switch", role: "switch", checked: this.highlight !== null, onchange: (e: Event) => {
-          this.highlight = (e.target as HTMLInputElement).checked ? "#ffd23f" : null;
-          this.refresh();
-        } }),
-        this.highlight !== null
-          ? h("input", { type: "color", class: "ve-color", value: this.highlight, title: "The colour of words already spoken", oninput: (e: Event) => (this.highlight = (e.target as HTMLInputElement).value) })
-          : null),
-      error ? h("p", { class: "ve-panel-note ve-warn" }, error.error) : null,
+      chosen?.note ? note(chosen.note, "vc-under") : null,
+      selectRow(syncs, "Style", TEXT_PRESETS.map((p) => [p.id, p.label] as [string, string]), () => this.preset, (v) => (this.preset = v)),
+      colorRow(syncs, "Highlight", {
+        get: () => this.highlight, optional: true, fallback: "#ffd23f",
+        set: (v) => {
+          this.highlight = v;
+          resync();
+        },
+      }),
+      error?.error ? callout(error.error, "danger") : null,
       progress,
-      h("button", { class: "btn primary ve-import", type: "button", disabled: busy, onclick: () => void this.generate() }, icon("subtitles", 16), action),
-      models.some((m) => m.installed || m.partial > 0)
-        ? h("div", { class: "ve-cap-models" }, h("h3", { class: "ve-panel-h" }, "Downloaded models"),
-          ...models.filter((m) => m.installed || m.partial > 0).map((m) =>
-            h("div", { class: "ve-track-row" },
-              h("div", { class: "ve-track-icon" }, icon("subtitles", 16)),
-              h("div", { class: "ve-track-text" }, h("div", { class: "ve-track-title" }, m.label), h("div", { class: "ve-track-sub" }, m.installed ? mb(m.bytes) : `${mb(m.partial)} of ${mb(m.bytes)}`)),
-              h("button", { class: "icon-btn small", type: "button", title: "Remove from this computer", "aria-label": `Remove ${m.label}`, disabled: m.downloading || busy, onclick: () => void this.remove(m) }, icon("trash", 15)))))
+      h("button", { class: "btn primary vc-wide", type: "button", disabled: busy, onclick: () => void this.generate() }, icon("subtitles", 16), action),
+      installed.length
+        ? h("div", { class: "ve-cap-models" }, h("h3", { class: "vc-group-h" }, "Models on this computer"),
+          ...installed.map((m) =>
+            h("div", { class: "vc-list-row" },
+              h("span", { class: "vc-list-icon" }, icon("subtitles", 15)),
+              h("div", { class: "vc-list-text" }, h("div", { class: "vc-list-title" }, m.label), h("div", { class: "vc-list-sub" }, m.installed ? mb(m.bytes) : `${mb(m.partial)} of ${mb(m.bytes)}`)),
+              h("button", { class: "vc-mini", type: "button", title: "Remove from this computer", "aria-label": `Remove ${m.label}`, disabled: m.downloading || busy, onclick: () => void this.remove(m) }, icon("trash", 13)))))
         : null,
     );
     this.root = root;

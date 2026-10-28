@@ -286,6 +286,8 @@ const paths = {
   veMic: `<rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5M8.5 20.5h7"/>`,
   veSticker: `<path d="M5 4.5h10.5L19.5 8.5V19a.5.5 0 0 1-.5.5H5a.5.5 0 0 1-.5-.5V5a.5.5 0 0 1 .5-.5z"/><path d="M15.5 4.5V8a.5.5 0 0 0 .5.5h3.5"/><path d="M9 13.5c.8 1.2 1.8 1.8 3 1.8s2.2-.6 3-1.8"/><circle cx="9.5" cy="10.5" r=".8" fill="currentColor"/><circle cx="14.5" cy="10.5" r=".8" fill="currentColor"/>`,
   veSound: `<path d="M4.5 9.5h3l4-3.5v12l-4-3.5h-3z"/><path d="M15 9a4 4 0 0 1 0 6M17.5 6.5a7.5 7.5 0 0 1 0 11"/>`,
+  /** Two frames meeting: a transition. */
+  veTransition: `<rect x="3" y="6" width="10" height="12" rx="2"/><path d="M15 6h4a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-4"/><path d="M13 9.5l2.5 2.5-2.5 2.5"/>`,
   // ---- Statements (add their icons below this line)
   stAlert: `<path d="M12 4.2 3.6 18.8h16.8z"/><path d="M12 10v4.2M12 16.6v.01"/>`,
   stStatement: `<path d="M6.5 3.5h8l3 3v14h-11z"/><path d="M14.5 3.5v3h3"/><path d="M9 11h6M9 14h6M9 17h3.5"/>`,

@@ -1,6 +1,8 @@
 import { previewUrl } from "../../../../api";
 import { h } from "../../../../ui/dom";
 import { icon } from "../../../../ui/icons";
+import type { MenuItem } from "../../../../ui/menu";
+import { empty, popover, searchField, selectRow, switchRow, type Syncs } from "../controls";
 import type { Aspect } from "../../app";
 import { OWN_LOOK, type Theme } from "./brand";
 import { CATEGORIES, type Category, type Template } from "./format";
@@ -14,8 +16,9 @@ import type { MotionTools } from "./tools";
 
 /**
  * The Templates tab: shipped templates by category and My Templates, as cards that play when
- * pointed at, in the project's shape and the default Brand Kit. Search, shape and length
- * filters, a Bangla preview switch, and whether using one adds its suggested sounds.
+ * pointed at, in the project's shape and the default Brand Kit. Its head (pinned in the left
+ * panel) has search and the categories; shape and length, the Brand Kit for new templates, the
+ * Bangla preview and whether using one adds its suggested sounds are under its options button.
  */
 
 type Lengths = "any" | "short" | "medium" | "long";
@@ -47,19 +50,16 @@ export class TemplateBrowser {
   private shape: Shape | "project" = "project";
   private grid = h("div", { class: "mo-grid" });
   private cards: Card[] = [];
+  private search: HTMLElement | null = null;
 
   constructor(private tools: MotionTools, private mine: MyTemplates, private aspect: () => Aspect, private openKits: () => void) {}
 
-  render(): Node[] {
+  /** The pane's pinned head: search with an options button, then the categories on one line. */
+  head(): Node[] {
     const s = this.tools.settings();
-    const search = h("input", { type: "search", class: "mo-search", placeholder: "Search templates", value: this.query, "aria-label": "Search templates" });
-    search.addEventListener("input", () => {
-      this.query = search.value;
-      this.drawGrid();
-    });
     const kinds = [{ id: "all" as const, label: "All" }, ...CATEGORIES];
     const chipButtons = kinds.map((c) => h("button", {
-      class: `mo-chip${this.category === c.id ? " active" : ""}`, type: "button", role: "tab", "aria-selected": String(this.category === c.id),
+      class: `vc-chip${this.category === c.id ? " active" : ""}`, type: "button", role: "tab", "aria-selected": String(this.category === c.id),
       onclick: () => {
         this.category = c.id;
         chipButtons.forEach((b, i) => {
@@ -69,47 +69,70 @@ export class TemplateBrowser {
         this.drawGrid();
       },
     }, c.label));
-    const chips = h("div", { class: "mo-chips", role: "tablist" }, ...chipButtons);
-    const shape = h("select", { "aria-label": "Shape", onchange: () => {
-      this.shape = shape.value as Shape | "project";
-      this.drawGrid();
-    } }, h("option", { value: "project" }, "Project's shape"), ...SHAPES.map((x) => h("option", { value: x }, x)));
-    shape.value = this.shape;
-    const length = h("select", { "aria-label": "Length", onchange: () => {
-      this.length = length.value as Lengths;
-      this.drawGrid();
-    } }, ...LENGTHS.map(([id, label]) => h("option", { value: id }, label)));
-    length.value = this.length;
-    const kit = h("select", { "aria-label": "Brand Kit for new templates", onchange: () => {
-      setDefaultKit(s, kit.value);
-      this.tools.saveSettings();
-      this.drawGrid();
-    } }, h("option", { value: OWN_LOOK }, "Template's own look"), ...allKits(s).map((k) => h("option", { value: k.id }, k.name)));
-    kit.value = usesOwnLook(s) ? OWN_LOOK : defaultKit(s).id;
-    const switchRow = (label: string, get: () => boolean, set: (v: boolean) => void) => {
-      const el = h("input", { type: "checkbox", class: "switch", checked: get(), onchange: () => set(el.checked) });
-      return h("label", { class: "mo-switch" }, el, h("span", null, label));
-    };
-    this.drawGrid();
-    return [
-      h("div", { class: "mo-browser" },
-        h("div", { class: "mo-browser-head" }, search),
-        chips,
-        h("div", { class: "mo-filters" }, shape, length),
-        h("div", { class: "mo-kit-row" }, icon("palette", 15), kit, h("button", { class: "btn small", type: "button", onclick: () => this.openKits() }, "Brand Kits…")),
-        h("div", { class: "mo-switches" },
-          switchRow("Bangla preview", () => s.bangla, (v) => {
+    const filtered = () => this.shape !== "project" || this.length !== "any";
+    const options: HTMLButtonElement = h("button", {
+      class: "icon-btn small vc-options", type: "button", title: "Shape, length, Brand Kit and preview options", "aria-label": "Template options", "aria-expanded": "false",
+      onclick: () => {
+        const syncs: Syncs = [];
+        const changed = () => {
+          options.classList.toggle("on", filtered());
+          this.drawGrid();
+        };
+        popover(options, "Templates",
+          selectRow(syncs, "Shape", [["project", "Project's shape"], ...SHAPES.map((x) => [x, x] as [string, string])], () => this.shape, (v) => {
+            this.shape = v as Shape | "project";
+            changed();
+          }),
+          selectRow(syncs, "Length", LENGTHS.map(([id, label]) => [id, label] as [Lengths, string]), () => this.length, (v) => {
+            this.length = v;
+            changed();
+          }),
+          selectRow(syncs, "Brand Kit", [[OWN_LOOK, "Template's own look"], ...allKits(s).map((k) => [k.id, k.name] as [string, string])],
+            () => (usesOwnLook(s) ? OWN_LOOK : defaultKit(s).id), (v) => {
+              setDefaultKit(s, v);
+              this.tools.saveSettings();
+              this.drawGrid();
+            }),
+          switchRow(syncs, "Bangla preview", () => s.bangla, (v) => {
             s.bangla = v;
             this.tools.saveSettings();
             this.drawGrid();
           }),
-          switchRow("Add suggested sounds", () => s.sounds, (v) => {
+          switchRow(syncs, "Add sounds", () => s.sounds, (v) => {
             s.sounds = v;
             this.tools.saveSettings();
-          })),
-        this.grid,
-      ),
+          }),
+          h("button", { class: "btn small vc-pop-action", type: "button", onclick: () => this.openKits() }, icon("palette", 14), "Brand Kits…"),
+        );
+      },
+    }, icon("filter", 16));
+    options.classList.toggle("on", filtered());
+    this.search = searchField("Search templates", this.query, (v) => {
+      this.query = v;
+      this.drawGrid();
+    });
+    return [
+      h("div", { class: "vp-search-row" }, this.search, options),
+      h("div", { class: "vc-chips", role: "tablist", "aria-label": "Categories" }, ...chipButtons),
     ];
+  }
+
+  /** The cards. */
+  body(): Node[] {
+    this.drawGrid();
+    return [this.grid];
+  }
+
+  /** The pane's ⋯ menu. */
+  menu(): MenuItem[] {
+    return [
+      { label: "Brand Kits…", icon: "palette", action: () => this.openKits() },
+      { label: "Import .zaztemplate…", icon: "download", action: () => void this.mine.importFiles() },
+    ];
+  }
+
+  focusSearch() {
+    this.search?.querySelector("input")?.focus();
   }
 
   private shapeNow(): Shape {
@@ -139,15 +162,27 @@ export class TemplateBrowser {
     const items: Node[] = [];
     if (this.category === "mine" || this.category === "all") {
       const mine = this.mine.list().filter((e) => this.matches(e.doc, e.name));
-      if (this.category === "mine") {
-        items.push(h("div", { class: "mo-mine-head" },
-          h("span", null, mine.length ? `${mine.length} saved` : "Nothing saved yet. Select a template on the timeline and choose Save to My Templates."),
-          h("button", { class: "btn small", type: "button", onclick: () => void this.mine.importFiles() }, "Import .zaztemplate")));
+      if (this.category === "mine" && !mine.length) {
+        items.push(h("div", { class: "mo-wide" }, empty("template", "Nothing saved yet", "Select a template on the timeline, then choose Save to My Templates from its ⋯ menu.",
+          h("button", { class: "btn small", type: "button", onclick: () => void this.mine.importFiles() }, "Import .zaztemplate…"))));
       }
       for (const e of this.category === "mine" ? mine : mine.slice(0, 4)) items.push(this.mineCard(e));
     }
     for (const t of shown) items.push(this.card(t, t.name, {}, themes.get(t.id)!, () => void this.tools.use(t)));
-    if (!items.length) items.push(h("p", { class: "ve-panel-note" }, "No templates match."));
+    if (!items.length) {
+      items.push(h("div", { class: "mo-wide vc-none" }, `No templates match${this.query.trim() ? ` “${this.query.trim()}”` : ""}.`,
+        this.query || this.shape !== "project" || this.length !== "any"
+          ? h("button", { class: "text-btn", type: "button", onclick: () => {
+            this.query = "";
+            this.shape = "project";
+            this.length = "any";
+            this.category = "all";
+            const input = this.search?.querySelector("input");
+            if (input) input.value = "";
+            this.drawGrid();
+          } }, "Clear filters")
+          : null));
+    }
     this.grid.replaceChildren(...items);
   }
 

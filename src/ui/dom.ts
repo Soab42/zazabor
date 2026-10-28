@@ -43,6 +43,8 @@ export function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
   if (target instanceof HTMLTextAreaElement || target.isContentEditable) return true;
   if (target instanceof HTMLSelectElement) return true;
+  // A number field at rest (the Video Editor's scrub fields) isn't being typed in: the app's keys work there.
+  if (target instanceof HTMLInputElement && target.readOnly && target.dataset.scrub !== undefined) return false;
   return target instanceof HTMLInputElement && !["range", "checkbox", "radio", "button"].includes(target.type);
 }
 

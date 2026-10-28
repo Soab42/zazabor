@@ -1,9 +1,9 @@
 # Video editor: the side panels redesigned (spec)
 
-Status: planned 2026-10-28. Nothing under `src/` is changed yet. Implementation starts after the
-current round in `panels.ts`, `inspector.ts` and `timeline.ts` lands. That round adds a right-click
-menu, overlay transitions with cut/in/out slots, multi-select, music preview through
-`shared/listen`, and text editing. This spec builds on those interfaces and doesn't rename them.
+Status: built 2026-10-28 (phases 0–4). Section 15 lists where the build differs from this spec.
+It came after the round that added a right-click menu, overlay transitions with cut/in/out slots,
+multi-select, music preview through `shared/listen`, and text editing, and it keeps those
+interfaces.
 
 The user's words: "whole ui is not user friendly. It's so cozy and not professionally designed:
 the options and tools, basically the right and left bar design." Read "cozy" as cramped,
@@ -1260,3 +1260,60 @@ Secondary (named, not official):
 In-repo: `docs/DESIGN.md`, `src/styles.css`, `src/modules/video/video.css` (Liquid Glass),
 `src/modules/studio/photo/photo.css` (panel heads, tool buttons, number fields),
 `src/modules/office/office.css` (rail and ribbon).
+
+---
+
+## 15. Built (2026-10-28): what differs from this spec
+
+Files: new `controls.ts` (the shared controls) and `scrub.ts` (number-field maths, tested in
+`tools/video-editor.test.mjs`); rewritten `inspector.ts`, `panels.ts`, `motion/fields.ts` and the
+Templates head in `motion/browser.ts`; `captions.ts` on the shared rows; layout, settings and
+keys in `index.ts`; `video-editor.css` and `motion.css` restyled; `motion/ui.ts` is a type
+re-export; `ui/dom.ts`'s `isTypingTarget` lets a resting scrub field (`data-scrub`, read-only)
+pass the app's keys; `ui/icons.ts` gains `veTransition`. Phase 0 also added `--ve-board` /
+`--ve-board-ink` (a dark board under text-style, sticker and thumbnail previews, in both themes)
+and `--ve-key-mark` (the timeline's keyframe gold, the same in both themes).
+
+Changed or dropped, and why:
+
+- **Room for the preview:** at least 360 px, not 480. At 480, a 860 px window had to fold both
+  side panels. When room runs out, the panel shown last by hand stays and the other one folds.
+  At 860×560 the media panel folds by default, and opening it folds the inspector.
+- **Short windows:** the timeline is capped at `100vh − 330px`. At 560 px tall a 300 px timeline
+  left the panels under 200 px. Not in the spec.
+- **Narrow preview:** the transport drops its volume slider below 470 px of preview (a container
+  query). Not in the spec.
+- **Panel shown again:** it redraws its thumbnails. WebKitGTK loses what was drawn on a hidden
+  canvas.
+- **Media pane:**
+  - The codec warning stays as a callout at the top of the pane, with Install…, as well as in the
+    ⋯ menu: it's easy to miss in a menu.
+  - "Remove unused files" is dropped: it would be one undo step per file.
+- **Transitions pane:**
+  - No search: its header already has the target line, the slot control and Length.
+  - Phase 3b (moving previews) is done in CSS: a tile's wipe runs while it's pointed at.
+- **Template slots:** stacked (label above, like the text fields). Labels such as "Product photo"
+  don't fit the 76 px column.
+- **Template colours:** five wells across the whole row, each with its name under it, instead of
+  a labelled row.
+- **Value column:** 54 px, not 52 ("100 %" with padding).
+- **"Browse…" links:** small icon buttons in a row's actions (Look → Filters, Effect → Effects,
+  each layer transition), plus "Browse Transitions…" in the main-cut section's ⋯ menu.
+- **Freeze Frame:** in the clip header's ⋯ menu and the Speed section's ⋯ menu.
+- **Dropped from the header ⋯ menu:** "Show in Files", since the inspector has no hook for it.
+- **Missing-file callout:** has no Locate… button; relinking stays in the editor's missing-files
+  dialog.
+- **Mask shape icons:** reuse the PDF tools' `pfOval` / `pfRect`.
+- **Keys not built:** Delete in the asset grid removes media tiles and project audio only (as the
+  spec says). Space in the grid previews audio rows; it does nothing on other tiles yet.
+
+Checked on a nested display (my own Vite and debug build), 1400×900 and 860×560, dark and light:
+- Every clip kind's tabs and sections, and the multi-select inspector.
+- Scrub drag (one undo step) and typing.
+- "Speed…" and a template's "Edit Text" from the right-click menu (both reveal the right tab).
+- Ctrl+0, Alt+1…8, the Templates options popover, panel folding and swapping.
+
+Not checked by hand: Alt+K, the keyframe right-click menu, the grid's arrow keys.
+
+Under xdotool on Xephyr, keyboard events reached the app one event late. That's the test setup:
+the same shortcuts worked, and the toolbar's Undo applied at once.

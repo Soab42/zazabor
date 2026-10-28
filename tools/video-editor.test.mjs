@@ -277,3 +277,46 @@ test("transitions on layers survive saving; older projects open unchanged", () =
   assert.ok(!/transIn|transOut/.test(text1));
   assert.deepEqual(model.normalizeProject(JSON.parse(text1)), JSON.parse(text1));
 });
+
+// ---- The inspector's number fields (scrub.ts): showing, typing, stepping and dragging values.
+
+const scrub = await import(`${root}/scrub.ts`);
+
+test("number fields show values in their units", () => {
+  const pos = { min: -0.5, max: 1.5, step: 0.01, scale: 100, offset: 0.5, decimals: 0, unit: "%" };
+  assert.equal(scrub.display(pos, 0.5), "0 %", "the middle is 0");
+  assert.equal(scrub.display(pos, 0.42), "−8 %", "a real minus sign");
+  assert.equal(scrub.display(pos, 0.498), "0 %", "no −0");
+  assert.equal(scrub.display({ min: 0.25, max: 4, step: 0.05, decimals: 2, unit: "×" }, 1.5), "1.50×");
+  assert.equal(scrub.display({ min: -180, max: 180, step: 1, unit: "°" }, -45), "−45°");
+  assert.equal(scrub.display({ min: -1, max: 1, step: 0.01, scale: 100, decimals: 0, signed: true }, 0.12), "+12");
+  assert.equal(scrub.display({ min: 0, max: 5, step: 0.1, unit: "s" }, 0.6), "0.6 s", "decimals follow the step");
+  assert.equal(scrub.display({ min: 0, max: 1, step: 0.05, format: (v) => (v ? `−${Math.round(v * 100)} %` : "Off") }, 0), "Off");
+});
+
+test("typed values are read in display units and kept in range", () => {
+  const pct = { min: 0, max: 1, step: 0.01, scale: 100, decimals: 0, unit: "%" };
+  assert.equal(scrub.parse(pct, "45"), 0.45);
+  assert.equal(scrub.parse(pct, "45 %"), 0.45, "the unit is allowed");
+  assert.equal(scrub.parse(pct, "250"), 1, "kept in range");
+  assert.equal(scrub.parse(pct, "-3"), 0);
+  assert.equal(scrub.parse(pct, "abc"), null, "not a number");
+  assert.equal(scrub.parse(pct, ""), null);
+  const pos = { min: -0.5, max: 1.5, step: 0.01, scale: 100, offset: 0.5 };
+  assert.equal(scrub.parse(pos, "−8"), 0.42, "a typographic minus works");
+  assert.equal(scrub.parse({ min: 0, max: 5, step: 0.1 }, "1,5"), 1.5, "a decimal comma works");
+});
+
+test("stepping and dragging move by the step, ×10 with Shift and ×0.1 with Alt", () => {
+  const spec = { min: 0, max: 2, step: 0.01 };
+  assert.equal(scrub.stepBy(spec, 1, 1), 1.01);
+  assert.equal(scrub.stepBy(spec, 1, -1, 10), 0.9);
+  assert.equal(scrub.stepBy(spec, 1, 3, 0.1), 1.003, "fine steps aren't rounded away");
+  assert.equal(scrub.stepBy(spec, 1.996, 1), 2, "kept in range");
+  assert.equal(scrub.stepBy(spec, 0.2, -100), 0);
+  assert.equal(scrub.stepBy({ min: 0, max: 30, step: 0.5 }, 0.3, 0), 0.5, "on the step's grid");
+  assert.equal(scrub.dragValue(spec, 1, 20), 1.1, `one step per ${scrub.DRAG_PX} px`);
+  assert.equal(scrub.dragValue(spec, 1, -21), 0.9, "partial steps don't count");
+  assert.equal(scrub.dragValue(spec, 1, 20, 10), 2, "Shift: ten at a time, kept in range");
+  assert.equal(scrub.fraction({ min: -1, max: 1, step: 0.01 }, 0), 0.5);
+});

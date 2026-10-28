@@ -1,10 +1,11 @@
 import type { Aspect } from "../../app";
 import { TemplateBrowser } from "./browser";
-import { templateView } from "./fields";
+import type { MenuItem } from "../../../../ui/menu";
+import { templateContent, templateInfo, templateLook, templateMenu, type TemplateActions } from "./fields";
 import { openKits } from "./kits";
 import { MyTemplates } from "./mine";
 import { MotionTools, type MotionHost } from "./tools";
-import type { Syncs } from "./ui";
+import type { Syncs } from "../controls";
 import "./motion.css";
 
 /**
@@ -22,19 +23,29 @@ export class MotionFeatures {
     this.browser = new TemplateBrowser(this.tools, this.mine, aspect, () => this.openKits());
   }
 
-  /** The left panel's Templates tab. */
-  renderTab(): Node[] {
-    return this.browser.render();
-  }
+  /** The left panel's Templates tab: its pinned head, its cards, its ⋯ menu and its search. */
+  readonly tab = {
+    head: (): Node[] => this.browser.head(),
+    body: (): Node[] => this.browser.body(),
+    menu: (): MenuItem[] => this.browser.menu(),
+    focusSearch: () => this.browser.focusSearch(),
+  };
 
-  /** The inspector's sections for a template clip. */
-  view(id: string, syncs: Syncs): Node[] {
-    return templateView(this.tools, {
+  private get actions(): TemplateActions {
+    return {
       openKits: () => this.openKits(),
       saveToMine: (clip) => void this.mine.saveClip(clip),
       exportPackage: (clip) => void this.mine.exportClip(clip),
-    }, id, syncs);
+    };
   }
+
+  /** The inspector's views of a template clip: its name, its Content and Look tabs and its ⋯ menu. */
+  readonly views = {
+    info: (id: string) => templateInfo(this.tools, id),
+    content: (id: string, syncs: Syncs): Node[] => templateContent(this.tools, id, syncs),
+    look: (id: string, syncs: Syncs): Node[] => templateLook(this.tools, this.actions, id, syncs),
+    menu: (id: string): MenuItem[] => templateMenu(this.tools, this.actions, id),
+  };
 
   openKits() {
     openKits(this.tools, { selected: () => {

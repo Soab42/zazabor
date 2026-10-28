@@ -1,44 +1,32 @@
-/* Motion templates: the Templates tab, the template inspector and Brand Kits. */
+/* Motion templates: the Templates tab's cards and Brand Kits. The tab's head and the template
+   inspector use the editor's panel controls (video-editor.css). */
 
-.mo-browser { display: flex; flex-direction: column; gap: 8px; }
-.mo-search { width: 100%; box-sizing: border-box; }
-.mo-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-.mo-chip { padding: 3px 9px; border: 0; border-radius: 999px; background: var(--control); color: var(--text-2); font: inherit; font-size: 11.5px; cursor: pointer; box-shadow: inset 0 0 0 0.5px var(--line); }
-.mo-chip:hover { color: var(--text); }
-.mo-chip.active { background: var(--app); color: #fff; box-shadow: none; }
-.mo-filters { display: flex; gap: 6px; }
-.mo-filters select { flex: 1; min-width: 0; }
-.mo-kit-row { display: flex; align-items: center; gap: 6px; color: var(--muted); }
-.mo-kit-row select { flex: 1; min-width: 0; }
-.mo-switches { display: flex; flex-wrap: wrap; gap: 4px 12px; }
-.mo-switch { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-sm); color: var(--text-2); cursor: pointer; }
-
-.mo-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-items: start; }
-.mo-mine-head { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); color: var(--muted); }
-.mo-mine-head span { flex: 1; }
-.mo-card { border-radius: 9px; overflow: hidden; background: var(--control); box-shadow: inset 0 0 0 0.5px var(--line); }
-.mo-card:hover { box-shadow: inset 0 0 0 1px var(--app); }
-.mo-card-play { position: relative; display: block; width: 100%; padding: 0; border: 0; background: #0d0e12; cursor: pointer; }
+.mo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 12px 8px; align-items: start; }
+.mo-wide { grid-column: 1 / -1; }
+.mo-card { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.mo-card-play {
+  position: relative; display: block; width: 100%; padding: 0; border: 0; overflow: hidden; border-radius: var(--radius-md);
+  background: var(--ve-board); box-shadow: 0 0 0 0.5px var(--line); cursor: pointer;
+}
+.mo-card-play::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; }
+.mo-card-play:hover::after { box-shadow: inset 0 0 0 1px var(--app); }
+.mo-card-play:focus-visible { box-shadow: none; }
+.mo-card-play:focus-visible::after { box-shadow: inset 0 0 0 2px var(--focus); }
 .mo-card-canvas { display: block; width: 100%; height: auto; }
-.mo-card-len { position: absolute; left: 6px; top: 6px; padding: 1px 6px; border-radius: 5px; background: rgba(0, 0, 0, 0.55); color: #fff; font-size: 10.5px; font-variant-numeric: tabular-nums; }
-.mo-card-add { position: absolute; right: 6px; bottom: 6px; display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; background: var(--app); color: #fff; opacity: 0; transition: opacity var(--dur-fast); }
+.mo-card-len {
+  position: absolute; right: 5px; bottom: 5px; padding: 1px 5px; border-radius: 5px; background: var(--chip);
+  -webkit-backdrop-filter: var(--blur-chip); backdrop-filter: var(--blur-chip); color: #fff; font-size: 10.5px; line-height: 15px; font-variant-numeric: tabular-nums;
+}
+.mo-card-add {
+  position: absolute; left: 5px; bottom: 5px; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--app); color: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); opacity: 0; transition: opacity var(--dur-fast);
+}
 .mo-card-play:hover .mo-card-add, .mo-card-play:focus-visible .mo-card-add { opacity: 1; }
-.mo-card-foot { display: flex; align-items: center; gap: 4px; padding: 5px 7px 6px; font-size: 11px; color: var(--text-2); }
+.mo-card-foot { display: flex; align-items: center; gap: 2px; min-height: 16px; padding: 0 2px; color: var(--text-2); font-size: 11px; }
 .mo-card-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mo-card-tools { display: flex; flex: none; }
-.mo-card-tools .icon-btn { width: 22px; height: 22px; }
-
-/* The inspector */
-.mo-field { display: flex; flex-direction: column; gap: 3px; margin: 0 0 8px; }
-.mo-field-head { display: flex; align-items: baseline; gap: 6px; }
-.mo-field-head label { flex: 1; font-size: var(--text-sm); color: var(--text-2); }
-.mo-count { font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.mo-count.over { color: #ffb199; }
-.mo-text { width: 100%; box-sizing: border-box; font: inherit; }
-textarea.mo-text { min-height: 48px; margin: 0; }
-.mo-slot { margin: 0 0 8px; }
-.mo-slot-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); color: var(--muted); }
-.mo-changed { width: 7px; height: 7px; border-radius: 50%; background: var(--app); }
+.mo-card-tools { display: flex; flex: none; opacity: 0; transition: opacity var(--dur-fast); }
+.mo-card:hover .mo-card-tools, .mo-card:focus-within .mo-card-tools { opacity: 1; }
+.mo-card-tools .icon-btn { width: 20px; height: 20px; }
 
 /* Brand Kits */
 .mo-kits-dialog { width: min(640px, calc(100vw - 32px)); }

@@ -12,6 +12,7 @@ import { detectBeats } from "./audio";
 import { editApi } from "./api";
 import { Engine, mainClipAt } from "./engine";
 import { offerCodecInstall, openExport } from "./export";
+import { usePrefs } from "./controls";
 import { Inspector } from "./inspector";
 import { MotionFeatures } from "./motion/editor";
 import { templateOf } from "./motion/templates";
@@ -21,7 +22,7 @@ import {
   clipEnd, copyClips, findClip, insertMain, layoutMain, mainIndexAt, mainTrack, mediaClip, mediaOf, MIN_CLIP, newProject, newTrack, normalizeProject,
   pasteClips, placeAt, placeFree, projectDuration, remove, selectAllIds, setProp, sourceTime, split, TEXT_SECONDS, tidyTracks, touchesPrevious, trimEnd,
   trimStart, uid, defaultPlace,
-  type Clip, type ClipCopy, type Media, type MediaClip, type Project, type TextClip, type Track,
+  type Clip, type ClipCopy, type EffectId, type Media, type MediaClip, type Project, type TextClip, type Track,
 } from "./model";
 import { parseSrt, writeSrt } from "./srt";
 import { CaptionsPanel } from "./captions";
@@ -40,7 +41,34 @@ import "./video-editor.css";
 
 interface Settings {
   volume: number;
+  /** The side panels' widths, and whether each is shown. */
+  left: number;
+  right: number;
+  leftOpen: boolean;
+  rightOpen: boolean;
+  /** The left panel's category, and sub-tabs in it ("effects": Effects or Filters). */
+  panelTab?: string;
+  subTabs: Record<string, string>;
+  /** The inspector's tab for each kind of clip, and the sections folded or opened by hand. */
+  tabs: Record<string, string>;
+  sections: Record<string, boolean>;
 }
+
+/** Side panel widths: default, least and most. */
+const LEFT_W = [304, 296, 480] as const;
+const RIGHT_W = [320, 280, 440] as const;
+/** The preview keeps at least this much room; side panels fold away first. */
+const MIN_PLAYER = 360;
+const GUTTER = 6;
+
+const record = <T>(v: unknown, ok: (x: unknown) => x is T): Record<string, T> => {
+  const out: Record<string, T> = {};
+  if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) if (ok(x)) out[k] = x;
+  return out;
+};
+const isString = (x: unknown): x is string => typeof x === "string";
+const isBool = (x: unknown): x is boolean => typeof x === "boolean";
+const width = (v: unknown, [def, lo, hi]: readonly [number, number, number]) => (typeof v === "number" && Number.isFinite(v) ? Math.max(lo, Math.min(hi, Math.round(v))) : def);
 
 const UNDO_LIMIT = 200;
 /** AutoRecover keeps a snapshot of unsaved changes this often. */
@@ -138,6 +166,11 @@ class VideoEditor implements StudioApp {
   /** A voice-over being recorded. */
   private recording: { id: number; path: string; start: number; meter: number; level: HTMLElement; volume: number } | null = null;
   private recordBtn: HTMLButtonElement;
+  private main: HTMLElement;
+  private leftGutter: HTMLElement;
+  private rightGutter: HTMLElement;
+  private leftToggle: HTMLButtonElement;
+  private rightToggle: HTMLButtonElement;
   /** Picking a chroma key colour from the preview for this clip. */
   private picking: string | null = null;
   /** Typing a text clip's words in a box on the preview. */
@@ -236,12 +269,35 @@ class VideoEditor implements StudioApp {
       toast: (text) => this.host.toast(text),
       currentLook: () => this.currentLook(),
       applyLook: (look, all) => this.applyLook(look, all),
-      templates: { render: () => this.motion.renderTab() },
+      currentEffect: () => this.currentEffect(),
+      applyEffect: (effect) => this.applyEffect(effect),
+      templates: this.motion.tab,
+      prefs: {
+        get: (key) => (key === "panelTab" ? this.settings().panelTab : this.settings().subTabs[key]),
+        set: (key, value) => {
+          if (key === "panelTab") this.settings().panelTab = value;
+          else this.settings().subTabs[key] = value;
+          this.host.shell.saveConfig();
+        },
+      },
+    });
+
+    usePrefs({
+      open: (id) => this.settings().sections[id],
+      setOpen: (id, open) => {
+        this.settings().sections[id] = open;
+        this.host.shell.saveConfig();
+      },
+      tab: (kind) => this.settings().tabs[kind],
+      setTab: (kind, tab) => {
+        this.settings().tabs[kind] = tab;
+        this.host.shell.saveConfig();
+      },
     });
 
     this.inspector = new Inspector({
       project: () => this.project,
-      selectedId: () => (this.selection.size === 1 ? [...this.selection][0] : null),
+      selection: () => [...this.selection],
       change: (fn, key) => this.change(fn, key),
       setAspect: (a) => this.change((p) => (p.canvas.aspect = a), "aspect"),
       time: () => this.engine.time,
@@ -250,7 +306,14 @@ class VideoEditor implements StudioApp {
       pickKeyColor: (id) => this.pickKeyColor(id),
       freezeFrame: () => this.freezeFrame(),
       markBeats: (id) => void this.markBeats(id),
-      templateView: (id, syncs) => this.motion.view(id, syncs),
+      deleteSelection: () => this.command("delete"),
+      editText: (id) => this.editText(id),
+      browse: (what, slot) => {
+        this.setPanelOpen("left", true);
+        if (what === "filters") this.panel.show("effects", "filters");
+        else this.panel.showTransition(slot ?? "in");
+      },
+      template: this.motion.views,
     });
 
     const tb = (name: Parameters<typeof icon>[0], title: string, run: () => void) =>
@@ -258,7 +321,10 @@ class VideoEditor implements StudioApp {
     this.undoBtn = tb("undo", "Undo (Ctrl+Z)", () => this.undo());
     this.redoBtn = tb("redo", "Redo (Ctrl+Shift+Z)", () => this.redo());
     this.titleEl = h("div", { class: "ve-title" });
+    this.leftToggle = h("button", { class: "icon-btn ve-panel-toggle", type: "button", title: "Hide the media panel (Ctrl+0)", "aria-label": "Media panel", onclick: () => this.setPanelOpen("left", !this.shownPanels.left) }, icon("sidebar", 18));
+    this.rightToggle = h("button", { class: "icon-btn ve-panel-toggle right", type: "button", title: "Hide the inspector (Ctrl+Alt+0)", "aria-label": "Inspector", onclick: () => this.setPanelOpen("right", !this.shownPanels.right) }, icon("sidebar", 18));
     const top = h("header", { class: "ve-top" },
+      this.leftToggle,
       tb("back", "Studio Home", () => host.showHome()),
       h("div", { class: "ve-brand" }, icon("videoEdit", 18)),
       this.titleEl,
@@ -266,6 +332,7 @@ class VideoEditor implements StudioApp {
       this.undoBtn, this.redoBtn,
       tb("save", "Save (Ctrl+S)", () => void this.save()),
       h("button", { class: "btn primary ve-export", type: "button", onclick: () => this.exportVideo() }, icon("download", 16), "Export"),
+      this.rightToggle,
     );
 
     this.timeLabel = h("span", { class: "ve-time" });
@@ -294,14 +361,21 @@ class VideoEditor implements StudioApp {
       volume,
     );
     const player = h("section", { class: "ve-player" }, this.stage, transport);
-    const main = h("div", { class: "ve-main" }, this.panel.el, player, this.inspector.el);
+    this.leftGutter = this.gutter("left");
+    this.rightGutter = this.gutter("right");
+    this.main = h("div", { class: "ve-main" }, this.panel.el, this.leftGutter, player, this.rightGutter, this.inspector.el);
     const splitter = h("div", { class: "ve-split", title: "Drag to resize the timeline" });
-    this.el = h("div", { class: "of-editor ve-app tone-video" }, top, main, splitter, this.timeline.el);
+    this.el = h("div", { class: "of-editor ve-app tone-video" }, top, this.main, splitter, this.timeline.el);
     this.dragSplitter(splitter);
+    this.layout();
     this.canvasPointer();
 
-    this.observer = new ResizeObserver(() => this.fitStage());
+    this.observer = new ResizeObserver((entries) => {
+      if (entries.some((e) => e.target === this.el)) this.layout();
+      this.fitStage();
+    });
     this.observer.observe(this.stage);
+    this.observer.observe(this.el);
     this.refresh({ sound: false });
     this.recoverTimer = window.setInterval(() => void this.keepSnapshot(), RECOVER_MS);
   }
@@ -310,10 +384,123 @@ class VideoEditor implements StudioApp {
 
   private settings(): Settings {
     const apps = this.host.shell.config.studio.apps;
-    const raw = (apps.video ?? {}) as Partial<Settings>;
-    const s: Settings = { volume: typeof raw.volume === "number" ? Math.max(0, Math.min(1, raw.volume)) : 1 };
+    const raw = (apps.video ?? {}) as Partial<Settings> & { _ok?: boolean };
+    if (raw._ok) return raw as Settings;
+    const s: Settings & { _ok?: boolean } = {
+      volume: typeof raw.volume === "number" ? Math.max(0, Math.min(1, raw.volume)) : 1,
+      left: width(raw.left, LEFT_W),
+      right: width(raw.right, RIGHT_W),
+      leftOpen: raw.leftOpen !== false,
+      rightOpen: raw.rightOpen !== false,
+      panelTab: typeof raw.panelTab === "string" ? raw.panelTab : undefined,
+      subTabs: record(raw.subTabs, isString),
+      tabs: record(raw.tabs, isString),
+      sections: record(raw.sections, isBool),
+    };
+    // Checked once per session (not saved: it's a property of this object only).
+    Object.defineProperty(s, "_ok", { value: true, enumerable: false });
     apps.video = s;
     return s;
+  }
+
+  // ---- the side panels: widths, showing and hiding, folding away when there's no room
+
+  /** Which side panels show now (shown by choice and room). */
+  private shownPanels = { left: true, right: true };
+  /** The panel shown last by hand keeps its place when room runs out. */
+  private priority: "left" | "right" = "right";
+
+  private setPanelOpen(side: "left" | "right", open: boolean) {
+    const s = this.settings();
+    if (side === "left") s.leftOpen = open;
+    else s.rightOpen = open;
+    if (open) this.priority = side;
+    this.host.shell.saveConfig();
+    this.layout();
+  }
+
+  /** Lays out the panels: their widths, and which fit beside a preview of at least MIN_PLAYER. */
+  private layout() {
+    const s = this.settings();
+    const room = this.main.clientWidth - 2 * GUTTER;
+    let left = s.leftOpen, right = s.rightOpen;
+    const fits = () => (left ? s.left + GUTTER : 0) + MIN_PLAYER + (right ? s.right + GUTTER : 0) <= room;
+    if (room > 0 && !fits()) {
+      // The panel not shown last by hand folds first.
+      if (this.priority === "right" && left) left = false;
+      else if (this.priority === "left" && right) right = false;
+      if (!fits()) {
+        if (left && this.priority !== "left") left = false;
+        else if (right) right = false;
+      }
+    }
+    // Shown again: its thumbnails are drawn again (a hidden canvas can lose what was drawn on it).
+    if (left && !this.shownPanels.left) requestAnimationFrame(() => this.panel.refresh());
+    this.shownPanels = { left, right };
+    this.main.style.gridTemplateColumns = `${left ? `${s.left}px` : "0"} ${left ? `${GUTTER}px` : "0"} minmax(0, 1fr) ${right ? `${GUTTER}px` : "0"} ${right ? `${s.right}px` : "0"}`;
+    this.panel.el.hidden = !left;
+    this.leftGutter.hidden = !left;
+    this.inspector.el.hidden = !right;
+    this.rightGutter.hidden = !right;
+    this.leftToggle.classList.toggle("active", left);
+    this.rightToggle.classList.toggle("active", right);
+    this.leftToggle.title = left ? "Hide the media panel (Ctrl+0)" : "Show the media panel (Ctrl+0)";
+    this.rightToggle.title = right ? "Hide the inspector (Ctrl+Alt+0)" : "Show the inspector (Ctrl+Alt+0)";
+    this.leftToggle.setAttribute("aria-pressed", String(left));
+    this.rightToggle.setAttribute("aria-pressed", String(right));
+  }
+
+  /** A gutter between a side panel and the preview: drag (or ←/→) to resize, double-click for the default. */
+  private gutter(side: "left" | "right"): HTMLElement {
+    const [def, lo, hi] = side === "left" ? LEFT_W : RIGHT_W;
+    const label = side === "left" ? "media panel" : "inspector";
+    const el = h("div", {
+      class: `ve-gutter ${side}`, role: "separator", tabindex: "0", "aria-orientation": "vertical", "aria-label": `Resize the ${label}`,
+      title: `Drag to resize the ${label}; double-click for its usual width`,
+    });
+    const set = (w: number) => {
+      const s = this.settings();
+      const most = Math.max(lo, Math.min(hi, this.main.clientWidth - MIN_PLAYER - (side === "left" ? (this.shownPanels.right ? s.right : 0) : (this.shownPanels.left ? s.left : 0)) - 4 * GUTTER));
+      const v = Math.round(Math.max(lo, Math.min(most, w)));
+      if (side === "left") s.left = v;
+      else s.right = v;
+      el.setAttribute("aria-valuenow", String(v));
+      this.layout();
+    };
+    el.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      el.setPointerCapture(e.pointerId);
+      el.classList.add("dragging");
+      const x0 = e.clientX;
+      const s = this.settings();
+      const w0 = side === "left" ? s.left : s.right;
+      const move = (ev: PointerEvent) => set(w0 + (side === "left" ? 1 : -1) * (ev.clientX - x0));
+      const up = () => {
+        el.removeEventListener("pointermove", move);
+        el.removeEventListener("pointerup", up);
+        el.removeEventListener("pointercancel", up);
+        el.classList.remove("dragging");
+        this.host.shell.saveConfig();
+      };
+      el.addEventListener("pointermove", move);
+      el.addEventListener("pointerup", up);
+      el.addEventListener("pointercancel", up);
+    });
+    el.addEventListener("dblclick", () => {
+      set(def);
+      this.host.shell.saveConfig();
+    });
+    el.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+      e.stopPropagation();
+      const s = this.settings();
+      const step = (e.shiftKey ? 32 : 8) * (e.key === "ArrowRight" ? 1 : -1) * (side === "left" ? 1 : -1);
+      set((side === "left" ? s.left : s.right) + step);
+      this.host.shell.saveConfig();
+    });
+    return el;
   }
 
   title() {
@@ -787,6 +974,27 @@ class VideoEditor implements StudioApp {
     return clips.every((c) => c.fx.look === look) ? look : null;
   }
 
+  /** The selected clips with a picture. */
+  private selectedPictures(): MediaClip[] {
+    return this.selectedMediaClips().filter((c) => mediaOf(this.project, c.media)?.kind !== "audio" && findClip(this.project, c.id)?.track.kind !== "audio");
+  }
+
+  private currentEffect(): EffectId | "mixed" | null {
+    const clips = this.selectedPictures();
+    if (!clips.length) return null;
+    const effect = clips[0].fx.effect;
+    return clips.every((c) => c.fx.effect === effect) ? effect : "mixed";
+  }
+
+  private applyEffect(effect: EffectId) {
+    const ids = new Set(this.selectedPictures().map((c) => c.id));
+    if (!ids.size) return;
+    this.change((p) => {
+      for (const t of p.tracks) for (const c of t.clips) if (c.type === "media" && ids.has(c.id)) c.fx.effect = effect;
+    }, "effect");
+    this.panel.refresh();
+  }
+
   private applyLook(look: LookId | "none", all: boolean) {
     let clips = this.selectedMediaClips();
     if (all || !clips.length) clips = mainTrack(this.project).clips as MediaClip[];
@@ -916,7 +1124,7 @@ class VideoEditor implements StudioApp {
       } });
     }
     if (!many && clip.type === "media" && m && m.kind !== "image" && clip.freeze === undefined) {
-      extra.push({ label: "Speed…", icon: "speed", action: () => requestAnimationFrame(() => this.inspector.reveal("Speed")) });
+      extra.push({ label: "Speed…", icon: "speed", action: () => requestAnimationFrame(() => this.revealInInspector("speed")) });
     }
     if (!many && video && clip.type === "media") {
       extra.push({ label: `${clip.reverse ? "✓ " : ""}Reverse`, icon: "repeat", action: () => this.change((p) => {
@@ -957,6 +1165,12 @@ class VideoEditor implements StudioApp {
     return items;
   }
 
+  /** Shows a section of the inspector (opening the inspector if it's hidden). */
+  private revealInInspector(name: string, field?: string) {
+    if (!this.shownPanels.right) this.setPanelOpen("right", true);
+    this.inspector.reveal(name, field);
+  }
+
   // ---- editing a text
 
   /** A text's words, ready to type: in a box on the preview (a template's in the inspector). */
@@ -966,7 +1180,7 @@ class VideoEditor implements StudioApp {
     this.engine.pause();
     this.select([id], false);
     if (c.type === "template") {
-      requestAnimationFrame(() => this.inspector.reveal("Content", ".mo-text"));
+      requestAnimationFrame(() => this.revealInInspector("content", ".mo-text"));
       return;
     }
     // The playhead onto the text, past its way in, so it shows whole.
@@ -1523,6 +1737,23 @@ class VideoEditor implements StudioApp {
     }
     if (mod && lower === "e") {
       this.exportVideo();
+      return true;
+    }
+    // Ctrl+0: the media panel; Ctrl+Alt+0: the inspector (as Xcode's navigator and inspector).
+    if (mod && (e.code === "Digit0" || key === "0")) {
+      if (e.altKey) this.setPanelOpen("right", !this.shownPanels.right);
+      else this.setPanelOpen("left", !this.shownPanels.left);
+      return true;
+    }
+    if (mod && !e.altKey && lower === "f" && !isTypingTarget(e.target)) {
+      this.setPanelOpen("left", true);
+      this.panel.focusSearch();
+      return true;
+    }
+    // Alt+1…8: the media panel's categories.
+    if (e.altKey && !mod && /^Digit[1-8]$/.test(e.code)) {
+      this.setPanelOpen("left", true);
+      this.panel.showIndex(Number(e.code.slice(5)) - 1);
       return true;
     }
     // Select all, copy, cut and paste are a field's own while typing in one.
