@@ -1,5 +1,6 @@
 import { h } from "../ui/dom";
 import { icon, type IconName } from "../ui/icons";
+import { History, restore, sameText, selectionIn, snapshot, type Snapshot } from "./history";
 import { parse, read, render, toHtml, toMarkdown, type Block, type Run } from "./markdown";
 
 export interface EditorHost {
@@ -29,6 +30,9 @@ type ListKind = "bullet" | "ordered" | "check";
  * Markdown typed at the start of a line formats it ("# " a heading, "- " or "1. " a list, "[] "
  * a checklist, "> " a quote; "```" or "---" and Enter a code block or a rule). Pasted Markdown is
  * formatted, and so is rich text from documents and web pages; copying gives Markdown.
+ *
+ * Undo and redo (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y, and the bar's buttons) are the editor's own (see
+ * `history.ts`): the browser's undo can't take back what the editor changes in the page itself.
  */
 export class NoteEditor {
   readonly area = h("div", { class: "note-text note-editor", contenteditable: "true", spellcheck: "true", role: "textbox", "aria-multiline": "true", "aria-label": "Note" });
@@ -36,17 +40,31 @@ export class NoteEditor {
   private body = "";
   private timer = 0;
   private toolButtons: [string, HTMLButtonElement][] = [];
+  private readonly history = new History(() => this.syncHistory());
+  /** What the editor holds, as of the last change (and where the selection is since). */
+  private present: Snapshot;
+  /** One of the editor's own changes is being made (see `edit`). */
+  private editing = false;
+  private readonly undoButton: HTMLButtonElement;
+  private readonly redoButton: HTMLButtonElement;
 
   constructor(private readonly host: EditorHost) {
+    const button = (title: string, onclick: () => void, content: Node | string) =>
+      h("button", { type: "button", class: "note-tool", title, "aria-label": title, onmousedown: (e: MouseEvent) => e.preventDefault(), onclick }, content);
     const tool = (title: string, run: () => void, content: Node | string, state?: string) => {
-      const button = h("button", { type: "button", class: "note-tool", title, "aria-label": title, onmousedown: (e: MouseEvent) => e.preventDefault(), onclick: () => (run(), this.changed(), this.syncTools()) }, content);
-      if (state) this.toolButtons.push([state, button]);
-      return button;
+      const made = button(title, () => (this.edit(run), this.changed(), this.syncTools()), content);
+      if (state) this.toolButtons.push([state, made]);
+      return made;
     };
     const glyph = (text: string, cls: string) => h("span", { class: `note-glyph ${cls}` }, text);
     const svg = (name: IconName) => icon(name, 17);
     const sep = () => h("span", { class: "note-tools-sep" });
+    this.undoButton = button("Undo (Ctrl+Z)", () => this.undo(), svg("undo"));
+    this.redoButton = button("Redo (Ctrl+Shift+Z)", () => this.redo(), svg("redo"));
     this.tools.append(
+      this.undoButton,
+      this.redoButton,
+      sep(),
       tool("Bold (Ctrl+B)", () => exec("bold"), glyph("B", "bold"), "bold"),
       tool("Italic (Ctrl+I)", () => exec("italic"), glyph("I", "italic"), "italic"),
       tool("Underline (Ctrl+U)", () => exec("underline"), glyph("U", "underline"), "underline"),
@@ -62,6 +80,13 @@ export class NoteEditor {
     );
 
     this.area.addEventListener("input", (e) => this.onInput(e as InputEvent));
+    this.area.addEventListener("beforeinput", (e) => {
+      // The browser's own undo (from its context menu) knows nothing of the editor's changes.
+      if (e.inputType !== "historyUndo" && e.inputType !== "historyRedo") return;
+      e.preventDefault();
+      if (e.inputType === "historyUndo") this.undo();
+      else this.redo();
+    });
     this.area.addEventListener("keydown", (e) => this.onKey(e));
     this.area.addEventListener("paste", (e) => this.onPaste(e));
     this.area.addEventListener("copy", (e) => this.onCopy(e, false));
@@ -73,7 +98,7 @@ export class NoteEditor {
       e.preventDefault();
       const at = document.caretRangeFromPoint?.(e.clientX, e.clientY);
       if (at) getSelection()?.removeAllRanges(), getSelection()?.addRange(at);
-      this.insert(data);
+      this.edit(() => this.insert(data));
     });
     this.area.addEventListener("pointerdown", (e) => this.onPointer(e));
     this.area.addEventListener("click", (e) => {
@@ -86,9 +111,15 @@ export class NoteEditor {
         host.openLink(link.href);
       }
     });
-    document.addEventListener("selectionchange", () => this.syncTools());
+    document.addEventListener("selectionchange", () => {
+      this.syncTools();
+      const selection = selectionIn(this.area);
+      if (selection) this.present = { ...this.present, selection };
+    });
     render(this.area, []);
+    this.present = snapshot(this.area);
     this.syncEmpty();
+    this.syncHistory();
   }
 
   /** Shows `body`, unless it is what the editor already holds. Keeps the caret where it was. */
@@ -100,6 +131,9 @@ export class NoteEditor {
     const caret = document.activeElement === this.area ? caretOffset(this.area) : null;
     render(this.area, parse(body));
     if (caret !== null) placeCaret(this.area, caret);
+    // Changed from elsewhere: what was done here before can't be taken back over it.
+    this.present = snapshot(this.area);
+    this.history.clear();
     this.syncEmpty();
   }
 
@@ -117,6 +151,56 @@ export class NoteEditor {
   focus(atEnd = true) {
     this.area.focus();
     if (atEnd) placeCaret(this.area, Infinity);
+  }
+
+  /** Takes back the last change. */
+  undo() {
+    this.travel(this.history.undo(snapshot(this.area)));
+  }
+
+  /** Makes the last change taken back again. */
+  redo() {
+    this.travel(this.history.redo(snapshot(this.area)));
+  }
+
+  /** Shows a snapshot from the history, scrolled to its selection. */
+  private travel(to: Snapshot | null) {
+    if (!to) return;
+    if (to.selection) this.area.focus({ preventScroll: true });
+    restore(this.area, to);
+    this.present = to;
+    const block = blockAtCaret(this.area);
+    if (block && block !== this.area) block.scrollIntoView({ block: "nearest" });
+    this.changed();
+    this.syncTools();
+  }
+
+  /**
+   * Makes one of the editor's own changes (formatting, a paste…) as a step of its own for undo.
+   * The input events its commands fire aren't typing.
+   */
+  private edit<T>(change: () => T): T {
+    if (this.editing) return change();
+    const before = snapshot(this.area);
+    this.editing = true;
+    try {
+      return change();
+    } finally {
+      this.editing = false;
+      this.record(before);
+    }
+  }
+
+  /** Keeps `before` as the step back from what the editor holds now, unless nothing changed. */
+  private record(before: Snapshot, run: string | null = null, fresh = false) {
+    const now = snapshot(this.area);
+    if (!sameText(before, now)) this.history.record(before, run, fresh);
+    this.present = now;
+  }
+
+  private syncHistory() {
+    this.undoButton.disabled = !this.history.canUndo;
+    this.redoButton.disabled = !this.history.canRedo;
   }
 
   private changed() {
@@ -138,13 +222,26 @@ export class NoteEditor {
   // ---- typing
 
   private onInput(e: InputEvent) {
-    if (e.inputType === "insertText" && e.data === " ") this.lineShortcut();
     if (e.inputType === "insertParagraph") {
       // A new checklist item starts unticked, whatever the one it came from was.
       const li = blockAtCaret(this.area);
       if (li instanceof HTMLLIElement && li.parentElement?.classList.contains("checks") && !li.textContent) li.dataset.checked = "false";
     }
+    if (!this.editing) this.typed(e.inputType);
+    if (e.inputType === "insertText" && e.data === " ") this.lineShortcut();
     this.changed();
+  }
+
+  /**
+   * Keeps what typing (or the browser) changed for undo. Inserting runs together into one step,
+   * from the start of a line; so does deleting.
+   */
+  private typed(inputType: string) {
+    const newLine = inputType === "insertParagraph" || inputType === "insertLineBreak";
+    const run = newLine || inputType === "insertText" || inputType === "insertCompositionText" ? "insert"
+      : inputType.startsWith("delete") && inputType !== "deleteByCut" && inputType !== "deleteByDrag" ? "delete"
+        : null;
+    this.record(this.present, run, newLine);
   }
 
   /** Markdown typed at the start of a line, then a space: "# ", "- ", "1. ", "[] ", "> ". */
@@ -159,16 +256,19 @@ export class NoteEditor {
         : text === "[x] " || text === "- [x] " ? "checked"
           : ordered ? "ordered" : heading ? "heading" : text === "> " ? "quote" : null;
     if (!kind) return;
-    block.replaceChildren(document.createElement("br"));
-    placeCaretIn(block);
-    if (kind === "heading") exec("formatBlock", `<h${heading![1].length}>`);
-    else if (kind === "quote") exec("formatBlock", "<blockquote>");
-    else {
-      this.toggleList(kind === "checked" ? "check" : kind);
-      const li = blockAtCaret(this.area);
-      if (kind === "checked" && li instanceof HTMLLIElement) li.dataset.checked = "true";
-      if (kind === "ordered" && ordered![1] !== "1") li?.closest("ol")?.setAttribute("start", ordered![1]);
-    }
+    // A step of its own, so that undo gives back what was typed.
+    this.edit(() => {
+      block.replaceChildren(document.createElement("br"));
+      placeCaretIn(block);
+      if (kind === "heading") exec("formatBlock", `<h${heading![1].length}>`);
+      else if (kind === "quote") exec("formatBlock", "<blockquote>");
+      else {
+        this.toggleList(kind === "checked" ? "check" : kind);
+        const li = blockAtCaret(this.area);
+        if (kind === "checked" && li instanceof HTMLLIElement) li.dataset.checked = "true";
+        if (kind === "ordered" && ordered![1] !== "1") li?.closest("ol")?.setAttribute("start", ordered![1]);
+      }
+    });
   }
 
   /** "```" (with a language) or "---" alone on a line, then Enter: a code block or a rule. */
@@ -231,15 +331,16 @@ export class NoteEditor {
 
   private onKey(e: KeyboardEvent) {
     const mod = e.ctrlKey || e.metaKey;
+    if (e.key.startsWith("Arrow") || e.key.startsWith("Page") || e.key === "Home" || e.key === "End") this.history.endRun();
     if ((e.key === "ArrowUp" || e.key === "Backspace") && !mod && !e.shiftKey && !e.altKey && this.host.leaveTop && this.atStart(e.key === "Backspace")) {
       this.host.leaveTop();
       return e.preventDefault();
     }
     if (e.key === "Enter" && !mod && !e.altKey) {
-      if (!e.shiftKey && (this.blockShortcut() || this.leaveQuote())) return this.handled(e);
+      if (!e.shiftKey && this.edit(() => this.blockShortcut() || this.leaveQuote())) return this.handled(e);
       // In a code block, Enter is a new line of code.
       if (blockAtCaret(this.area)?.closest("pre")) {
-        exec("insertLineBreak");
+        this.edit(() => exec("insertLineBreak"));
         return this.handled(e);
       }
       return;
@@ -247,24 +348,29 @@ export class NoteEditor {
     if (e.key === "Tab" && !mod && !e.altKey) {
       const block = blockAtCaret(this.area);
       if (block?.closest("pre")) {
-        exec("insertText", "  ");
+        this.edit(() => exec("insertText", "  "));
         return this.handled(e);
       }
       if (block instanceof HTMLLIElement) {
-        exec(e.shiftKey ? "outdent" : "indent");
+        this.edit(() => exec(e.shiftKey ? "outdent" : "indent"));
         return this.handled(e);
       }
       return;
     }
     if (!mod || e.altKey) return;
     const key = e.key.toLowerCase();
-    if (!e.shiftKey && key === "t") exec("strikeThrough");
-    else if (e.shiftKey && key === "l") this.toggleList("bullet");
-    else if (e.shiftKey && key === "o") this.toggleList("ordered");
-    else if (e.shiftKey && key === "k") this.toggleList("check");
-    else if (e.shiftKey && key === "h") this.cycleHeading();
-    else if (e.shiftKey && key === "q") this.toggleBlock("blockquote");
-    else if (e.shiftKey && key === "c") this.toggleBlock("pre");
+    if (!e.shiftKey && key === "z") this.undo();
+    else if ((e.shiftKey && key === "z") || (!e.shiftKey && key === "y")) this.redo();
+    else if (!e.shiftKey && key === "b") this.edit(() => exec("bold"));
+    else if (!e.shiftKey && key === "i") this.edit(() => exec("italic"));
+    else if (!e.shiftKey && key === "u") this.edit(() => exec("underline"));
+    else if (!e.shiftKey && key === "t") this.edit(() => exec("strikeThrough"));
+    else if (e.shiftKey && key === "l") this.edit(() => this.toggleList("bullet"));
+    else if (e.shiftKey && key === "o") this.edit(() => this.toggleList("ordered"));
+    else if (e.shiftKey && key === "k") this.edit(() => this.toggleList("check"));
+    else if (e.shiftKey && key === "h") this.edit(() => this.cycleHeading());
+    else if (e.shiftKey && key === "q") this.edit(() => this.toggleBlock("blockquote"));
+    else if (e.shiftKey && key === "c") this.edit(() => this.toggleBlock("pre"));
     else return;
     this.handled(e);
   }
@@ -278,11 +384,12 @@ export class NoteEditor {
 
   /** Ticks a checklist item when its box is clicked. */
   private onPointer(e: PointerEvent) {
+    this.history.endRun();
     const li = (e.target as HTMLElement).closest?.("li");
     if (!(li instanceof HTMLLIElement) || !li.parentElement?.classList.contains("checks")) return;
     if (e.clientX - li.getBoundingClientRect().left > CHECK_ZONE) return;
     e.preventDefault();
-    li.dataset.checked = String(li.dataset.checked !== "true");
+    this.edit(() => (li.dataset.checked = String(li.dataset.checked !== "true")));
     this.changed();
   }
 
@@ -352,7 +459,8 @@ export class NoteEditor {
   private onPaste(e: ClipboardEvent) {
     if (!e.clipboardData) return;
     e.preventDefault();
-    this.insert(e.clipboardData);
+    const data = e.clipboardData;
+    this.edit(() => this.insert(data));
   }
 
   /** Inserts clipboard data at the caret: rich text keeps its formatting, Markdown is formatted. */
@@ -442,7 +550,7 @@ export class NoteEditor {
     e.clipboardData.setData("text/plain", inCode ? range.toString() : toMarkdown(read(holder)));
     e.clipboardData.setData("text/html", holder.innerHTML);
     if (cut) {
-      exec("delete");
+      this.edit(() => exec("delete"));
       this.changed();
     }
   }
@@ -498,7 +606,9 @@ function blockAtCaret(root: HTMLElement): HTMLElement | null {
   if (!node || !root.contains(node)) return null;
   if (node.nodeType !== Node.ELEMENT_NODE) node = node.parentElement;
   const el = node as HTMLElement;
-  return (el.closest("li, pre, h1, h2, h3, h4, h5, h6, td, th, div:not(.note-editor)") as HTMLElement | null) ?? root;
+  // Never a block around the editor (text right inside it has none of its own).
+  const block = el.closest("li, pre, h1, h2, h3, h4, h5, h6, td, th, div:not(.note-editor)") as HTMLElement | null;
+  return block && root.contains(block) ? block : root;
 }
 
 /** How many characters come before the caret. */

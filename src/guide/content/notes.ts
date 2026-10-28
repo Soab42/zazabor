@@ -20,6 +20,7 @@ export const notes: GuideArticle = {
         ["Ctrl+B", "Bold (Ctrl+I italic, Ctrl+U underline, Ctrl+T strikethrough)"],
         ["Ctrl+Shift+L", "Bullets (Ctrl+Shift+O numbers, Ctrl+Shift+K checklist)"],
         ["Ctrl+Shift+H", "Heading"],
+        ["Ctrl+Z", "Undo (Ctrl+Shift+Z or Ctrl+Y redo); the formatting bar has Undo and Redo too"],
         ["Tab or Shift+Tab", "Nest or un-nest a list item"],
         ["Ctrl+W", "Put the note away"],
         ["Ctrl+D", "Delete the note"],

@@ -139,6 +139,7 @@ body.note-window:not(.focused) .note-tools { opacity: 0; pointer-events: none; }
 }
 .note-tool:hover { opacity: 1; background: var(--paper-line); }
 .note-tool.active { opacity: 1; background: var(--paper-line); }
+.note-tool:disabled { opacity: 0.3; background: transparent; cursor: default; }
 .note-tool:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--focus); }
 .note-tools-sep { flex: none; width: 0.5px; height: 18px; margin: 0 3px; background: var(--paper-line); }
 .note-glyph { font-size: 14px; line-height: 1; font-family: var(--font); }
