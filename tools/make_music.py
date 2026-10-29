@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Composes and renders SliderPro's built-in slideshow soundtracks.
+"""Composes and renders Zazabor's soundtracks (the content library's music, content/music).
 
 Every sound here is synthesized from scratch (additive strings and brass, a modelled
 piano, FM bells, synthesized drums, convolution reverb), so the tracks are original and
 free to ship. Each track is an exact number of bars with its reverb tail wrapped around,
 so it loops seamlessly, and its tempo is recorded so slideshows can cut on the beat.
 
-Usage: python3 tools/make_music.py [out_dir]
+Usage: python3 tools/make_music.py [out_dir] [track ids…]   (then tools/content/publish.sh)
 Needs numpy and GStreamer's gst-launch-1.0 with vorbisenc (to write Ogg Vorbis).
 """
 
@@ -934,7 +934,7 @@ def write_ogg(stereo, path):
 
 
 def main():
-    out_dir = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "..", "src-tauri", "resources", "music")
+    out_dir = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "..", "content", "music")
     only = set(sys.argv[2:])
     os.makedirs(out_dir, exist_ok=True)
     manifest = []

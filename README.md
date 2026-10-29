@@ -1,8 +1,39 @@
-# Zazabor
+<p align="center"><img src="content/site/logo.svg" width="96" height="96" alt=""></p>
 
-Files, photos and video in one premium desktop app: a Finder-style file manager, a Picasa-style gallery with GPU deep zoom and cinematic slideshows, a VLC-based video player, a terminal, sticky notes that sync through a cloud drive, a time tracker for your working day, a wallet for your money, Office (a Word-like word processor and an Excel-like spreadsheet that open and save Word and Excel files, and an Acrobat-like PDF app), Studio (a layered photo editor and a reel and video editor), and a Win+V-style clipboard history. Each feature can be turned on or off in Settings. Built with [Tauri 2](https://tauri.app) (Rust) and TypeScript + WebGL2. Zazabor was called CorePro until October 2026 (and SliderPro before that); its settings, notes, wallet and other data move over on first launch, and the old folders are kept as a backup.
+<h1 align="center">Zazabor</h1>
 
-See `docs/PLAN.md` for the roadmap and `docs/DESIGN.md` for the design rules.
+<p align="center"><b>One calm app for your files, photos, videos and work.</b><br>
+A file manager, photo gallery, video player, photo and video studio, Docs, Sheets and PDF, notes, time tracking and a wallet, in one native Linux app that keeps itself up to date.</p>
+
+<p align="center">
+  <a href="https://soab42.github.io/zazabor-content/"><b>Website</b></a> ·
+  <a href="#install">Install</a> ·
+  <a href="https://github.com/Soab42/zazabor/releases/latest">Latest release</a> ·
+  <a href="#features">Features</a> ·
+  <a href="docs/plans/content-and-updates.md">Library &amp; updates</a>
+</p>
+
+![Zazabor's Video Editor: a 9:16 reel with the Product Hero motion template on the canvas, the template library on the left and a soundtrack on the timeline.](content/site/shots/video-editor.webp)
+
+Zazabor puts a Finder-style file manager, a Picasa-style gallery with GPU deep zoom and cinematic slideshows, a VLC-based video player, a terminal, sticky notes that sync through a cloud drive, a time tracker for your working day, a wallet for your money, Office (a Word-like word processor and an Excel-like spreadsheet that open and save Word and Excel files, and an Acrobat-like PDF app), Studio (a layered photo editor and a reel and video editor with motion templates) and a Win+V-style clipboard history in one window. Each feature can be turned on or off in Settings. Built with [Tauri 2](https://tauri.app) (Rust) and TypeScript + WebGL2.
+
+It ships small and gets the rest when it's needed: motion templates, soundtracks and template fonts come from Zazabor's online library the first time they're used, and new ones arrive without an update. New versions of Zazabor install themselves, after you say so; every release and library file is signed and checked first.
+
+Zazabor was called CorePro until October 2026 (and SliderPro before that); its settings, notes, wallet and other data move over on first launch, and the old folders are kept as a backup. See `docs/PLAN.md` for the roadmap and `docs/DESIGN.md` for the design rules.
+
+## Install
+
+On Linux (x86-64), for your user, no root needed:
+
+```sh
+curl -fsSL https://soab42.github.io/zazabor-content/install.sh | sh
+```
+
+The installer reads the latest release from GitHub, checks its signature against Zazabor's release key (with OpenSSL 3, or Python's `cryptography`; it stops if it can't) and the archive's SHA-256, then installs Zazabor into `~/.local` with an applications-menu entry. Zazabor needs WebKitGTK 4.1, GStreamer and VLC's libraries; on Ubuntu, Pop!_OS or Debian: `sudo apt install libwebkit2gtk-4.1-0 gstreamer1.0-plugins-good gstreamer1.0-libav vlc`.
+
+**Updates:** Zazabor checks for a new version a little after it starts and twice a day (Settings → Zazabor → Check for updates automatically), and says when there's one. **Install Update** downloads and installs it, and **Restart Now** quits as Quit does, asking about unsaved files first. Copies older than 0.2.0 have no updater: install 0.2.0 or later once by hand.
+
+To build and install from source instead, see [Install from source](#install-from-source-no-root-needed).
 
 ## Features
 
@@ -10,6 +41,7 @@ See `docs/PLAN.md` for the roadmap and `docs/DESIGN.md` for the design rules.
 - An app rail switches between Files, Gallery, Video, Terminal, Notes, Time, Wallet, Office, Studio and Clipboard (Ctrl+1…9 for the first nine); Settings sits at the bottom of the rail.
 - Every Open, Save As and Choose Folder dialog is Zazabor's own, in the Files look (Favourites, Devices, path bar, list and icon views, type filter, search, hidden files with Ctrl+H, New Folder, multi-select), never the desktop's; each one reopens in the folder it was last used in.
 - A first-run wizard picks the theme, accent colour and which features to turn on.
+- **Updates and the library**: Settings → Zazabor shows the version, checks for updates, installs one and restarts into it. Its Library section shows the online library (templates, soundtracks, fonts and when it was last updated), with Check Now for new ones at once and Remove Downloads to free the space (anything used again downloads again; projects that use it fetch it when they open).
 - Frosted-glass macOS-style interface in dark, light or system theme, with accent colours and background tones.
 
 **Windows**
@@ -22,6 +54,7 @@ See `docs/PLAN.md` for the roadmap and `docs/DESIGN.md` for the design rules.
 - Full Markdown: headings, bulleted, numbered and checklist items (nested with Tab), quotes, code blocks, rules and tables; bold, italic, underline, strikethrough, `code`, links and images. Type it as Markdown ("# ", "- ", "1. ", "[] ", "> ", then "```" or "---" and Enter) or use the formatting bar; links open with Ctrl+click.
 - Paste Markdown (from a .md file or VS Code) and it's formatted; paste from Google Docs, Word or a web page and headings, lists, links and tables come with it. Copying from a note gives Markdown.
 - Notes can have a title (over the text, in bold), shown on cards and as the window's name.
+- Undo and redo with Ctrl+Z and Ctrl+Shift+Z (or Ctrl+Y), or the buttons at the start of the formatting bar. Typing runs together into one step until a pause, a move of the caret or a new line; formatting, lists, ticked boxes, pastes and Markdown shortcuts are steps of their own, so undo after "- " turns a new list back into the "- " you typed. The selection comes back with each step.
 - The Notes section shows every note as a card on a masonry board (each card as tall as its note, no gaps), or in full-height **Kanban** columns by status. Drag cards to put them in any order, on the board or in a column (a shadow card shows where one will land); drag a card to another column to change its status, "+ Add note" in a column, and rename, reorder, add or delete columns (To do, In progress and Done to start). Search covers titles and text, pinned notes come first, checklist items tick right on a card, and Recently Deleted keeps deleted notes for 30 days.
 - **Quick note from anywhere:** `zazabor --new-note` opens one new note without the rest of Zazabor (a running Zazabor opens it at once). Settings → Notes binds it to a desktop shortcut (Super+Alt+N by default); the menu entry's right-click has New Note too.
 - **Sync:** pick a folder in Settings → Notes (Google Drive or OneDrive connected in GNOME Online Accounts, Nextcloud, Dropbox, Syncthing…). Each note is a Markdown file there, readable on the drive's website and on your other computers; a Markdown file written there becomes a note. Edits on both sides keep both versions, and an unmounted (empty-looking) folder never deletes anything.
@@ -58,9 +91,9 @@ See `docs/PLAN.md` for the roadmap and `docs/DESIGN.md` for the design rules.
 
 **Studio**
 - Like Office, an inner rail with Home, Photo and Video, then the projects open right now. Home starts a new canvas or a reel in 9:16, 16:9, 1:1 or 4:5, and lists recent projects. Projects save as `.zazimage` (Photo) and `.zazvideo` (Video Editor); older `.coreimage` and `.corevideo` files still open, and any of them opened in Files gets a Studio window of its own.
-- **Photo** works like Photoshop: menus, options bar, tools, and Adjustments, Layers and History panels. Pixel and adjustment layers with all 27 blend modes, opacity, reorder, merge and flatten; move, crop, brush and eraser (size, hardness, flow, pen pressure), gradient, paint bucket, eyedropper; Auto Tone, Image Size, rotate and flip; 200 steps of history. Layer masks, groups and clipping masks; selections (marquees, lassos, Magic Wand, Color Range, feather, expand, inverse) that tools, filters and adjustments respect; cut, copy and paste to new layers; twelve adjustment layers (Levels, Curves, Hue/Saturation, Colour Balance, Black & White and more); type and shape layers; Free Transform; Gaussian and Motion Blur, Unsharp Mask, Noise; Clone Stamp and Healing Brush. Opens PNG, JPEG, WebP, TIFF, BMP, GIF and Photoshop's .psd, keeps each picture's colour profile, saves its own `.coreimage` (layers and all) or .psd and exports JPEG, PNG, WebP, AVIF, TIFF or BMP. AI tools run on this computer (models download once, after asking): Remove Background and Select Subject as a layer mask, Object Selection by clicking, Remove (paint over an object to erase it), plus Refine Edge. RAW photos (Canon, Nikon, Sony, Fuji, DNG and more, through LibRaw) open with a Develop panel: white balance, exposure, highlights, shadows, sRGB or Display P3.
+- **Photo** works like Photoshop: menus, options bar, tools, and Adjustments, Layers and History panels. Pixel and adjustment layers with all 27 blend modes, opacity, reorder, merge and flatten; move, crop, brush and eraser (size, hardness, flow, pen pressure), gradient, paint bucket, eyedropper; Auto Tone, Image Size, rotate and flip; 200 steps of history. Layer masks, groups and clipping masks; selections (marquees, lassos, Magic Wand, Color Range, feather, expand, inverse) that tools, filters and adjustments respect; cut, copy and paste to new layers; twelve adjustment layers (Levels, Curves, Hue/Saturation, Colour Balance, Black & White and more); type and shape layers; Free Transform; Gaussian and Motion Blur, Unsharp Mask, Noise; Clone Stamp and Healing Brush. Opens PNG, JPEG, WebP, TIFF, BMP, GIF and Photoshop's .psd, keeps each picture's colour profile, saves its own `.zazimage` (layers and all) or .psd and exports JPEG, PNG, WebP, AVIF, TIFF or BMP. AI tools run on this computer (models download once, after asking): Remove Background and Select Subject as a layer mask, Object Selection by clicking, Remove (paint over an object to erase it), plus Refine Edge. RAW photos (Canon, Nikon, Sony, Fuji, DNG and more, through LibRaw) open with a Develop panel: white balance, exposure, highlights, shadows, sRGB or Display P3.
 - **Video** works like CapCut for short reels: a timeline with a magnetic main track, overlays, texts and music, thumbnails and waveforms, snapping, split (S), trim, ripple delete and undo. The preview plays everything live on the GPU: fill or fit over a blurred background, Ken Burns on pictures, the slideshow's looks and all 50 of its transitions, and texts in 8 styles with animations. Exports 720p or 1080p MP4 (H.264 on the Intel GPU, with MP3 sound because this system has no AAC encoder) or WebM (VP9 and Opus), and saves a `.zazvideo` project. Keyframes (position, scale, rotation, opacity, volume) with easing, picture in picture, chroma key, colour tables (.cube), effects and masks, reverse, freeze frame and speed curves; voice-over, music that ducks under the voice, beat marks and .srt captions. Moved files are found again on open, AutoRecover keeps unsaved reels, and the Gallery's slideshow setup can Make a Video from the chosen photos. Auto captions (English, with the spoken word lit up; the speech model downloads once), 32 stickers and 12 sound effects of Zazabor's own, NVIDIA encoding when its driver is there, and "Install codecs…" for AAC and x264.
-- **Motion Templates**: a Templates tab of animated scenes for product videos and reels (Product Hero, Price Drop, Feature Trio, Line Logo, Name Bar, Hook + Follow so far), in every shape. Fill in the words, product photo (with Cut out product) and logo; text fits itself, letters animate one by one (Bangla letters kept whole), with springs, light sweeps and motion blur. **Brand Kits** keep your colours, two fonts, logo, roundness and motion feel, and restyle every template in a project at once; kits save, share as `.zazkit`, and one can be the default. Save to My Templates, Save as Poster, or Ungroup to layers. About 30 bundled fonts (OFL, free for commercial use), Bangla ones included.
+- **Motion Templates**: a Templates tab of 56 animated scenes for product videos and reels in 12 categories (product launch, sale and offers, feature highlights, app and tech, testimonials, fashion, food, real estate, festive, logo reveals, lower thirds, reel hooks and end screens), each in every shape. Six come with Zazabor; the rest, and new ones as they're published, come from the online library (they're small: all of them download with the library, so projects open offline). The categories scroll with the mouse wheel. Fill in the words, product photo (with Cut out product) and logo; text fits itself, letters animate one by one (Bangla letters kept whole), with springs, light sweeps and motion blur. **Brand Kits** keep your colours, two fonts, logo, roundness and motion feel, and restyle every template in a project at once; kits save, share as `.zazkit`, and one can be the default. Save to My Templates, Save as Poster, or Ungroup to layers. 28 font families (OFL, free for commercial use), Bangla ones included: six ship with Zazabor, the others download the first time a template uses them.
 - **Screen Recorder** (an early preview): Studio → Record Screen or `zazabor --record` records a screen (or all of them), a window or an area, with system sound, the microphone and a camera bubble, then trims and opens it in the Video Editor. Recordings go to Videos → Recordings.
 
 **Help**
@@ -116,7 +149,7 @@ See `docs/PLAN.md` for the roadmap and `docs/DESIGN.md` for the design rules.
 - 50 WebGL transitions in 8 families (classic, light, motion, zoom & spin, 3D, liquid & organic, geometric, digital), with a live preview of each.
 - Ken Burns motion up to 200% with smart framing (landscapes fill the frame; portraits float over a blurred backdrop). Filled photos get subject-aware camera moves: the camera finds the sharpest, most colourful part of each photo and pushes in, pulls back, trucks, tilts, glides or drifts with a gentle roll, a different move for each photo.
 - Colour grades, film grain, vignette, 2.39:1 letterbox, title cards and captions.
-- Five original built-in soundtracks (synthesised by `tools/make_music.py`, free to ship); cuts can land on the beat. Your own music works too.
+- Ten original soundtracks (synthesised by `tools/make_music.py`, free to ship), from the online library: each downloads the first time it's played or added, then stays. Cuts can land on the beat. Your own music works too.
 
 **Settings**
 - A searchable Settings page: theme, accent and background tone; grid layout, gap and corners; the zoom animation curve (presets or your own cubic-bezier); custom CSS; features on/off; Files options; the privacy lock; a keyboard reference. Changes apply live.
@@ -130,7 +163,7 @@ See `docs/PLAN.md` for the roadmap and `docs/DESIGN.md` for the design rules.
 
 | Where | Keys |
 | --- | --- |
-| App | Ctrl+1…6 to switch features, Ctrl+N for a new window of the current one (in Notes: a new note), Ctrl+L to lock |
+| App | Ctrl+1…9 to switch features, Ctrl+N for a new window of the current one (in Notes: a new note), Ctrl+L to lock, F1 for the guide |
 | Editor | Ctrl+S to save, Ctrl+P to open a file, Ctrl+G to go to a line, Ctrl+Tab to switch tabs, Ctrl+W to close a tab |
 | Files | Enter to open, Alt+← → to go back/forward, Alt+↑ or Backspace for the parent folder, Ctrl+T/W for tabs, Ctrl+L to type a path, Ctrl+F to search, Ctrl+H for hidden files |
 | Gallery | Arrows to move, Enter to open, Ctrl+F to search, F5 for a slideshow, Ctrl+L to lock |
@@ -140,13 +173,14 @@ See `docs/PLAN.md` for the roadmap and `docs/DESIGN.md` for the design rules.
 | Sheets | Excel's keys: arrows, Ctrl+arrows to the edge, Shift to extend, Enter/Tab to move (Enter after Tabs goes back to the first column), F2 to edit, Alt+Enter for a new line in a cell, Ctrl+Enter to fill the selection, Ctrl+D/R to fill down/right, Alt+= for AutoSum, Shift+F3 to insert a function, Ctrl+1 for Format Cells, Ctrl+Shift+L for a filter, Ctrl+; for today, Ctrl+` to show formulas, Ctrl+PgUp/PgDn between sheets, Shift+F11 for a new sheet |
 | Docs | Word's keys: Ctrl+B/I/U, Ctrl+L/E/R/J to align, Ctrl+Shift+> and < for the font size, Ctrl+K for a link, Ctrl+Enter for a page break, Ctrl+F/H to find and replace, Ctrl+P to print |
 | Wallet | Ctrl+K for quick add, Ctrl+E for a new transaction, Ctrl+H to hide amounts, Ctrl+F to search |
-| Note | Ctrl+N for a new note, Ctrl+W to put it away, Ctrl+D to delete it, Ctrl+B/I/U/T for bold, italic, underline and strikethrough, Ctrl+Shift+L/O/K for bullets, numbers or a checklist, Ctrl+Shift+H for a heading, Ctrl+Shift+Q for a quote, Ctrl+Shift+C for a code block, Tab/Shift+Tab to nest list items |
+| Note | Ctrl+N for a new note, Ctrl+W to put it away, Ctrl+D to delete it, Ctrl+Z to undo, Ctrl+Shift+Z or Ctrl+Y to redo, Ctrl+B/I/U/T for bold, italic, underline and strikethrough, Ctrl+Shift+L/O/K for bullets, numbers or a checklist, Ctrl+Shift+H for a heading, Ctrl+Shift+Q for a quote, Ctrl+Shift+C for a code block, Tab/Shift+Tab to nest list items |
 | Video | Space or K to play/pause, ← → to skip (Shift for longer), ↑ ↓ for volume, M to mute, F for fullscreen, N/P for next/previous, [ ] for speed, G/H for subtitle delay, Ctrl+B for a bookmark, Ctrl+H to hide the UI, Ctrl+M for the mini player, ? for all shortcuts |
 
-## Install on Linux (no root needed)
+## Install from source (no root needed)
 
 ```sh
 scripts/install-linux.sh              # builds, then installs into ~/.local with a menu entry
+scripts/install-linux.sh --no-build   # installs the release build that's already there
 scripts/install-linux.sh --background # also start Zazabor in the background at login (clipboard history)
 scripts/install-linux.sh --uninstall
 ```
@@ -162,19 +196,36 @@ npm install
 npm run tauri dev               # run in development
 npm run tauri build             # build installers
 npm run typecheck
+node --test tools/*.test.mjs    # motion templates, the content library, the Video Editor, export, photo tones
 cd src-tauri && cargo test      # backend tests
 ```
 
-Regenerate the built-in soundtracks (needs numpy and GStreamer's `gst-launch-1.0` with vorbisenc):
+Regenerate the soundtracks into `content/music` (needs numpy and GStreamer's `gst-launch-1.0` with vorbisenc), then publish the library:
 
 ```sh
 python3 tools/make_music.py
 ```
 
+### Publishing: the library and releases
+
+Everything published is signed with the release key, an Ed25519 key made once with `node tools/release/sign.mjs keygen` and kept at `~/.config/zazabor-release/signing-key.pem`, never in the repository. Its public half is in `src-tauri/src/signing.rs`. **Back the key up:** without it, no update or library change can reach the copies already installed.
+
+```sh
+tools/content/publish.sh                     # the library and the website (GitHub Pages of Soab42/zazabor-content)
+scripts/release.sh 0.3.0 "What's new"        # a release that installed copies update to
+scripts/release.sh 0.3.0 "What's new" --dry-run   # build and pack only, publish nothing
+```
+
+- **The library** holds every motion template (their sources are in `src/modules/studio/video/motion/templates`, listed in `templates/index.ts`), the soundtracks (`content/music`), the template fonts (`content/fonts`; the six starter families are in `public/fonts`) and extra sound effects (`content/sounds`). `publish.sh` builds it into `content-dist/` with a signed catalog and pushes it; running copies pick it up within the hour.
+- **The website** (`content/site`: the product page, its screenshots and `install.sh`) is published with the library. It reads the catalog for its numbers, categories and playable soundtracks.
+- **A release** sets the version, builds, packs the program with its sound effects, signs `latest.json`, commits and tags the version, and creates the GitHub release. It needs a clean working tree.
+
+How it all fits together, and how to test against a local server (`ZAZABOR_CONTENT_URL`, `ZAZABOR_UPDATE_URL`), is in [`docs/plans/content-and-updates.md`](docs/plans/content-and-updates.md).
+
 ## Project layout
 
-- `src-tauri/src` — Rust backend: the file manager's commands (`fs/`), sticky notes and their folder sync (`notes/`), time tracking (`time/`), the wallet's SQLite ledger (`wallet/`), Office's file reading and writing (`office/`: raw bytes, .xlsx through the `ironcalc` crate, CSV, AutoRecover, saved PDF signatures), the clipboard history and its popup (`clipboard/`: GTK's clipboard, XTest for pasting), Photo's decoding, encoding and project files (`photo/`), the Video Editor's GStreamer decoding, sound and export (`videoedit/`), keeping the screen awake (`awake.rs`), folder discovery (`scan.rs`), photo sizes (`dims.rs`), decoding, thumbnails and EXIF (`imaging.rs`), the `cs://` protocol (`protocol.rs`), the lock (`lock.rs`) and the move from the earlier names, CorePro and SliderPro (`migrate.rs`).
-- `src/shell` — app rail, module registry, Settings page, first-run wizard; `module.ts` is the contract every feature implements.
+- `src-tauri/src` — Rust backend: the file manager's commands (`fs/`), sticky notes and their folder sync (`notes/`), time tracking (`time/`), the wallet's SQLite ledger (`wallet/`), Office's file reading and writing (`office/`: raw bytes, .xlsx through the `ironcalc` crate, CSV, AutoRecover, saved PDF signatures), the clipboard history and its popup (`clipboard/`: GTK's clipboard, XTest for pasting), Photo's decoding, encoding and project files (`photo/`), the Video Editor's GStreamer decoding, sound and export (`videoedit/`), keeping the screen awake (`awake.rs`), folder discovery (`scan.rs`), photo sizes (`dims.rs`), decoding, thumbnails and EXIF (`imaging.rs`), the `cs://` protocol (`protocol.rs`), the lock (`lock.rs`), the move from the earlier names, CorePro and SliderPro (`migrate.rs`), and the content library and updates (`content.rs`, `update.rs`, with `signing.rs` for the release key and `download.rs` for resumable, checked downloads).
+- `src/shell` — app rail, module registry, Settings page, first-run wizard, update checks (`updates.ts`); `module.ts` is the contract every feature implements. `src/content.ts` is the content library on the page's side (the catalog, downloads, soundtracks).
 - `src/modules/files` — the file manager: browser, sidebar, path bar, tabs, and the four views (`views/`).
 - `src/modules/gallery` — albums and the virtualized photo grid (`library/`), the zoom viewer (`viewer/`), slideshows (`slideshow/`).
 - `src/modules/video` — the video player.
@@ -186,3 +237,4 @@ python3 tools/make_music.py
 - `src/clipboard`, `src/modules/clipboard` — the clipboard popup (with emoji) and the Clipboard section.
 - `src/shared/statements`, `src-tauri/src/statements` — reading bank statements (PDF layout, CSV/XLSX, Claude for scans), the balance check and the Excel export; `src/shared/ai` — Settings → AI.
 - `src/shared`, `src/ui` — thumbnail loader, Zazabor's own file dialogs (`shared/dialog.ts`, `shared/filepicker/`), DOM helpers, icons, menus.
+- `content/` — what the online library publishes: `music/`, `fonts/`, `sounds/`, and the website `site/`. `tools/content/` builds and publishes it; `tools/release/sign.mjs` signs; `scripts/release.sh` releases.
