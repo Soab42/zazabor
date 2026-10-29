@@ -1,6 +1,6 @@
 [package]
 name = "zazabor"
-version = "0.2.1"
+version = "0.2.2"
 description = "Files, photos and video in one app"
 edition = "2021"
 
