@@ -35,6 +35,9 @@ pub struct Dirs {
     pub data: Vec<PathBuf>,
     /// `$XDG_CONFIG_HOME` then `$XDG_CONFIG_DIRS`; holds `mimeapps.list`.
     pub config: Vec<PathBuf>,
+    /// `$XDG_CURRENT_DESKTOP`, lowercased ("pop", "gnome"): their `<desktop>-mimeapps.list` files
+    /// (where a desktop keeps its own defaults) come before `mimeapps.list` in each folder.
+    pub desktops: Vec<String>,
 }
 
 fn env_dirs(var: &str, fallback: &str) -> Vec<PathBuf> {
@@ -49,7 +52,8 @@ impl Dirs {
         data.extend(env_dirs("XDG_DATA_DIRS", "/usr/local/share:/usr/share"));
         let mut config = vec![std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| home.join(".config"))];
         config.extend(env_dirs("XDG_CONFIG_DIRS", "/etc/xdg"));
-        Dirs { data, config }
+        let desktops = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().split(':').filter(|d| !d.is_empty()).map(str::to_lowercase).collect();
+        Dirs { data, config, desktops }
     }
 }
 
@@ -134,10 +138,23 @@ struct Prefs {
     removed: HashMap<String, Vec<String>>,
 }
 
+/// The association files in priority order (the XDG MIME Applications spec): in each config folder,
+/// then each `<data>/applications`, the desktop's own lists before `mimeapps.list`; last, the older
+/// `defaults.list`, which GNOME still ships its defaults in.
+fn prefs_files(dirs: &Dirs) -> Vec<PathBuf> {
+    let folders = dirs.config.iter().cloned().chain(dirs.data.iter().map(|d| d.join("applications")));
+    let mut files = Vec::new();
+    for folder in folders {
+        files.extend(dirs.desktops.iter().map(|d| folder.join(format!("{d}-mimeapps.list"))));
+        files.push(folder.join("mimeapps.list"));
+    }
+    files.extend(dirs.data.iter().map(|d| d.join("applications/defaults.list")));
+    files
+}
+
 fn read_prefs(dirs: &Dirs) -> Prefs {
     let mut prefs = Prefs::default();
-    let mut files: Vec<PathBuf> = dirs.config.iter().map(|d| d.join("mimeapps.list")).collect();
-    files.extend(dirs.data.iter().map(|d| d.join("applications/mimeapps.list")));
+    let files = prefs_files(dirs);
     for file in files {
         let Ok(text) = fs::read_to_string(&file) else { continue };
         let mut group = "";
@@ -462,7 +479,7 @@ mod tests {
         desktop(&user, "reader.desktop", "Name=My Reader\nMimeType=application/pdf;");
         fs::create_dir_all(sys.join("icons/hicolor/48x48/apps")).unwrap();
         fs::write(sys.join("icons/hicolor/48x48/apps/editor.png"), "png").unwrap();
-        (root, Dirs { data: vec![user, sys], config: vec![cfg] })
+        (root, Dirs { data: vec![user, sys], config: vec![cfg], desktops: vec![] })
     }
 
     fn names(apps: &[AppInfo]) -> Vec<&str> {

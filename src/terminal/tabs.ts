@@ -27,6 +27,8 @@ export interface TerminalTabsOptions {
   actions?: HTMLElement[];
   /** The last terminal was closed. */
   onEmpty?(): void;
+  /** A command finished in a tab nobody was looking at (it gets a dot). */
+  onNotice?(failed: boolean): void;
 }
 
 const MIN_FONT = 8;
@@ -297,6 +299,7 @@ export class TerminalTabs {
       tab.button.classList.toggle("failed", failed);
       tab.button.classList.toggle("ok", !failed);
       tab.button.title = `${block.command} ${failed ? `failed (exit ${block.exit})` : "finished"} in ${duration(block.finished - block.started)}`;
+      this.opts.onNotice?.(failed);
     }
     void view;
   }

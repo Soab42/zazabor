@@ -21,6 +21,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { closeThisWindow, isFileWindow, isMainWindow, onOthers, openWindow, tellOthers, windowStart } from "./windows";
 import { startUpdateChecks } from "./updates";
+import { TerminalDrawer } from "./drawer";
 
 /** Activity in one window resets the auto-lock in the others, at most this often. */
 const ACTIVITY_EVERY_MS = 20_000;
@@ -35,8 +36,11 @@ export class Shell implements ShellContext {
     select: (id) => this.showModule(id),
     settings: () => this.toggleSettings(),
     help: () => this.toggleGuide(),
+    drawer: () => this.drawer.toggle(),
     openWindow: (id) => this.openModuleWindow(id),
   });
+  /** Terminals under every section (Ctrl+`). */
+  private drawer: TerminalDrawer;
   private guide: Guide;
   private workspace = h("main", { class: "workspace" });
   private settings: Settings;
@@ -73,12 +77,21 @@ export class Shell implements ShellContext {
       openGuide: () => this.openGuide("getting-started"),
     });
     this.workspace.append(this.settings.el, this.guide.el);
+    this.drawer = new TerminalDrawer({
+      settings: () => this.config.terminal,
+      saveSettings: () => this.saveConfig(),
+      cwd: () => (this.active ? this.modules.get(this.active)?.windowPath?.() ?? null : null),
+      changed: (open, notice) => this.rail.setDrawer(open, notice),
+    });
+    // The sections, with the terminal drawer under them.
+    const column = h("div", { class: "shell-column" }, this.workspace, this.drawer.el);
     // An extra window is one section on its own: no app rail, no Settings, no switching.
-    if (isMainWindow) document.getElementById("app")!.append(this.rail.el, this.workspace);
+    if (isMainWindow) document.getElementById("app")!.append(this.rail.el, column);
     else {
       document.body.classList.add("solo-window");
-      document.getElementById("app")!.append(this.workspace);
+      document.getElementById("app")!.append(column);
     }
+    window.addEventListener("resize", () => this.drawer.fit());
     this.rail.setItems(this.enabledModules());
     this.watchStatuses();
     this.applyAppearance();
@@ -90,6 +103,14 @@ export class Shell implements ShellContext {
     window.addEventListener("keydown", (e) => this.onKey(e));
     // F1 before anything else gets it: editors (a Sheets cell, a Docs page) keep their own keys.
     window.addEventListener("keydown", (e) => this.onHelpKey(e), true);
+    // Ctrl+` in a terminal, before the terminal turns it into a character (elsewhere, onKey has it).
+    window.addEventListener("keydown", (e) => {
+      if (isDrawerKey(e) && isTerminalTarget(e.target) && !document.body.classList.contains("app-locked")) {
+        e.preventDefault();
+        e.stopPropagation();
+        void this.drawer.toggleKey(e);
+      }
+    }, true);
     this.followOtherWindows();
   }
 
@@ -359,6 +380,7 @@ export class Shell implements ShellContext {
   private appearanceChanged(save = true) {
     this.applyAppearance();
     for (const mod of this.modules.values()) mod.appearanceChanged?.();
+    this.drawer.themeChanged();
     if (save) this.saveConfig();
   }
 
@@ -424,6 +446,14 @@ export class Shell implements ShellContext {
 
   private onKey(e: KeyboardEvent) {
     if (document.body.classList.contains("app-locked")) return;
+    // The drawer's terminals have their own keys; none of them are the section's.
+    if (this.drawer.el.contains(e.target as Node)) return;
+    // Ctrl+` shows or hides the drawer, unless something had it first (Sheets: Show Formulas).
+    if (isDrawerKey(e) && !e.defaultPrevented && !this.onboarding) {
+      e.preventDefault();
+      void this.drawer.toggleKey(e);
+      return;
+    }
     // Keys typed into a terminal are the shell's (Ctrl+L clears the screen, Ctrl+N is history…);
     // only the terminal's own shortcuts apply there.
     if (isTerminalTarget(e.target)) {
@@ -576,4 +606,9 @@ export class Shell implements ShellContext {
       for (const path of payload.paths) await this.openPath(path, payload.paths.length);
     });
   }
+}
+
+/** Ctrl+` (Ctrl+Shift+` for a new terminal): the terminal drawer's key, by position on any layout. */
+function isDrawerKey(e: KeyboardEvent): boolean {
+  return (e.ctrlKey || e.metaKey) && !e.altKey && (e.code === "Backquote" || e.key === "`");
 }

@@ -5,7 +5,26 @@
 
 #app { display: flex; }
 
-.workspace { position: relative; flex: 1; min-width: 0; height: 100%; }
+/* The sections over the terminal drawer (src/shell/drawer.ts). */
+.shell-column { display: flex; flex-direction: column; flex: 1; min-width: 0; height: 100%; }
+.workspace { position: relative; flex: 1; min-width: 0; min-height: 0; }
+
+/* ---- terminal drawer: under every section; folds to its tab strip, drags taller from its top edge */
+.drawer {
+  position: relative; flex: none; display: flex; flex-direction: column; min-height: 0; z-index: 3;
+  background: var(--bg); box-shadow: inset 0 0.5px 0 var(--line-strong);
+  animation: drawer-in var(--dur-med) var(--ease-out);
+}
+.drawer[hidden] { display: none; }
+.drawer .tt { flex: 1; min-height: 0; }
+.drawer.folded { height: auto; }
+.drawer.folded .tt-body { display: none; }
+.drawer.folded .tt-bar { cursor: pointer; box-shadow: none; }
+.drawer-edge { position: absolute; left: 0; right: 0; top: -3px; z-index: 2; height: 7px; cursor: ns-resize; transition: background-color var(--dur-fast); }
+.drawer-edge:hover, .drawer-edge:active { background: var(--accent-soft); }
+.drawer.maximized .drawer-edge { cursor: default; }
+@keyframes drawer-in { from { opacity: 0; transform: translateY(10px); } }
+@media (prefers-reduced-motion: reduce) { .drawer { animation: none; } }
 .module { position: absolute; inset: 0; }
 
 body.dropping::after { content: "Drop a folder or a file to open it"; }
@@ -46,6 +65,8 @@ body.dropping::after { content: "Drop a folder or a file to open it"; }
   background: var(--dot); box-shadow: 0 0 0 2px var(--glass-strong, rgba(0, 0, 0, 0.4));
 }
 .rail-dot.paused { --dot: #f5a524; }
+.rail-dot.failed { --dot: var(--danger); }
+.rail-btn.on { color: var(--text); background: var(--hover); }
 .rail-dot.on { background: transparent; box-shadow: inset 0 0 0 1.5px var(--dot), 0 0 0 2px var(--glass-strong, rgba(0, 0, 0, 0.4)); }
 .rail-dot.live::after {
   content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--dot);
@@ -117,6 +138,19 @@ input.switch:disabled { opacity: 0.45; cursor: default; }
 
 .st-value { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right; }
 .st-inline { display: flex; align-items: center; gap: 12px; }
+/* Settings → General → Default apps: the app that opens a kind of file, as a menu button. */
+.st-app-pick {
+  display: inline-flex; align-items: center; gap: 8px; max-width: 240px; height: 30px; padding: 0 10px 0 8px; border: 0;
+  border-radius: var(--radius-md); background: var(--control); color: var(--text); font: inherit; font-size: var(--text-md); cursor: pointer;
+  box-shadow: inset 0 0 0 0.5px var(--line); transition: background-color var(--dur-fast) var(--ease-out);
+}
+.st-app-pick:hover:not(:disabled) { background: var(--control-hover); }
+.st-app-pick:disabled { opacity: 0.5; cursor: default; }
+.st-app-pick img { flex: none; border-radius: 4px; object-fit: contain; }
+.st-app-pick span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-app-pick .icon:last-child { flex: none; color: var(--muted); }
+.st-faint { color: var(--faint) !important; }
+
 /* Buttons beside a status (Settings → Zazabor: Updates, Library). */
 .st-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .st-actions:empty { display: none; }

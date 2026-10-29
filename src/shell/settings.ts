@@ -20,6 +20,8 @@ import { videoShortcuts } from "../modules/video/features/hotkeys";
 import { mediaSettings } from "../modules/video/features/profiles/settings";
 import { videoCategories } from "./settings-video";
 import { updateGroups } from "./updates";
+import { defaultAppsGroup } from "./defaults";
+import { feedbackGroup } from "./feedback";
 
 /** What the Settings page needs from the shell. */
 export interface SettingsHost {
@@ -308,7 +310,7 @@ export class Settings {
   private buildCategories(): Category[] {
     const { config } = this.host;
     return [
-      { id: "general", title: "General", icon: "settings", section: "App", groups: [...this.appearance.general(), this.helpGroup()] },
+      { id: "general", title: "General", icon: "settings", section: "App", groups: [...this.appearance.general(), defaultAppsGroup(), this.helpGroup()] },
       { id: "appearance", title: "Appearance", icon: "palette", section: "App", groups: this.appearance.appearance() },
       this.featuresCategory(),
       this.privacyCategory(),
@@ -511,7 +513,7 @@ export class Settings {
         h("h2", null, "Zazabor"),
         h("p", { class: "muted" }, "Files, photos and video in one calm place."),
         h("div", { class: "st-about-version" }, "Version ", this.version)),
-      groups: [this.helpGroup(), ...updateGroups(this.host.config, () => this.host.configChanged()), {
+      groups: [this.helpGroup(), feedbackGroup(), ...updateGroups(this.host.config, () => this.host.configChanged()), {
         title: "Credits",
         rows: [
           plainRow("Built with", textValue("Tauri 2, TypeScript and WebGL")),

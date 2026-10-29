@@ -18,13 +18,21 @@ export const settings: GuideArticle = {
     {
       title: "What's where",
       tips: [
-        "**General** and **Appearance**: theme (dark, light, system), accent colour, background tone, layout and the zoom animation.",
+        "**General** and **Appearance**: theme (dark, light, system), accent colour, background tone, layout and the zoom animation. **General → Default apps** chooses what opens photos, videos, PDFs, Word documents, spreadsheets and folders.",
         "**Features**: turn sections on or off. One must stay on.",
         "**Privacy**: the privacy lock. See [[privacy-lock|Privacy lock]].",
         "**AI**: your Claude API key, for reading scanned statements. See [[wallet-statements|Statements]].",
         "**Keyboard**: a reference of the shortcuts.",
         "Then a page per section: Files, Gallery, Notes (sync and the quick-note shortcut), Wallet, PDF (OCR languages), Photo (AI models), Video Editor, Clipboard (Super+V, background mode, Quit), and Video's own pages (Interface, Playback, Video, Audio, Subtitles, Library, Network, Performance, Recording & Casting).",
-        "**General → Help** opens this guide.",
+        "**General → Help** opens this guide. **Zazabor** has the version, updates, the library, and Feedback.",
+      ],
+    },
+    {
+      title: "Report a bug or ask for a feature",
+      steps: [
+        "Go to **Settings → Zazabor → Feedback**.",
+        "Press **Report a Bug…** or **Request a Feature…**. A form opens on GitHub in your browser, with your Zazabor version and system already filled in.",
+        "Describe what happened (or your idea) and submit it there. Nothing is sent before you do; you'll need a GitHub account.",
       ],
     },
   ],
@@ -124,7 +132,7 @@ export const install: GuideArticle = {
       title: "Install or update",
       steps: [
         "In the Zazabor source folder, run scripts/install-linux.sh. It builds Zazabor and installs it into ~/.local, with an applications-menu entry.",
-        "Zazabor is added to **Open With** for pictures, videos, folders, Word, Excel, CSV and PDF files. Your default apps don't change.",
+        "Zazabor is added to **Open With** for pictures, videos, folders, Word, Excel, CSV and PDF files. Your default apps don't change until you choose: **Settings → General → Default apps** makes Zazabor (or any other app) what opens each kind of file.",
         "Zazabor updates itself: it checks GitHub now and then and says when there's a newer version. Go to **Settings → Zazabor → Updates**, press **Install Update**, then **Restart Now**. Nothing installs without you.",
         "**Check for Updates** asks at once; turn off **Check for updates automatically** to only check by hand.",
       ],

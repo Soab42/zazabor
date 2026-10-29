@@ -1,0 +1,52 @@
+name: Request a feature
+description: An idea that would make Zazabor better.
+title: "Idea: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. Tell us what you're trying to do, not only the button you'd like: there may be a better way to get you there.
+  - type: textarea
+    id: goal
+    attributes:
+      label: What would you like to do?
+      description: What you're trying to get done, and what gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could it work?
+      description: How you picture it in Zazabor. A sketch or a screenshot of another app helps.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of Zazabor?
+      options:
+        - Files
+        - Gallery and slideshows
+        - Video player
+        - Photo
+        - Video Editor and motion templates
+        - Screen Recorder
+        - Docs
+        - Sheets
+        - PDF
+        - Notes
+        - Time
+        - Wallet
+        - Clipboard
+        - Terminal
+        - Settings, updates or installing
+        - Something new
+  - type: input
+    id: version
+    attributes:
+      label: Zazabor version
+      description: Settings → Zazabor shows it.
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: Your Linux distribution and desktop.

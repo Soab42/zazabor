@@ -217,9 +217,11 @@ export interface TerminalSettings {
   shell: string;
   /** Command blocks through shell integration (marks emitted by a script loaded into the shell). */
   integration: boolean;
+  /** The terminal drawer under every section (src/shell/drawer.ts): hidden, folded to its tab strip, or open. */
+  drawer: { state: "hidden" | "folded" | "open"; height: number };
 }
 
-export const DEFAULT_TERMINAL: TerminalSettings = { fontSize: 13, shell: "", integration: true };
+export const DEFAULT_TERMINAL: TerminalSettings = { fontSize: 13, shell: "", integration: true, drawer: { state: "hidden", height: 300 } };
 
 function normalizeTerminal(raw: Partial<TerminalSettings> | undefined): TerminalSettings {
   const t = { ...DEFAULT_TERMINAL, ...raw };
@@ -227,6 +229,10 @@ function normalizeTerminal(raw: Partial<TerminalSettings> | undefined): Terminal
     fontSize: typeof t.fontSize === "number" ? Math.min(28, Math.max(8, Math.round(t.fontSize))) : DEFAULT_TERMINAL.fontSize,
     shell: typeof t.shell === "string" ? t.shell : "",
     integration: t.integration !== false,
+    drawer: {
+      state: ["hidden", "folded", "open"].includes(t.drawer?.state as string) ? t.drawer.state : "hidden",
+      height: typeof t.drawer?.height === "number" ? Math.min(2000, Math.max(120, Math.round(t.drawer.height))) : DEFAULT_TERMINAL.drawer.height,
+    },
   };
 }
 

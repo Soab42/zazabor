@@ -41,6 +41,9 @@ To build and install from source instead, see [Install from source](#install-fro
 - An app rail switches between Files, Gallery, Video, Terminal, Notes, Time, Wallet, Office, Studio and Clipboard (Ctrl+1…9 for the first nine); Settings sits at the bottom of the rail.
 - Every Open, Save As and Choose Folder dialog is Zazabor's own, in the Files look (Favourites, Devices, path bar, list and icon views, type filter, search, hidden files with Ctrl+H, New Folder, multi-select), never the desktop's; each one reopens in the folder it was last used in.
 - A first-run wizard picks the theme, accent colour and which features to turn on.
+- **Default apps** (Settings → General): make Zazabor what opens your photos, videos, PDFs, Word documents and spreadsheets everywhere on the desktop with one button, or choose any app for each kind, folders included.
+- **Feedback** (Settings → Zazabor): Report a Bug and Request a Feature open GitHub's forms with your version and system filled in.
+- **Terminal drawer** (Ctrl+` or the rail's terminal button): terminals under every section, starting in that section's folder, for a shell or an agent like Claude Code beside your work. Drag its top edge to resize, fold it to its tabs (what runs keeps running; a finished command puts a dot on its tab and on the rail's button), or maximize it. Ctrl+Shift+` opens a new one.
 - **Updates and the library**: Settings → Zazabor shows the version, checks for updates, installs one and restarts into it. Its Library section shows the online library (templates, soundtracks, fonts and when it was last updated), with Check Now for new ones at once and Remove Downloads to free the space (anything used again downloads again; projects that use it fetch it when they open).
 - Frosted-glass macOS-style interface in dark, light or system theme, with accent colours and background tones.
 
@@ -163,7 +166,7 @@ To build and install from source instead, see [Install from source](#install-fro
 
 | Where | Keys |
 | --- | --- |
-| App | Ctrl+1…9 to switch features, Ctrl+N for a new window of the current one (in Notes: a new note), Ctrl+L to lock, F1 for the guide |
+| App | Ctrl+1…9 to switch features, Ctrl+N for a new window of the current one (in Notes: a new note), Ctrl+L to lock, F1 for the guide, Ctrl+` for the terminal drawer (Ctrl+Shift+` for a new terminal in it) |
 | Editor | Ctrl+S to save, Ctrl+P to open a file, Ctrl+G to go to a line, Ctrl+Tab to switch tabs, Ctrl+W to close a tab |
 | Files | Enter to open, Alt+← → to go back/forward, Alt+↑ or Backspace for the parent folder, Ctrl+T/W for tabs, Ctrl+L to type a path, Ctrl+F to search, Ctrl+H for hidden files |
 | Gallery | Arrows to move, Enter to open, Ctrl+F to search, F5 for a slideshow, Ctrl+L to lock |
@@ -186,6 +189,10 @@ scripts/install-linux.sh --uninstall
 ```
 
 This adds Zazabor to your applications menu and to "Open With" for images, videos, folders, Word, Excel, CSV and PDF files (it removes the older CorePro and SliderPro launchers, asking a running CorePro to quit first). It also installs PDFium (Google's PDF engine, BSD licence) into `~/.local/lib/zazabor/` for the PDF app's redaction and text editing: `scripts/fetch-pdfium.sh` fetches a pinned release and checks its SHA-256 (without it those two tools fall back or say why). Photo builds LibRaw from its vendored source (`src-tauri/vendor/`). To build `.deb`/`.rpm` packages instead, run `npm run tauri build`.
+
+## Feedback
+
+Found a bug, or have an idea? [Report a bug](https://github.com/Soab42/zazabor/issues/new?template=bug_report.yml) or [request a feature](https://github.com/Soab42/zazabor/issues/new?template=feature_request.yml) on GitHub. In Zazabor, **Settings → Zazabor → Feedback** opens the same forms with your version and system filled in.
 
 ## Development
 
@@ -225,7 +232,7 @@ How it all fits together, and how to test against a local server (`ZAZABOR_CONTE
 ## Project layout
 
 - `src-tauri/src` — Rust backend: the file manager's commands (`fs/`), sticky notes and their folder sync (`notes/`), time tracking (`time/`), the wallet's SQLite ledger (`wallet/`), Office's file reading and writing (`office/`: raw bytes, .xlsx through the `ironcalc` crate, CSV, AutoRecover, saved PDF signatures), the clipboard history and its popup (`clipboard/`: GTK's clipboard, XTest for pasting), Photo's decoding, encoding and project files (`photo/`), the Video Editor's GStreamer decoding, sound and export (`videoedit/`), keeping the screen awake (`awake.rs`), folder discovery (`scan.rs`), photo sizes (`dims.rs`), decoding, thumbnails and EXIF (`imaging.rs`), the `cs://` protocol (`protocol.rs`), the lock (`lock.rs`), the move from the earlier names, CorePro and SliderPro (`migrate.rs`), and the content library and updates (`content.rs`, `update.rs`, with `signing.rs` for the release key and `download.rs` for resumable, checked downloads).
-- `src/shell` — app rail, module registry, Settings page, first-run wizard, update checks (`updates.ts`); `module.ts` is the contract every feature implements. `src/content.ts` is the content library on the page's side (the catalog, downloads, soundtracks).
+- `src/shell` — app rail, module registry, Settings page, first-run wizard, update checks (`updates.ts`), the terminal drawer (`drawer.ts`), default apps (`defaults.ts`) and feedback (`feedback.ts`); `module.ts` is the contract every feature implements. `src/content.ts` is the content library on the page's side (the catalog, downloads, soundtracks).
 - `src/modules/files` — the file manager: browser, sidebar, path bar, tabs, and the four views (`views/`).
 - `src/modules/gallery` — albums and the virtualized photo grid (`library/`), the zoom viewer (`viewer/`), slideshows (`slideshow/`).
 - `src/modules/video` — the video player.

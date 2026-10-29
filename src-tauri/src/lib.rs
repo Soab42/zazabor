@@ -2,8 +2,10 @@ mod awake;
 mod background;
 mod clipboard;
 mod content;
+mod defaults;
 mod dims;
 mod download;
+mod feedback;
 mod fs;
 mod git;
 mod imaging;
@@ -392,6 +394,9 @@ pub fn run() {
             open_music_folder,
             open_audio_library,
             cached_photos,
+            defaults::defaults_state,
+            feedback::system_details,
+            defaults::defaults_set,
             content::content_catalog,
             content::content_fetch,
             content::content_read,

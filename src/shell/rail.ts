@@ -9,6 +9,8 @@ export interface RailHandlers {
   settings(): void;
   /** The user guide (the ? above Settings). */
   help(): void;
+  /** Shows or hides the terminal drawer (the button above the ?). */
+  drawer(): void;
   /** Opens the module in a new window (right-click → Open in New Window, or a middle click). */
   openWindow(id: ModuleId): void;
 }
@@ -21,13 +23,15 @@ export class Rail {
   private statuses = new Map<ModuleId, RailStatus>();
   private settingsButton = h("button", { class: "rail-btn", title: "Settings (Ctrl+,)", "aria-label": "Settings" }, icon("settings", 20));
   private helpButton = h("button", { class: "rail-btn rail-help", title: "Help & Guide (F1)", "aria-label": "Help and guide" }, icon("help", 20));
+  private drawerButton = h("button", { class: "rail-btn", title: "Terminal Drawer (Ctrl+`)", "aria-label": "Terminal drawer" }, icon("terminal", 20));
 
   constructor(private readonly handlers: RailHandlers) {
     const mark = h("div", { class: "rail-mark", title: "Zazabor" }, h("img", { src: "/logo.svg", alt: "Zazabor", width: 30, height: 30, draggable: false }));
     this.settingsButton.append(h("span", { class: "rail-pill" }));
     this.settingsButton.addEventListener("click", () => handlers.settings());
     this.helpButton.addEventListener("click", () => handlers.help());
-    this.el.append(mark, this.items, h("div", { class: "spacer" }), this.helpButton, this.settingsButton);
+    this.drawerButton.addEventListener("click", () => handlers.drawer());
+    this.el.append(mark, this.items, h("div", { class: "spacer" }), this.drawerButton, this.helpButton, this.settingsButton);
   }
 
   /** Rebuilds the buttons for the enabled modules, in order (Ctrl+1 is the first). */
@@ -83,5 +87,13 @@ export class Rail {
 
   setHelpActive(on: boolean) {
     this.helpButton.classList.toggle("active", on);
+  }
+
+  /** The drawer's button: lit while it shows, with a dot when a command finished out of sight. */
+  setDrawer(open: boolean, notice: "ok" | "failed" | null) {
+    this.drawerButton.classList.toggle("on", open);
+    this.drawerButton.querySelector(".rail-dot")?.remove();
+    if (notice) this.drawerButton.append(h("span", { class: `rail-dot ${notice === "failed" ? "failed" : "done"}` }));
+    this.drawerButton.title = `Terminal Drawer (Ctrl+\`)${notice ? `\nA command ${notice === "failed" ? "failed" : "finished"} in the drawer` : ""}`;
   }
 }

@@ -1,0 +1,66 @@
+name: Report a bug
+description: Something in Zazabor is broken or doesn't work as it should.
+title: "Bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Exact steps get a bug fixed fastest. From inside Zazabor (Settings → Zazabor → Report a Bug), the version and system are filled in for you.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what went wrong, and any message Zazabor showed.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open …
+        2. Click …
+        3. See …
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect instead?
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of Zazabor?
+      options:
+        - Files
+        - Gallery and slideshows
+        - Video player
+        - Photo
+        - Video Editor and motion templates
+        - Screen Recorder
+        - Docs
+        - Sheets
+        - PDF
+        - Notes
+        - Time
+        - Wallet
+        - Clipboard
+        - Terminal
+        - Settings, updates or installing
+        - Something else
+  - type: input
+    id: version
+    attributes:
+      label: Zazabor version
+      description: Settings → Zazabor shows it.
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: Your Linux distribution and desktop.
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots, files or logs
+      description: Drag pictures or files here. Leave out anything private.

@@ -2,7 +2,7 @@
 //! watching and "open with the default app". The command shapes mirror
 //! `src/modules/files/api.ts`.
 
-mod apps;
+pub(crate) mod apps;
 mod archive;
 mod cloud;
 mod info;
