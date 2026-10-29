@@ -2,7 +2,7 @@ import { previewUrl } from "../../../../api";
 import { h } from "../../../../ui/dom";
 import { icon } from "../../../../ui/icons";
 import type { MenuItem } from "../../../../ui/menu";
-import { empty, popover, searchField, selectRow, switchRow, type Syncs } from "../controls";
+import { chipRow, empty, popover, searchField, selectRow, switchRow, type Syncs } from "../controls";
 import type { Aspect } from "../../app";
 import { OWN_LOOK, type Theme } from "./brand";
 import { CATEGORIES, type Category, type Template } from "./format";
@@ -119,7 +119,7 @@ export class TemplateBrowser {
     });
     return [
       h("div", { class: "vp-search-row" }, this.search, options),
-      h("div", { class: "vc-chips", role: "tablist", "aria-label": "Categories" }, ...chipButtons),
+      chipRow({ role: "tablist", "aria-label": "Categories" }, chipButtons),
     ];
   }
 

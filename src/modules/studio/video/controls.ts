@@ -56,6 +56,52 @@ export function mini(name: IconName, title: string, run: (e: MouseEvent) => void
   }, icon(name, 13));
 }
 
+/**
+ * A row of filter chips that scrolls sideways when they don't fit: with the mouse wheel (up and
+ * down move it along, until an end, where the panel scrolls as usual), a trackpad, or the arrows
+ * that show on hover at a side with more chips. A chip that's clicked comes fully into view.
+ */
+export function chipRow(attrs: Record<string, string>, chips: HTMLElement[]): HTMLElement {
+  const row = h("div", { ...attrs, class: "vc-chips" }, ...chips);
+  const by = (dir: number) => row.scrollBy({ left: dir * row.clientWidth * 0.7, behavior: "smooth" });
+  const wrap = h("div", { class: "vc-chips-wrap" }, row,
+    mini("chevronLeft", "More on the left", () => by(-1), "vc-chips-arrow left"),
+    mini("chevronRight", "More on the right", () => by(1), "vc-chips-arrow right"));
+  const sync = () => {
+    const max = row.scrollWidth - row.clientWidth;
+    wrap.classList.toggle("more-left", row.scrollLeft > 1);
+    wrap.classList.toggle("more-right", row.scrollLeft < max - 1);
+  };
+  /** Scrolls `chip` fully into the row's view (keeping a little of the next one in sight). */
+  const reveal = (chip: HTMLElement, smooth: boolean) => {
+    const left = chip.offsetLeft - 24;
+    const right = chip.offsetLeft + chip.offsetWidth + 24 - row.clientWidth;
+    const to = left < row.scrollLeft ? left : right > row.scrollLeft ? right : null;
+    if (to !== null) row.scrollTo({ left: to, behavior: smooth ? "smooth" : "auto" });
+  };
+  row.addEventListener("scroll", sync, { passive: true });
+  // The panel can be resized while it's out of sight: check again when the pointer comes in.
+  wrap.addEventListener("pointerenter", sync);
+  row.addEventListener("wheel", (e) => {
+    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+    const delta = e.deltaY * (e.deltaMode === 1 ? 16 : 1);
+    const max = row.scrollWidth - row.clientWidth;
+    if (max <= 0 || (delta < 0 && row.scrollLeft <= 0) || (delta > 0 && row.scrollLeft >= max - 1)) return;
+    e.preventDefault();
+    row.scrollLeft += delta;
+  }, { passive: false });
+  row.addEventListener("click", (e) => {
+    const chip = (e.target as Element).closest?.<HTMLElement>(".vc-chip");
+    if (chip) reveal(chip, true);
+  });
+  requestAnimationFrame(() => {
+    const active = row.querySelector<HTMLElement>(".vc-chip.active");
+    if (active) reveal(active, false);
+    sync();
+  });
+  return wrap;
+}
+
 /** Opens `items` under `anchor` (a ⋯ button). */
 export function menuAt(anchor: HTMLElement, items: MenuItem[]) {
   const r = anchor.getBoundingClientRect();

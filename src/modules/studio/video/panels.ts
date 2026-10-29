@@ -7,7 +7,7 @@ import { openMenu, type MenuItem } from "../../../ui/menu";
 import { LOOKS, TRANSITION_GROUPS, type LookId, type TransitionKind } from "../../gallery/slideshow/settings";
 import { editApi, type SoundEffect } from "./api";
 import type { CaptionsPanel } from "./captions";
-import { callout, empty, menuAt, mini, row, scrub, searchField, seg, type Syncs } from "./controls";
+import { callout, chipRow, empty, menuAt, mini, row, scrub, searchField, seg, type Syncs } from "./controls";
 import { EFFECTS } from "./inspector";
 import type { MediaStore } from "./media";
 import type { Clip, EffectId, Media, Project, Track } from "./model";
@@ -483,7 +483,7 @@ export class Panel {
           ...(needsCodecs ? ["separator", { label: "Install Codecs…", icon: "download", action: () => this.host.installCodecs() }] as MenuItem[] : []),
         ])),
       all.length ? this.search("Search media") : null,
-      all.length ? h("div", { class: "vc-chips" }, ...([["all", "All"], ["video", "Video"], ["image", "Photos"], ["unused", "Unused"]] as const).map(([v, label]) =>
+      all.length ? chipRow({ "aria-label": "Show" }, ([["all", "All"], ["video", "Video"], ["image", "Photos"], ["unused", "Unused"]] as const).map(([v, label]) =>
         h("button", { class: `vc-chip${this.mediaFilter === v ? " active" : ""}`, type: "button", "aria-pressed": String(this.mediaFilter === v), onclick: () => {
           this.mediaFilter = v;
           this.refresh();
