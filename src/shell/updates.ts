@@ -2,8 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import type { SettingsGroup, SettingsRow } from "../appearance";
 import type { Config } from "../config";
 import { formatBytes, library } from "../content";
-import { showToast } from "../modules/files/ops/toast";
 import { h } from "../ui/dom";
+import { icon } from "../ui/icons";
 
 /**
  * Updates (src-tauri/src/update.rs) and the content library (content.ts), as Settings → Zazabor
@@ -47,22 +47,162 @@ const updateApi = {
 
 const openLink = (url: string) => void invoke("fs_open_default", { path: url }).catch(() => undefined);
 
+/** How progress reads while an update downloads and installs. */
+function progressText(p: Progress): string {
+  return p.total && p.done < p.total ? `Downloading the update… ${Math.floor((p.done / p.total) * 100)}%` : "Installing the update…";
+}
+
+/**
+ * Downloads and installs the latest version (update.rs), reporting progress until it's done;
+ * resolves with the version installed. Settings and the popup both use it, so they agree.
+ */
+async function installUpdate(onProgress: (p: Progress) => void): Promise<string> {
+  await updateApi.install();
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 400));
+    const p = await updateApi.progress();
+    if (p.running) {
+      onProgress(p);
+      continue;
+    }
+    if (p.error) throw new Error(p.error);
+    if (p.installed) return p.installed;
+    throw new Error("The update stopped before it was installed.");
+  }
+}
+
+export interface UpdateHost {
+  readonly config: Config;
+  saveConfig(): void;
+  /** Whether a popup may show now (not while locked, in a slideshow or another dialog). */
+  canInterrupt(): boolean;
+}
+
+/** A first check this long after starting (the window settles first). */
+const FIRST_CHECK_MS = 8_000;
+/** Coming back online, the check waits this long for the network to settle. */
+const ONLINE_DELAY_MS = 5_000;
+/** A popup that can't show yet (a slideshow runs) tries again this much later. */
+const RETRY_MS = 60_000;
+
 /**
  * In the main window: keeps the content library's catalog fresh (hourly), and (unless turned
- * off) asks GitHub for a newer Zazabor a little after starting and twice a day, saying so when
- * there is.
+ * off) asks GitHub for a newer Zazabor a few seconds after starting, when the computer comes back
+ * online, and twice a day. A newer version shows a popup (once per start; Skip This Version
+ * for good). Offline, the check fails quietly and nothing shows.
  */
-export function startUpdateChecks(config: Config, openAbout: () => void) {
+export function startUpdateChecks(host: UpdateHost) {
   void library();
   window.setInterval(() => void library(true), LIBRARY_EVERY_MS);
+  /** Versions offered this run ("Later" waits for the next start). */
+  const offered = new Set<string>();
+  let timer = 0;
   const check = async () => {
-    if (!config.updates.auto) return;
+    clearTimeout(timer);
+    if (!host.config.updates.auto || !navigator.onLine) return;
     const c = await updateApi.check().catch(() => null);
-    if (!c?.available || c.installed === c.available || config.updates.skipped === c.available) return;
-    showToast(`Zazabor ${c.available} is available.`, { label: "Update…", run: openAbout }, 12_000);
+    const version = c?.available;
+    if (!c || !version || c.installed === version || host.config.updates.skipped === version || offered.has(version)) return;
+    if (!host.canInterrupt()) {
+      timer = window.setTimeout(() => void check(), RETRY_MS);
+      return;
+    }
+    offered.add(version);
+    showUpdatePopup(c, host);
   };
-  window.setTimeout(() => void check(), 20_000);
+  window.setTimeout(() => void check(), FIRST_CHECK_MS);
   window.setInterval(() => void check(), CHECK_EVERY_MS);
+  window.addEventListener("online", () => {
+    clearTimeout(timer);
+    timer = window.setTimeout(() => void check(), ONLINE_DELAY_MS);
+  });
+}
+
+/**
+ * The popup for a newer version: what's new and its size, then Install Update (progress here,
+ * then Restart Now), Later, or Skip This Version. A copy that can't update itself links the
+ * release page instead.
+ */
+function showUpdatePopup(c: UpdateCheck, host: UpdateHost) {
+  const version = c.available!;
+  const button = (text: string, run: () => void, cls = "btn") => h("button", { type: "button", class: cls, onclick: run }, text);
+  const status = h("p", { class: "up-status", role: "status", "aria-live": "polite", hidden: true });
+  const bar = h("span", { class: "up-bar-fill" });
+  const progress = h("div", { class: "up-bar", hidden: true }, bar);
+  const notes = c.notes ? h("div", { class: "up-notes" }, h("span", { class: "up-label" }, "What's new"), h("p", null, c.notes)) : null;
+  const foot = h("div", { class: "modal-foot" });
+  const sub = h("p", { class: "up-sub" }, `You have ${c.current}${c.bytes ? ` · ${formatBytes(c.bytes)} download` : ""}`);
+  const card = h("div", { class: "modal up-popup", role: "dialog", "aria-modal": "true", "aria-labelledby": "up-title" },
+    h("div", { class: "modal-head up-head" },
+      h("img", { src: "/logo.svg", alt: "", width: 48, height: 48 }),
+      h("div", { class: "up-heading" }, h("h2", { id: "up-title" }, `Zazabor ${version} is available`), sub),
+      h("button", { class: "icon-btn small", type: "button", title: "Later (Esc)", "aria-label": "Later", onclick: () => close() }, icon("close", 14))),
+    h("div", { class: "modal-body" }, notes, c.whyNot ? h("p", { class: "up-why" }, c.whyNot) : null, progress, status),
+    foot);
+  const overlay = h("div", { class: "modal-overlay" }, card);
+  let installing = false;
+  const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+  function close() {
+    overlay.remove();
+    removeEventListener("keydown", onKey, true);
+    previous?.focus();
+  }
+  function onKey(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+    }
+  }
+  const setFoot = (...nodes: Node[]) => {
+    foot.replaceChildren(...nodes);
+    (foot.querySelector<HTMLButtonElement>(".btn.primary") ?? foot.querySelector("button"))?.focus();
+  };
+  const offer = () => {
+    if (c.whyNot) return setFoot(h("span", { class: "spacer" }), button("Later", close), button("Open the Release Page", () => (openLink(RELEASES), close()), "btn primary"));
+    setFoot(
+      button("Skip This Version", () => {
+        host.config.updates.skipped = version;
+        host.saveConfig();
+        close();
+      }, "btn ghost"),
+      h("span", { class: "spacer" }),
+      button("Later", close),
+      button("Install Update", () => void install(), "btn primary"));
+  };
+  const install = async () => {
+    if (installing) return;
+    installing = true;
+    status.hidden = false;
+    status.classList.remove("error");
+    progress.hidden = false;
+    status.textContent = "Downloading the update…";
+    // Closing now only hides this: the update carries on (Settings → Zazabor shows it).
+    setFoot(h("span", { class: "spacer" }), button("Hide", close));
+    try {
+      const done = await installUpdate((p) => {
+        status.textContent = progressText(p);
+        bar.style.width = `${p.total ? Math.min(100, (p.done / p.total) * 100) : 100}%`;
+      });
+      bar.style.width = "100%";
+      status.textContent = `Zazabor ${done} is installed. Restart to start using it: windows with unsaved work ask first.`;
+      setFoot(h("span", { class: "spacer" }), button("Restart Later", close), button("Restart Now", () => void updateApi.restart(), "btn primary"));
+    } catch (err) {
+      installing = false;
+      progress.hidden = true;
+      status.classList.add("error");
+      status.textContent = `The update didn't install: ${err instanceof Error ? err.message : err}`;
+      offer();
+    }
+  };
+
+  overlay.addEventListener("pointerdown", (e) => {
+    if (e.target === overlay) close();
+  });
+  addEventListener("keydown", onKey, true);
+  document.body.append(overlay);
+  offer();
 }
 
 /** A row with a label, a status line under it and buttons on the right. */
@@ -82,7 +222,6 @@ function statusRow(label: string, keywords: string) {
 export function updateGroups(config: Config, saveConfig: () => void): SettingsGroup[] {
   // ---- updates
   const u = statusRow("Updates", "version new release upgrade");
-  let poll = 0;
   const show = (text: string, ...buttons: HTMLButtonElement[]) => {
     u.status.textContent = text;
     u.actions.replaceChildren(...buttons);
@@ -92,7 +231,6 @@ export function updateGroups(config: Config, saveConfig: () => void): SettingsGr
     show(`Zazabor ${version} is installed. Restart to start using it.`, u.button("Restart Now", () => void updateApi.restart(), true));
   };
   const check = async () => {
-    clearInterval(poll);
     show("Checking for updates…");
     u.extra.hidden = true;
     let c: UpdateCheck;
@@ -118,24 +256,12 @@ export function updateGroups(config: Config, saveConfig: () => void): SettingsGr
       u.button("Install Update", () => void install(), true));
   };
   const install = async () => {
-    try {
-      await updateApi.install();
-    } catch (err) {
-      return show(`Couldn't install the update: ${err}`, u.button("Try Again", () => void check()));
-    }
     show("Downloading the update…");
-    clearInterval(poll);
-    poll = window.setInterval(async () => {
-      const p = await updateApi.progress().catch(() => null);
-      if (!p || !u.row.el.isConnected) return clearInterval(poll);
-      if (p.running) {
-        u.status.textContent = p.total && p.done < p.total ? `Downloading the update… ${Math.floor((p.done / p.total) * 100)}%` : "Installing the update…";
-        return;
-      }
-      clearInterval(poll);
-      if (p.error) show(`The update didn't install: ${p.error}`, u.button("Try Again", () => void install()));
-      else if (p.installed) installed(p.installed);
-    }, 400);
+    try {
+      installed(await installUpdate((p) => (u.status.textContent = progressText(p))));
+    } catch (err) {
+      show(`The update didn't install: ${err instanceof Error ? err.message : err}`, u.button("Try Again", () => void install()));
+    }
   };
   show("", u.button("Check for Updates", () => void check()));
   // An update installed earlier in this session waits for a restart.

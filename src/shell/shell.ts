@@ -158,7 +158,13 @@ export class Shell implements ShellContext {
       }
     }
     if (isMainWindow) {
-      startUpdateChecks(this.config, () => this.openSettings("about"));
+      startUpdateChecks({
+        config: this.config,
+        saveConfig: () => this.saveConfig(),
+        // Not over the lock, the first-run wizard, a slideshow or another dialog.
+        canInterrupt: () => !document.body.classList.contains("app-locked") && !this.onboarding
+          && !(this.active && this.modules.get(this.active)?.modal) && !document.querySelector(".modal-overlay"),
+      });
       // Notes that were on the desktop when Zazabor last ran come back.
       if (this.config.features.notes && this.config.notes.reopen) invoke("notes_reopen").catch(() => undefined);
       await this.openLaunchPath();

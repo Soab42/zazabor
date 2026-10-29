@@ -78,10 +78,12 @@ nothing.
                                 "bytes": 31000000, "sha256": "…" } } }
 ```
 
-**In the app** (`src-tauri/src/update.rs`, `src/shell/updates.ts`): about 20 seconds after
-starting and twice a day (unless Settings → Zazabor → Check for updates automatically is off),
-it reads `releases/latest/download/latest.json` and its signature. A newer version shows a
-notice; Install Update downloads the archive from the release, checks its SHA-256, unpacks
+**In the app** (`src-tauri/src/update.rs`, `src/shell/updates.ts`): 8 seconds after starting,
+when the computer comes back online, and twice a day (unless Settings → Zazabor → Check for
+updates automatically is off), it reads `releases/latest/download/latest.json` and its
+signature. A newer version shows a popup with the notes and the size (once per start; not over
+the lock, a slideshow or another dialog, which it waits out; Skip This Version for good).
+Offline, the check fails quietly. Install Update downloads the archive from the release, checks its SHA-256, unpacks
 only `zazabor` and `resources/sfx/*`, and swaps the program in `~/.local/bin` in one rename.
 Restart Now quits the way Quit does (windows with unsaved files ask first), and the new version
 starts once the old one has gone.

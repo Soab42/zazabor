@@ -133,7 +133,8 @@ export const install: GuideArticle = {
       steps: [
         "In the Zazabor source folder, run scripts/install-linux.sh. It builds Zazabor and installs it into ~/.local, with an applications-menu entry.",
         "Zazabor is added to **Open With** for pictures, videos, folders, Word, Excel, CSV and PDF files. Your default apps don't change until you choose: **Settings → General → Default apps** makes Zazabor (or any other app) what opens each kind of file.",
-        "Zazabor updates itself: it checks GitHub now and then and says when there's a newer version. Go to **Settings → Zazabor → Updates**, press **Install Update**, then **Restart Now**. Nothing installs without you.",
+        "Zazabor updates itself. A few seconds after it starts (and when your computer comes back online), it checks GitHub; when there's a newer version, a window shows what's new. Press **Install Update**, then **Restart Now**. **Later** asks again at the next start; **Skip This Version** waits for the one after. Nothing installs without you.",
+        "**Settings → Zazabor → Updates** does the same at any time.",
         "**Check for Updates** asks at once; turn off **Check for updates automatically** to only check by hand.",
       ],
       tips: [

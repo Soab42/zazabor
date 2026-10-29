@@ -31,7 +31,7 @@ curl -fsSL https://soab42.github.io/zazabor-content/install.sh | sh
 
 The installer reads the latest release from GitHub, checks its signature against Zazabor's release key (with OpenSSL 3, or Python's `cryptography`; it stops if it can't) and the archive's SHA-256, then installs Zazabor into `~/.local` with an applications-menu entry. Zazabor needs WebKitGTK 4.1, GStreamer and VLC's libraries; on Ubuntu, Pop!_OS or Debian: `sudo apt install libwebkit2gtk-4.1-0 gstreamer1.0-plugins-good gstreamer1.0-libav vlc`.
 
-**Updates:** Zazabor checks for a new version a little after it starts and twice a day (Settings → Zazabor → Check for updates automatically), and says when there's one. **Install Update** downloads and installs it, and **Restart Now** quits as Quit does, asking about unsaved files first. Copies older than 0.2.0 have no updater: install 0.2.0 or later once by hand.
+**Updates:** Zazabor checks for a new version a few seconds after it starts, when the computer comes back online, and twice a day (Settings → Zazabor → Check for updates automatically). When there's one, a window shows what's new: **Install Update** downloads and installs it with its progress, and **Restart Now** quits as Quit does, asking about unsaved files first. **Later** asks again at the next start, **Skip This Version** waits for the next one; offline, nothing shows. Copies older than 0.2.0 have no updater: install 0.2.0 or later once by hand.
 
 To build and install from source instead, see [Install from source](#install-from-source-no-root-needed).
 
