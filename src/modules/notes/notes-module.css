@@ -62,8 +62,10 @@
 }
 .nm-card:hover .nm-card-more, .nm-card:focus-within .nm-card-more, .nm-card-more:focus-visible { opacity: 0.7; }
 .nm-card-more:hover { opacity: 1; background: var(--paper-line); }
+/* flex: none — the clamp's overflow: hidden lets a flex item shrink to nothing, so a long note
+   would squeeze its title instead of its text. */
 .nm-card-title {
-  margin: 0; padding: 0 14px 4px; font-size: 14px; font-weight: 700; line-height: 1.35; letter-spacing: -0.005em;
+  flex: none; margin: 0; padding: 0 14px 4px; font-size: 14px; font-weight: 700; line-height: 1.35; letter-spacing: -0.005em;
   overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .nm-card-text { flex: 0 1 auto; min-height: 0; overflow: hidden; padding: 0 14px 14px; font-size: 13px; }
