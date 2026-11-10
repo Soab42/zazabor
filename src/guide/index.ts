@@ -299,7 +299,7 @@ export function articleFor(module: ModuleId | null, topic: string | null | undef
   if (topic && BY_ID.has(topic)) return topic;
   const byModule: Record<ModuleId, string> = {
     files: "files", gallery: "gallery", video: "video-player", terminal: "terminal", notes: "notes", time: "time",
-    wallet: "wallet", office: "office", studio: "studio", clipboard: "clipboard",
+    wallet: "wallet", office: "office", studio: "studio", clipboard: "clipboard", apps: "apps",
   };
   return module ? byModule[module] ?? FIRST : FIRST;
 }

@@ -2,9 +2,9 @@ import type { Config } from "../config";
 import type { IconName } from "../ui/icons";
 
 /** The features Zazabor is made of; each can be turned off in Settings. */
-export type ModuleId = "files" | "gallery" | "video" | "terminal" | "notes" | "time" | "wallet" | "office" | "studio" | "clipboard";
+export type ModuleId = "files" | "gallery" | "video" | "terminal" | "notes" | "time" | "wallet" | "office" | "studio" | "clipboard" | "apps";
 
-export const MODULE_IDS: readonly ModuleId[] = ["files", "gallery", "video", "terminal", "notes", "time", "wallet", "office", "studio", "clipboard"];
+export const MODULE_IDS: readonly ModuleId[] = ["files", "gallery", "video", "terminal", "notes", "time", "wallet", "office", "studio", "clipboard", "apps"];
 
 /** A dot on a module's rail button while it has something going on (Time: a timer running). */
 export interface RailStatus {

@@ -88,4 +88,10 @@ export const MODULES: Record<ModuleId, ModuleMeta> = {
       open: () => void invoke("clipboard_popup").catch((err) => console.warn("Could not show the clipboard:", err)),
     },
   },
+  apps: {
+    title: "Apps",
+    icon: "package",
+    blurb: "Every installed app in one list, uninstalled the way it was installed, like Windows' Installed apps.",
+    load: async () => (await import("../modules/apps")).createAppsModule,
+  },
 };

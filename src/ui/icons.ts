@@ -121,6 +121,7 @@ const paths = {
   barChart: `<path d="M4.5 20h15M7 16.5V11M12 16.5V6M17 16.5v-8"/>`,
   target: `<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor"/>`,
   pieChart: `<path d="M12 3.5v8.5h8.5A8.5 8.5 0 1 1 12 3.5z"/><path d="M15 3.8a8.5 8.5 0 0 1 5.2 5.2H15z"/>`,
+  package: `<path d="M12 3.2l7.8 4.1v9.4L12 20.8l-7.8-4.1V7.3z"/><path d="M4.4 7.4L12 11.4l7.6-4M12 11.4v9.2M8.1 5.3l7.7 4.1"/>`,
   archive: `<rect x="3.5" y="4.5" width="17" height="4" rx="1"/><path d="M5 8.5v10a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5v-10M10 12.5h4"/>`,
   wallet: `<path d="M5 7.5h13.5a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18V6.5A1.5 1.5 0 0 1 5.5 5H17"/><path d="M20 11.5h-4a1.75 1.75 0 0 0 0 3.5h4"/><circle cx="16.25" cy="13.25" r=".6" fill="currentColor"/>`,
   // ---- Office (add its icons below this line)

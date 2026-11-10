@@ -38,7 +38,7 @@ To build and install from source instead, see [Install from source](#install-fro
 ## Features
 
 **App**
-- An app rail switches between Files, Gallery, Video, Terminal, Notes, Time, Wallet, Office, Studio and Clipboard (Ctrl+1…9 for the first nine); Settings sits at the bottom of the rail.
+- An app rail switches between Files, Gallery, Video, Terminal, Notes, Time, Wallet, Office, Studio, Clipboard and Apps (Ctrl+1…9 for the first nine); Settings sits at the bottom of the rail.
 - Every Open, Save As and Choose Folder dialog is Zazabor's own, in the Files look (Favourites, Devices, path bar, list and icon views, type filter, search, hidden files with Ctrl+H, New Folder, multi-select), never the desktop's; each one reopens in the folder it was last used in.
 - A first-run wizard picks the theme, accent colour and which features to turn on.
 - **Default apps** (Settings → General): make Zazabor what opens your photos, videos, PDFs, Word documents and spreadsheets everywhere on the desktop with one button, or choose any app for each kind, folders included.
@@ -107,6 +107,11 @@ To build and install from source instead, see [Install from source](#install-fro
 - A small popup next to the pointer (`zazabor --clipboard`, bound to a desktop shortcut in Settings → Clipboard, Super+V by default; when GNOME already uses Super+V, Settings offers to take it over or use Super+Shift+V) lists them: arrows and Enter paste the item into the app you were typing in. Emoji, Kaomoji and Symbols tabs with search and a recently used row. Pin, delete or clear all (pinned items stay).
 - **Run in the background** (Settings → Clipboard): Zazabor starts at login with no window and keeps running after its window closes, so the history records everything you copy; opening Zazabor again shows its window. Quit Zazabor (in Settings → Clipboard, the menu entry's right-click, or `zazabor --quit`) stops it, asking first about unsaved Office files.
 - The Clipboard section shows the whole history with search and filters (Text, Images, Files, Pinned). History can be turned off, cleared on exit, and skips apps you exclude; it pauses while Zazabor is locked. Pasting into native Wayland apps isn't possible yet: there the popup copies and says to press Ctrl+V.
+
+**Apps**
+- Every installed app in one list, like Windows' Installed apps: apt packages, Flatpaks, Snaps, AppImages, apps unpacked into a folder in your home folder, browsers' web apps and Steam games, each with its version, publisher, install date and size. Search, filter by where they came from, sort by name, size or date; open one or show it in Files.
+- **Uninstall** removes an app the way it was installed, and shows what will happen first. A system package is simulated with apt before anything changes: what else would go with it is listed, packages that came with it and nothing else needs can go too, and removals that would take a required package or break the desktop are refused. Packages, Snaps and Flatpaks installed for everyone ask for your password (pkexec, Flatpak's own prompt).
+- An AppImage or a home-folder app goes to the Trash with its menu entries, icons and login item, so Undo puts it back. Its settings, data and caches in your home folder are found by name and offered with their sizes; only the ticked ones go (to the Trash). Launchers left behind by removed programs show as broken and can be removed.
 
 **Code editor**
 - Text and code open in a VS Code–style editor (Monaco, the editor VS Code is built on) in their own window: the project's Explorer, tabs with unsaved dots, breadcrumbs, a minimap, Ctrl+S to save (safely, keeping permissions), Ctrl+P to find a file, Ctrl+G to go to a line, and a status bar for position, indentation, line endings and language. Syntax colouring for dozens of languages, with IntelliSense for TypeScript, JavaScript, JSON, CSS and HTML.

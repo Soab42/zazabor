@@ -91,6 +91,7 @@ export interface Config {
   wallet: WalletSettings;
   office: OfficeSettings;
   clipboard: ClipboardSettings;
+  apps: AppsSettings;
   studio: StudioSettings;
   guide: GuideSettings;
   updates: UpdateSettings;
@@ -110,6 +111,19 @@ function normalizeUpdates(raw: Partial<UpdateSettings> | undefined): UpdateSetti
 }
 
 /** The clipboard history's page side (the history and its recording settings live in the backend, see clipboard/mod.rs). */
+/** The Apps section (src/modules/apps). */
+export interface AppsSettings {
+  sort: "name" | "size" | "date";
+  /** Which kind of apps it shows: all, packages, Flatpaks, Snaps, home installs or launchers. */
+  group: "all" | "system" | "flatpak" | "snap" | "home" | "other";
+}
+
+function normalizeApps(raw: Partial<AppsSettings> | undefined): AppsSettings {
+  const sort = raw?.sort === "size" || raw?.sort === "date" ? raw.sort : "name";
+  const groups: AppsSettings["group"][] = ["all", "system", "flatpak", "snap", "home", "other"];
+  return { sort, group: groups.includes(raw?.group as AppsSettings["group"]) ? (raw!.group as AppsSettings["group"]) : "all" };
+}
+
 /** The user guide (src/guide). */
 export interface GuideSettings {
   /** The article read last; it opens there next time. */
@@ -327,6 +341,7 @@ const DEFAULTS: Config = {
   wallet: structuredClone(DEFAULT_WALLET),
   office: structuredClone(DEFAULT_OFFICE),
   clipboard: structuredClone(DEFAULT_CLIPBOARD),
+  apps: normalizeApps(undefined),
   studio: structuredClone(DEFAULT_STUDIO),
   guide: { last: null },
   updates: { auto: true, skipped: null },
@@ -366,6 +381,7 @@ export function parseConfig(raw: string): Config {
     wallet: normalizeWallet(parsed.wallet),
     office: normalizeOffice(parsed.office),
     clipboard: normalizeClipboard(parsed.clipboard),
+    apps: normalizeApps(parsed.apps),
     studio: normalizeStudio(parsed.studio),
     guide: normalizeGuide(parsed.guide),
     updates: normalizeUpdates(parsed.updates),

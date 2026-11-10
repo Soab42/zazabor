@@ -15,6 +15,7 @@ mod music;
 mod notes;
 mod office;
 mod photo;
+mod programs;
 mod protocol;
 mod motion;
 mod recorder;
@@ -395,6 +396,11 @@ pub fn run() {
             open_audio_library,
             cached_photos,
             defaults::defaults_state,
+            programs::programs_list,
+            programs::programs_plan,
+            programs::programs_uninstall,
+            programs::programs_open,
+            programs::programs_dry_run,
             feedback::system_details,
             defaults::defaults_set,
             content::content_catalog,

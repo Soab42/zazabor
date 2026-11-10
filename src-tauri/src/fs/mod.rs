@@ -10,11 +10,11 @@ mod jobs;
 mod list;
 mod mounts;
 mod names;
-mod ops;
+pub(crate) mod ops;
 mod search;
 mod tags;
 pub(crate) mod text;
-mod trash;
+pub(crate) mod trash;
 mod volumes;
 mod watch;
 

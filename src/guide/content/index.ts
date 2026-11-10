@@ -1,4 +1,5 @@
 import type { GuideArticle } from "../types";
+import { apps } from "./apps";
 import { clipboard } from "./clipboard";
 import { docs } from "./docs";
 import { codeEditor, files } from "./files";
@@ -25,6 +26,6 @@ export const ARTICLES: GuideArticle[] = [
   notes, time, wallet, walletStatements, clipboard,
   office, docs, sheets, pdf,
   studio, photo, videoEditor, motionTemplates, screenRecorder,
-  settings, privacyLock, windows, backgroundQuit, install, shortcuts,
+  apps, settings, privacyLock, windows, backgroundQuit, install, shortcuts,
   whatsNew,
 ];

@@ -70,7 +70,7 @@ struct Desktop {
 }
 
 /// The `[Desktop Entry]` keys we use. Localised keys and other groups are ignored.
-fn parse_desktop(text: &str) -> Option<HashMap<String, String>> {
+pub(crate) fn parse_desktop(text: &str) -> Option<HashMap<String, String>> {
     let mut keys = HashMap::new();
     let mut inside = false;
     for line in text.lines() {
@@ -86,7 +86,8 @@ fn parse_desktop(text: &str) -> Option<HashMap<String, String>> {
     (keys.get("Type").map(String::as_str) == Some("Application")).then_some(keys)
 }
 
-fn collect_desktop_files(root: &Path, dir: &Path, out: &mut Vec<(String, PathBuf)>) {
+/// Every `.desktop` file under `dir`, with its desktop file id (sub-folders joined with `-`).
+pub(crate) fn collect_desktop_files(root: &Path, dir: &Path, out: &mut Vec<(String, PathBuf)>) {
     let Ok(reader) = fs::read_dir(dir) else { return };
     for item in reader.flatten() {
         let path = item.path();
@@ -275,6 +276,11 @@ pub fn find_desktop(dirs: &Dirs, id: &str) -> Option<PathBuf> {
 /// A themed icon name to an image file: absolute paths as they are, otherwise the first match in
 /// the usual theme folders (largest raster sizes first, then scalable), then `pixmaps`.
 fn resolve_icon(dirs: &Dirs, name: &str) -> Option<String> {
+    resolve_icon_sized(dirs, name, &["128x128", "64x64", "96x96", "48x48", "256x256", "scalable", "32x32", "512x512"])
+}
+
+/// `resolve_icon` trying the theme folders' sizes in the given order.
+pub(crate) fn resolve_icon_sized(dirs: &Dirs, name: &str, sizes: &[&str]) -> Option<String> {
     if name.is_empty() {
         return None;
     }
@@ -282,14 +288,13 @@ fn resolve_icon(dirs: &Dirs, name: &str) -> Option<String> {
         return Path::new(name).is_file().then(|| name.to_string());
     }
     const THEMES: [&str; 5] = ["hicolor", "Yaru", "Adwaita", "gnome", "breeze"];
-    const SIZES: [&str; 8] = ["128x128", "64x64", "96x96", "48x48", "256x256", "scalable", "32x32", "512x512"];
     let mut roots: Vec<PathBuf> = dirs.data.iter().map(|d| d.join("icons")).collect();
     if let Some(home) = std::env::var_os("HOME") {
         roots.push(PathBuf::from(home).join(".icons"));
     }
     for root in &roots {
         for theme in THEMES {
-            for size in SIZES {
+            for size in sizes {
                 for ext in ["png", "svg"] {
                     let path = root.join(theme).join(size).join("apps").join(format!("{name}.{ext}"));
                     if path.is_file() {
@@ -380,6 +385,18 @@ pub fn open_with(dirs: &Dirs, path: &Path, app_id: &str) -> Result<(), String> {
     spawn_detached(gio).or_else(|_| {
         let mut gtk = Command::new("gtk-launch");
         gtk.arg(app_id).arg(path);
+        spawn_detached(gtk).map_err(|_| "Couldn’t start the application (gio and gtk-launch are missing).".to_string())
+    })
+}
+
+/// Starts the app a `.desktop` file describes, without a file.
+pub fn launch(desktop: &Path) -> Result<(), String> {
+    let mut gio = Command::new("gio");
+    gio.arg("launch").arg(desktop);
+    spawn_detached(gio).or_else(|_| {
+        let id = desktop.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let mut gtk = Command::new("gtk-launch");
+        gtk.arg(id);
         spawn_detached(gtk).map_err(|_| "Couldn’t start the application (gio and gtk-launch are missing).".to_string())
     })
 }
