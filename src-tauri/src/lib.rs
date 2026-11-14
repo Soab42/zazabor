@@ -10,6 +10,7 @@ mod fs;
 mod git;
 mod imaging;
 mod lock;
+mod mail;
 mod migrate;
 mod music;
 mod notes;
@@ -215,9 +216,19 @@ fn launch_arg() -> Option<String> {
 }
 
 /// The main window (tauri.conf.json describes it but leaves making it to here).
+/// Whether a window may go to this address: only the app's own pages. Nothing a window shows
+/// (a mail message, a document) can take it to a web page; links open in the browser instead.
+fn stays_in_app(url: &tauri::Url) -> bool {
+    match url.scheme() {
+        "tauri" | "about" | "blob" | "data" | "cs" => true,
+        "http" | "https" => url.host_str().is_some_and(|host| host == "localhost" || host == "127.0.0.1" || host.ends_with(".localhost")),
+        _ => false,
+    }
+}
+
 fn build_main(app: &tauri::AppHandle) -> Result<(), String> {
     let config = app.config().app.windows.iter().find(|w| w.label == "main").cloned().ok_or("tauri.conf.json has no main window")?;
-    let window = tauri::WebviewWindowBuilder::from_config(app, &config).map_err(|e| e.to_string())?.build().map_err(|e| e.to_string())?;
+    let window = tauri::WebviewWindowBuilder::from_config(app, &config).map_err(|e| e.to_string())?.on_navigation(stays_in_app).build().map_err(|e| e.to_string())?;
     #[cfg(target_os = "linux")]
     window.with_webview(enable_cors_for_cs_scheme).map_err(|e| e.to_string())?;
     #[cfg(not(target_os = "linux"))]
@@ -291,6 +302,7 @@ pub(crate) fn new_window(
     let label = format!("window-{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
     let start = serde_json::json!({ "module": module, "path": path, "siblings": siblings });
     let window = tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::App("index.html".into()))
+        .on_navigation(stays_in_app)
         .title("Zazabor")
         .inner_size(1280.0, 820.0)
         .min_inner_size(860.0, 560.0)
@@ -363,6 +375,7 @@ pub fn run() {
             notes::quick::serve(app.handle().clone());
             time::init(app.handle().clone(), app.path().app_data_dir()?);
             wallet::init(app.handle().clone(), app.path().app_data_dir()?);
+            mail::init(app.handle().clone(), app.path().app_data_dir()?);
             office::init(app.path().app_data_dir()?);
             statements::init(app.handle().clone(), app.path().app_config_dir()?, app.path().app_data_dir()?);
             recorder::init(&app.path().app_data_dir()?);
@@ -396,6 +409,27 @@ pub fn run() {
             open_audio_library,
             cached_photos,
             defaults::defaults_state,
+            mail::mail_overview,
+            mail::mail_start,
+            mail::mail_unread,
+            mail::mail_sync,
+            mail::mail_discover,
+            mail::mail_account_save,
+            mail::mail_account_remove,
+            mail::mail_threads,
+            mail::mail_thread,
+            mail::mail_body,
+            mail::mail_attachment,
+            mail::mail_contacts,
+            mail::mail_older,
+            mail::mail_flag,
+            mail::mail_move,
+            mail::mail_move_undo,
+            mail::mail_read_all,
+            mail::mail_send,
+            mail::mail_drafts,
+            mail::mail_draft_save,
+            mail::mail_draft_delete,
             programs::programs_list,
             programs::programs_plan,
             programs::programs_uninstall,

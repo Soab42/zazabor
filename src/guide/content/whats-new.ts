@@ -8,6 +8,10 @@ export const whatsNew: GuideArticle = {
   summary: "The highlights of this release.",
   topics: [
     {
+      title: "Mail",
+      tips: ["All your email accounts in one inbox: add Gmail, iCloud, Yahoo, Fastmail or any IMAP address, read conversations, search offline, and answer from the account it came to. [[mail|Read more]]"],
+    },
+    {
       title: "CorePro is now Zazabor",
       tips: ["Same app, new name. Your settings, notes, wallet, time log and clipboard history came across on the first start, and your shortcuts now open Zazabor."],
     },
