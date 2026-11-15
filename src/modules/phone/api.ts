@@ -253,6 +253,8 @@ export const phoneApi = {
   calls: (phoneId: string) => call<Call[]>("phone_calls", { phoneId }),
   contacts: (phoneId: string) => call<Contact[]>("phone_contacts", { phoneId }),
   contactPhoto: (phoneId: string, id: string) => call<string | null>("phone_contact_photo", { phoneId, id }),
+  /** The phone's home-screen wallpaper (a data: URL): fresh while linked, else the one kept. */
+  wallpaper: (phoneId: string) => call<string | null>("phone_wallpaper", { phoneId }),
   notifs: (phoneId: string) => call<Notif[]>("phone_notifs", { phoneId }),
   notifDismiss: (phoneId: string, key: string) => call<void>("phone_notif_dismiss", { phoneId, key }),
   notifAction: (phoneId: string, key: string, action: number, text?: string) => call<void>("phone_notif_action", { phoneId, key, action, text: text ?? null }),

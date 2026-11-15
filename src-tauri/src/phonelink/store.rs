@@ -89,6 +89,17 @@ pub fn set_pc_name(conn: &Connection, name: &str) -> Result<()> {
     Ok(())
 }
 
+/// The phone's wallpaper (a `data:` URL) as it last sent it, kept so the Phone section wears it
+/// before the phone links again.
+pub fn wallpaper(conn: &Connection, phone_id: &str) -> Result<Option<String>> {
+    conn.query_row("SELECT value FROM meta WHERE key = ?1", [format!("wallpaper:{phone_id}")], |r| r.get::<_, String>(0)).optional().map_err(db_err)
+}
+
+pub fn set_wallpaper(conn: &Connection, phone_id: &str, data_url: &str) -> Result<()> {
+    conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)", [format!("wallpaper:{phone_id}"), data_url.to_string()]).map_err(db_err)?;
+    Ok(())
+}
+
 // ---- pairings
 
 pub fn link_key(conn: &Connection, phone_id: &str) -> Result<Option<[u8; 32]>> {
@@ -168,6 +179,7 @@ pub fn forget(conn: &Connection, phone_id: &str) -> Result<()> {
     for table in ["phones", "threads", "msgs", "calls", "contacts", "synced", "thread_seen"] {
         conn.execute(&format!("DELETE FROM {table} WHERE phone_id = ?1"), [phone_id]).map_err(db_err)?;
     }
+    conn.execute("DELETE FROM meta WHERE key = ?1", [format!("wallpaper:{phone_id}")]).map_err(db_err)?;
     Ok(())
 }
 

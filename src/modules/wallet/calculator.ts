@@ -48,7 +48,10 @@ export function createCalculator(): Calculator {
   let lastAmount: HTMLInputElement | null = null;
   const history: { sum: string; value: number }[] = [];
 
-  const display = h("input", { class: "wl-calc-input", type: "text", inputmode: "decimal", spellcheck: "false", autocomplete: "off", placeholder: "0", "aria-label": "Sum" });
+  // On a phone the keys below do the typing: the system keyboard would cover them and shrink the
+  // window the calculator is kept inside.
+  const phone = document.documentElement.classList.contains("phone");
+  const display = h("input", { class: "wl-calc-input", type: "text", inputmode: phone ? "none" : "decimal", spellcheck: "false", autocomplete: "off", placeholder: "0", "aria-label": "Sum" });
   const answer = h("div", { class: "wl-calc-answer", "aria-live": "polite" });
   const past = h("div", { class: "wl-calc-history" });
   const insert = h("button", { class: "btn small primary wl-calc-insert", type: "button", title: "Put the answer into the amount field last typed in" }, "Insert");
@@ -153,32 +156,49 @@ export function createCalculator(): Calculator {
   close.addEventListener("click", () => hide());
 
   // Dragged by its bar, kept inside the window.
+  // On a phone the page runs under the status bar (#app is padded for it, mobile.css): the bar
+  // stays below it, where a finger can hold it without pulling down the notifications.
+  function topEdge() {
+    const app = document.getElementById("app");
+    return 8 + (app ? parseFloat(getComputedStyle(app).paddingTop) || 0 : 0);
+  }
   function place(x: number, y: number) {
     const w = el.offsetWidth || 260;
     const hgt = el.offsetHeight || 380;
+    const top = topEdge();
     const nx = Math.min(Math.max(8, x), window.innerWidth - w - 8);
-    const ny = Math.min(Math.max(8, y), window.innerHeight - hgt - 8);
+    const ny = Math.max(top, Math.min(y, window.innerHeight - hgt - 8));
     el.style.left = `${nx}px`;
     el.style.top = `${ny}px`;
     return { x: nx, y: ny };
   }
+  // The bar has touch-action: none (wallet.css), so a finger drags it rather than scrolling the
+  // page. Each drag's listeners go together when it ends, however it ends: one left over from a
+  // cancelled drag used to fire on the next and throw the calculator somewhere else.
+  let dragging: AbortController | null = null;
   bar.addEventListener("pointerdown", (e) => {
-    if ((e.target as HTMLElement).closest("button")) return;
+    if ((e.target as HTMLElement).closest("button") || dragging) return;
     e.preventDefault();
     bar.setPointerCapture(e.pointerId);
     const r = el.getBoundingClientRect();
     const dx = e.clientX - r.left;
     const dy = e.clientY - r.top;
     el.classList.add("dragging");
-    const move = (ev: PointerEvent) => place(ev.clientX - dx, ev.clientY - dy);
-    const up = (ev: PointerEvent) => {
-      bar.removeEventListener("pointermove", move);
+    const drag = new AbortController();
+    dragging = drag;
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId === e.pointerId) place(ev.clientX - dx, ev.clientY - dy);
+    };
+    const end = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      drag.abort();
+      dragging = null;
       el.classList.remove("dragging");
       saveSpot(place(ev.clientX - dx, ev.clientY - dy));
     };
-    bar.addEventListener("pointermove", move);
-    bar.addEventListener("pointerup", up, { once: true });
-    bar.addEventListener("pointercancel", up, { once: true });
+    bar.addEventListener("pointermove", move, { signal: drag.signal });
+    bar.addEventListener("pointerup", end, { signal: drag.signal });
+    bar.addEventListener("pointercancel", end, { signal: drag.signal });
   });
   const onResize = () => open && visible && place(el.offsetLeft, el.offsetTop);
   window.addEventListener("resize", onResize);
