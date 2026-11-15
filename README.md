@@ -232,11 +232,13 @@ Everything published is signed with the release key, an Ed25519 key made once wi
 tools/content/publish.sh                     # the library and the website (GitHub Pages of Soab42/zazabor-content)
 scripts/release.sh 0.3.0 "What's new"        # a release that installed copies update to
 scripts/release.sh 0.3.0 "What's new" --dry-run   # build and pack only, publish nothing
+scripts/release-phone-apps.sh v0.3.0         # build the two Android apps and attach them to that release
 ```
 
 - **The library** holds every motion template (their sources are in `src/modules/studio/video/motion/templates`, listed in `templates/index.ts`), the soundtracks (`content/music`), the template fonts (`content/fonts`; the six starter families are in `public/fonts`) and extra sound effects (`content/sounds`). `publish.sh` builds it into `content-dist/` with a signed catalog and pushes it; running copies pick it up within the hour.
 - **The website** (`content/site`: the product page, its screenshots and `install.sh`) is published with the library. It reads the catalog for its numbers, categories and playable soundtracks.
 - **A release** sets the version, builds, packs the program with its sound effects, signs `latest.json`, commits and tags the version, and creates the GitHub release. It needs a clean working tree.
+- **The phone apps**, Zazabor Link (`mobile-cast/`) and Zazabor Wallet (`mobile/`), are attached to each release as `zazabor-link.apk` and `zazabor-wallet.apk`, the names the website's download buttons and QR codes point at. They're signed with the Android release key, `~/.config/zazabor-release/android-release.jks` (its passwords in `android-signing.properties` beside it). **Back it up too:** a phone only installs an update signed with the same key.
 
 How it all fits together, and how to test against a local server (`ZAZABOR_CONTENT_URL`, `ZAZABOR_UPDATE_URL`), is in [`docs/plans/content-and-updates.md`](docs/plans/content-and-updates.md).
 

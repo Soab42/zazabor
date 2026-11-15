@@ -234,7 +234,7 @@ class MainActivity : Activity() {
         val dialog = AlertDialog.Builder(this)
             .setTitle("Enter the PC's address")
             .setMessage(
-                if (forLink) "Zazabor shows it in Phone, while Phone Link is on." else "Zazabor shows it under Video → Network Streams → Cast to this PC.",
+                if (forLink) "Zazabor Home shows it in Phone, while Phone Link is on." else "Zazabor Home shows it under Video → Network Streams → Cast to this PC.",
             )
             .setView(frame)
             .setPositiveButton(if (forLink) "Pair" else "Mirror", null)
@@ -359,7 +359,7 @@ class MainActivity : Activity() {
         pcList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         column.addView(pcList)
         emptyHint = text(14f, R.color.muted).apply {
-            text = "Looking for PCs…\nIn Zazabor, turn on Video → Network Streams → Cast to this PC. The phone and the PC need to be on the same Wi-Fi."
+            text = "Looking for PCs…\nIn Zazabor Home, turn on Video → Network Streams → Cast to this PC. The phone and the PC need to be on the same Wi-Fi."
             setLineSpacing(0f, 1.25f)
             background = rounded(color(R.color.surface), dp(18).toFloat())
             setPadding(dp(18), dp(16), dp(18), dp(16))
@@ -535,7 +535,7 @@ class MainActivity : Activity() {
         val (dot, title, detail) = when (status) {
             LinkStatus.Unpaired -> Triple(
                 R.color.muted, "Not linked",
-                "See this phone's texts, calls, photos, files and notifications in Zazabor on your PC, and send texts and files from there.",
+                "See this phone's texts, calls, photos, files and notifications in Zazabor Home on your PC, and send texts and files from there.",
             )
             is LinkStatus.Waiting -> Triple(R.color.warn, status.pc, status.detail)
             is LinkStatus.Pairing -> Triple(
@@ -641,7 +641,7 @@ class MainActivity : Activity() {
         list.removeAllViews()
         if (linkPcs.isEmpty()) {
             list.addView(text(14f, R.color.muted).apply {
-                text = "Looking for PCs…\nIn Zazabor on the PC, open Phone and turn on Phone Link. Both need to be on the same Wi-Fi."
+                text = "Looking for PCs…\nIn Zazabor Home on the PC, open Phone and turn on Phone Link. Both need to be on the same Wi-Fi."
                 setLineSpacing(0f, 1.25f)
                 setPadding(dp(8), dp(4), dp(8), dp(12))
             })

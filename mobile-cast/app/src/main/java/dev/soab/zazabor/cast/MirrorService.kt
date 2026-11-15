@@ -262,7 +262,7 @@ class MirrorService : Service() {
 
     private fun friendly(e: Exception, host: String, port: Int): String = when (e) {
         is ConnectException, is NoRouteToHostException ->
-            "Couldn't reach $host:$port. In Zazabor, turn on Video → Network Streams → Cast to this PC."
+            "Couldn't reach $host:$port. In Zazabor Home, turn on Video → Network Streams → Cast to this PC."
         is SocketTimeoutException -> "$pcName didn't answer"
         is UnknownHostException -> "Unknown address $host"
         else -> e.message ?: e.javaClass.simpleName

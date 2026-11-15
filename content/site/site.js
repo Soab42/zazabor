@@ -1,4 +1,4 @@
-// Zazabor's product page: the library's live numbers, categories and soundtracks (from
+// Zazabor Home's product page: the library's live numbers, categories and soundtracks (from
 // catalog.json, beside this page), the latest version (GitHub), copy buttons, the template
 // strips and the reveal on scroll. Everything on the page reads fine without it.
 (() => {
@@ -53,6 +53,11 @@
       if (!v) return;
       for (const el of $$("[data-version]")) el.textContent = v.split(".").slice(0, 2).join(".");
       for (const el of $$("[data-version-label]")) el.textContent = ` · ${v}`;
+      // The phone apps' sizes, from the files attached to the release.
+      for (const el of $$("[data-asset-size]")) {
+        const asset = release.assets?.find((a) => a.name === el.dataset.assetSize);
+        if (asset?.size) el.textContent = ` · ${(asset.size / 1048576).toFixed(asset.size < 10485760 ? 1 : 0)} MB`;
+      }
     })
     .catch(() => {});
 
@@ -76,7 +81,7 @@
       const updated = $("[data-updated]");
       if (updated && catalog.published) {
         const when = new Date(catalog.published * 1000).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
-        updated.textContent = `Last updated ${when}; new templates reach Zazabor within the hour.`;
+        updated.textContent = `Last updated ${when}; new templates reach Zazabor Home within the hour.`;
       }
       tracks(catalog.music);
     })
