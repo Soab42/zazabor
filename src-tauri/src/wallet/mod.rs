@@ -6,14 +6,19 @@
 //! Every command refuses while Zazabor is locked; changes go out to all windows as `wallet-changed`.
 
 mod bills;
+mod cards;
 pub(crate) mod dates;
 mod db;
 mod earnings;
 mod export;
+mod fdr;
 pub(crate) mod import;
 pub(crate) mod money;
+mod plans;
 mod quick;
 mod receipts;
+pub(crate) mod sync;
+pub(crate) mod sync_net;
 
 use rusqlite::Connection;
 use serde::Serialize;
@@ -51,6 +56,11 @@ fn open(dir: &Path) -> Result<Connection> {
     let mut conn = Connection::open(dir.join("wallet.db")).map_err(db_err)?;
     conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;").map_err(db_err)?;
     db::migrate(&mut conn, now())?;
+    sync::install(&conn)?;
+    // DPS and loans made before payments had a ledger of their own.
+    if let Err(err) = plans::adopt(&mut conn, now()) {
+        eprintln!("Wallet: couldn't carry over the DPS and loan payments: {err}");
+    }
     Ok(conn)
 }
 
@@ -59,12 +69,13 @@ fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'static) -
     async move { tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())? }
 }
 
-/// Posts the bills that post by themselves and are due, then tells the windows.
+/// Posts the bills and the DPS and loan installments that post by themselves and are due, then
+/// tells the windows.
 fn post_due_bills() -> Result<usize> {
     let posted = {
         let mut store = store();
         let Some(conn) = store.conn.as_mut() else { return Ok(0) };
-        bills::post_due(conn, &today(), now())?
+        bills::post_due(conn, &today(), now())? + plans::post_due(conn, &today(), now())? + fdr::post_due(conn, &today(), now())?
     };
     if posted > 0 {
         if let Some(app) = APP.get() {
@@ -86,6 +97,7 @@ pub fn init(app: tauri::AppHandle, dir: PathBuf) {
     };
     let _ = STORE.set(Mutex::new(Store { dir, conn, error }));
     let _ = APP.set(app);
+    listen_if_paired();
     // Each hour (and at start): the day's backup, then the bills that came due, catching up on
     // the days Zazabor wasn't running. Neither runs while Zazabor is locked.
     let _ = std::thread::Builder::new().name("wallet-backup".into()).spawn(|| loop {
@@ -304,7 +316,13 @@ pub fn wallet_tx_save(tx: db::TxInput) -> Result<db::Tx> {
 
 #[tauri::command]
 pub fn wallet_tx_delete(ids: Vec<String>) -> Result<usize> {
-    let n = change(|conn| db::delete_txs(conn, &ids))?;
+    let n = change(|conn| {
+        let n = db::delete_txs(conn, &ids)?;
+        // A DPS or loan payment deleted here leaves its table.
+        plans::after_delete(conn, now())?;
+        fdr::after_delete(conn, now())?;
+        Ok(n)
+    })?;
     sweep_receipts();
     Ok(n)
 }
@@ -370,6 +388,112 @@ pub fn wallet_bill_pay(id: String, date: Option<String>, today: String) -> Resul
 #[tauri::command]
 pub fn wallet_bill_skip(id: String, today: String) -> Result<()> {
     change(|conn| bills::skip(conn, &id, &today, now()))
+}
+
+// ---- credit cards
+
+/// Each card's limit, statement and what's due on it.
+#[tauri::command]
+pub fn wallet_cards(today: String) -> Result<Vec<cards::CardStatus>> {
+    with(|conn| cards::all(conn, &today))
+}
+
+// ---- DPS and loans
+
+/// Every DPS and loan; `today` is the page's local date (for what's due).
+#[tauri::command]
+pub fn wallet_plans(today: String) -> Result<Vec<plans::Plan>> {
+    crate::ensure_unlocked()?;
+    post_due_bills()?;
+    with(|conn| plans::list(conn, &today))
+}
+
+/// One DPS or loan with its table.
+#[tauri::command]
+pub fn wallet_plan(id: String, today: String) -> Result<plans::PlanDetail> {
+    with(|conn| plans::detail(conn, &id, &today))
+}
+
+/// What the terms work out to, before saving.
+#[tauri::command]
+pub fn wallet_plan_preview(plan: plans::PlanInput) -> Result<plans::Preview> {
+    with(|conn| plans::preview(conn, &plan))
+}
+
+#[tauri::command]
+pub fn wallet_plan_save(plan: plans::PlanInput, today: String) -> Result<plans::PlanDetail> {
+    let saved = change(|conn| plans::save(conn, plan, &today, now()))?;
+    // One that pays by itself and started in the past catches up at once.
+    if post_due_bills()? > 0 {
+        return with(|conn| plans::detail(conn, &saved.plan.id, &today));
+    }
+    Ok(saved)
+}
+
+/// Marks an installment as paid (on `date`, else its own date, or today when that's ahead).
+#[tauri::command]
+pub fn wallet_plan_pay(id: String, no: i64, date: Option<String>, today: String) -> Result<plans::PlanDetail> {
+    change(|conn| {
+        plans::pay(conn, &id, no, date.as_deref(), &today, now())?;
+        plans::detail(conn, &id, &today)
+    })
+}
+
+/// Adds or changes a payment on a DPS or loan; returns the table worked out again.
+#[tauri::command]
+pub fn wallet_plan_payment_save(payment: plans::PaymentInput, today: String) -> Result<plans::PlanDetail> {
+    change(|conn| plans::save_payment(conn, payment, &today, now()))
+}
+
+#[tauri::command]
+pub fn wallet_plan_payment_delete(id: String, today: String) -> Result<plans::PlanDetail> {
+    change(|conn| plans::delete_payment(conn, &id, &today, now()))
+}
+
+/// Reads a pasted loan or DPS statement into the payments already made; with `apply` off, only
+/// says what it found.
+#[tauri::command]
+pub fn wallet_plan_import(id: String, text: String, by_day: bool, apply: bool, today: String) -> Result<plans::StatementImport> {
+    if apply {
+        change(|conn| plans::import_statement(conn, &id, &text, by_day, true, &today, now()))
+    } else {
+        with(|conn| plans::import_statement(conn, &id, &text, by_day, false, &today, now()))
+    }
+}
+
+// ---- FDRs
+
+/// Every FDR with its interest payments.
+#[tauri::command]
+pub fn wallet_fdrs(today: String) -> Result<Vec<fdr::FdrDetail>> {
+    crate::ensure_unlocked()?;
+    post_due_bills()?;
+    with(|conn| fdr::list(conn, &today))
+}
+
+#[tauri::command]
+pub fn wallet_fdr_save(fdr: fdr::FdrInput, today: String) -> Result<fdr::FdrDetail> {
+    let saved = change(|conn| fdr::save(conn, fdr, &today, now()))?;
+    if post_due_bills()? > 0 {
+        return with(|conn| fdr::detail(conn, &saved.fdr.id, &today));
+    }
+    Ok(saved)
+}
+
+/// Marks an interest payment as received (on `date`, else its own date).
+#[tauri::command]
+pub fn wallet_fdr_receive(id: String, no: i64, date: Option<String>, today: String) -> Result<fdr::FdrDetail> {
+    change(|conn| fdr::receive(conn, &id, no, date.as_deref(), &today, now()))
+}
+
+#[tauri::command]
+pub fn wallet_fdr_delete(id: String) -> Result<()> {
+    change(|conn| fdr::delete(conn, &id))
+}
+
+#[tauri::command]
+pub fn wallet_plan_delete(id: String) -> Result<()> {
+    change(|conn| plans::delete(conn, &id))
 }
 
 // ---- receipts
@@ -623,6 +747,145 @@ pub fn wallet_backup_restore(name: String) -> Result<()> {
         let _ = app.emit("wallet-changed", ());
     }
     Ok(())
+}
+
+// ---- sync with other devices (`sync.rs`, `sync_net.rs`)
+
+/// What Settings → Wallet → Devices (and the phone's Sync sheet) shows.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncInfo {
+    device: String,
+    name: String,
+    peers: Vec<sync_net::Peer>,
+    /// The port this side listens on, when it does (the desktop, once a phone is paired).
+    listening: Option<u16>,
+}
+
+/// A pairing on offer: the code and the same as a QR code (SVG).
+#[derive(Serialize)]
+pub struct SyncInvite {
+    code: String,
+    svg: String,
+}
+
+static LISTENING: OnceLock<u16> = OnceLock::new();
+
+/// What this device is called on the other one.
+fn device_name() -> String {
+    if cfg!(target_os = "android") {
+        return "Android phone".into();
+    }
+    let mut buf = [0u8; 256];
+    // SAFETY: gethostname writes at most `buf.len()` bytes into `buf`.
+    let ok = unsafe { libc::gethostname(buf.as_mut_ptr() as *mut libc::c_char, buf.len()) } == 0;
+    let host = if ok { String::from_utf8_lossy(&buf[..buf.iter().position(|b| *b == 0).unwrap_or(0)]).into_owned() } else { String::new() };
+    if host.is_empty() { "Computer".into() } else { host }
+}
+
+/// The ledger as the sync server's threads see it.
+struct StoreLedger;
+
+use sync_net::Ledger as _;
+
+impl sync_net::Ledger for StoreLedger {
+    fn with<T>(&self, f: impl FnOnce(&mut Connection) -> Result<T>) -> Result<T> {
+        with(f)
+    }
+    fn name(&self) -> String {
+        device_name()
+    }
+    fn changed(&self) {
+        if let Some(app) = APP.get() {
+            let _ = app.emit("wallet-changed", ());
+        }
+    }
+    fn paired(&self, peer: &sync_net::Peer) {
+        if let Some(app) = APP.get() {
+            let _ = app.emit("wallet-sync-paired", peer.clone());
+        }
+    }
+}
+
+/// Starts answering phones (once; later calls just say where).
+fn listen() -> Result<u16> {
+    if let Some(port) = LISTENING.get() {
+        return Ok(*port);
+    }
+    let port = sync_net::serve(StoreLedger)?;
+    let _ = LISTENING.set(port);
+    Ok(port)
+}
+
+/// At start: the desktop listens again when it has phones paired.
+fn listen_if_paired() {
+    if cfg!(target_os = "android") {
+        return;
+    }
+    let paired = with(|c| Ok(sync_net::peers(c)?.iter().any(|p| p.kind == "phone"))).unwrap_or(false);
+    if paired {
+        if let Err(err) = listen() {
+            eprintln!("Wallet sync: {err}");
+        }
+    }
+}
+
+#[tauri::command]
+pub fn wallet_sync_info() -> Result<SyncInfo> {
+    with(|c| Ok(SyncInfo { device: sync::device(c)?, name: device_name(), peers: sync_net::peers(c)?, listening: LISTENING.get().copied() }))
+}
+
+/// Offers a pairing for five minutes (the desktop): starts listening, returns the QR code.
+#[tauri::command]
+pub fn wallet_sync_invite() -> Result<SyncInvite> {
+    let port = listen()?;
+    let device = with(|c| sync::device(c))?;
+    let code = sync_net::invite(device, device_name(), port).to_code();
+    let svg = qrcode::QrCode::with_error_correction_level(code.as_bytes(), qrcode::EcLevel::M)
+        .map_err(|e| e.to_string())?
+        .render::<qrcode::render::svg::Color>()
+        .min_dimensions(240, 240)
+        .quiet_zone(true)
+        .build();
+    Ok(SyncInvite { code, svg })
+}
+
+#[tauri::command]
+pub fn wallet_sync_cancel_invite() {
+    sync_net::cancel_invite();
+}
+
+/// Pairs with a computer from its QR code (the phone), then syncs. A phone with nothing of its
+/// own yet takes the computer's ledger as it is instead of adding its starter categories to it.
+#[tauri::command]
+pub async fn wallet_sync_join(code: String) -> Result<sync_net::Outcome> {
+    let invite = sync_net::Invite::parse(&code)?;
+    blocking(move || {
+        with(|c| sync::forget_starter(c))?;
+        let out = sync_net::call(&|f| with(|c| f(c)), &invite.device.clone(), Some(&invite), &device_name());
+        StoreLedger.changed();
+        out
+    })
+    .await
+}
+
+/// Syncs with every paired computer now (the phone). Problems come back per computer.
+#[tauri::command]
+pub async fn wallet_sync_now() -> Result<Vec<std::result::Result<sync_net::Outcome, String>>> {
+    blocking(|| {
+        let desktops: Vec<String> = with(|c| Ok(sync_net::peers(c)?.into_iter().filter(|p| p.kind == "desktop").map(|p| p.id).collect()))?;
+        let out: Vec<_> = desktops.iter().map(|id| sync_net::call(&|f| with(|c| f(c)), id, None, &device_name())).collect();
+        if out.iter().any(|o| o.as_ref().is_ok_and(|o| o.received > 0)) {
+            StoreLedger.changed();
+        }
+        Ok(out)
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn wallet_sync_forget(id: String) -> Result<()> {
+    with(|c| sync_net::forget_peer(c, &id))
 }
 
 #[cfg(test)]

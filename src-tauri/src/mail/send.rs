@@ -99,15 +99,15 @@ pub fn build(account: &Account, out: &Outgoing, files: Vec<Loaded>, original: Op
 }
 
 /// Sends it; returns the message as sent, for the Sent folder.
-pub fn send(account: &Account, password: &str, message: &lettre::Message) -> Result<Vec<u8>, String> {
-    let transport = net::smtp(&account.smtp, &account.username, password)?;
+pub fn send(account: &Account, cred: &net::Cred, message: &lettre::Message) -> Result<Vec<u8>, String> {
+    let transport = net::smtp(&account.smtp, &account.username, cred)?;
     transport.send(message).map_err(|e| net::smtp_err(&account.smtp, e))?;
     Ok(message.formatted())
 }
 
 /// Checks that the outgoing server takes the account's sign-in.
-pub fn check(account: &Account, password: &str) -> Result<(), String> {
-    let transport = net::smtp(&account.smtp, &account.username, password)?;
+pub fn check(account: &Account, cred: &net::Cred) -> Result<(), String> {
+    let transport = net::smtp(&account.smtp, &account.username, cred)?;
     match transport.test_connection() {
         Ok(true) => Ok(()),
         Ok(false) => Err(format!("{} didn't answer like a mail server.", account.smtp.host)),
@@ -131,7 +131,7 @@ mod tests {
             id: "a".into(), email: "me@example.com".into(), name: "Me Myself".into(), color: "blue".into(), username: "me@example.com".into(),
             imap: Server { host: "imap.example.com".into(), port: 993, security: "ssl".into() },
             smtp: Server { host: "smtp.example.com".into(), port: 465, security: "ssl".into() },
-            signature: String::new(), synced: 0, error: None,
+            signature: String::new(), auth: "password".into(), synced: 0, error: None,
         }
     }
 

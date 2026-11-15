@@ -62,7 +62,7 @@ export function overviewView(ctx: Ctx) {
     const now = months[1] ?? { month, incomeMinor: 0, spendingMinor: 0, netWorthMinor: 0 };
     const before = months[0] ?? { month: addMonths(month, -1), incomeMinor: 0, spendingMinor: 0, netWorthMinor: 0 };
     const live = s.accounts.filter((a) => !a.archived);
-    const balance = live.reduce((t, a) => t + (a.balanceBaseMinor ?? 0), 0);
+    const balance = live.filter((a) => a.inTotal).reduce((t, a) => t + (a.balanceBaseMinor ?? 0), 0);
     const money = (v: number) => fmt(ctx, v);
     const kept = now.incomeMinor - now.spendingMinor;
     const rate = now.incomeMinor > 0 && !ctx.hidden() ? Math.round((kept / now.incomeMinor) * 100) : null;
@@ -70,7 +70,7 @@ export function overviewView(ctx: Ctx) {
     const hero = h("section", { class: "wl-card wl-hero-card" },
       h("span", { class: "wl-stat-label" }, "Total balance"),
       h("strong", { class: "wl-hero" }, money(balance)),
-      h("span", { class: "wl-card-sub" }, `Across ${live.length} account${live.length === 1 ? "" : "s"}, in ${s.base}`));
+      h("span", { class: "wl-card-sub" }, `Across ${live.filter((a) => a.inTotal).length} account${live.filter((a) => a.inTotal).length === 1 ? "" : "s"}, in ${s.base}`));
     const tile = (label: string, value: string, d: HTMLElement | null, extra: string | null = null) =>
       h("section", { class: "wl-card wl-tile" }, h("span", { class: "wl-stat-label" }, label), h("strong", { class: "wl-stat-value" }, value), d, extra ? h("span", { class: "wl-card-sub" }, extra) : null);
     const tiles = h("div", { class: "wl-tiles" },
@@ -143,10 +143,10 @@ export function overviewView(ctx: Ctx) {
           const cat = categoryOf(ctx, b.categoryId);
           const late = b.nextDate! < today;
           return h("div", { class: "wl-mini-tx wl-mini-bill" },
-            chip(categoryGlyph(cat?.icon ?? "repeat"), cat?.color ?? "gray", 26),
+            b.kind === "transfer" ? chip("transfer", "blue", 26) : chip(categoryGlyph(cat?.icon ?? "repeat"), cat?.color ?? "gray", 26),
             h("button", { class: "wl-mini-text text-btn", type: "button", onclick: () => billSheet(ctx, b) }, h("span", { class: "wl-mini-name" }, billName(ctx, b)), h("span", { class: `wl-card-sub${late ? " wl-late" : ""}` }, dueText(b))),
             h("span", { class: "spacer" }),
-            h("span", { class: `wl-mini-amount ${b.kind === "income" ? "in" : ""}` }, fmt(ctx, b.kind === "income" ? b.amountMinor : -b.amountMinor, b.currency, { signed: true })),
+            h("span", { class: `wl-mini-amount ${b.kind === "income" ? "in" : ""}` }, b.kind === "transfer" ? (b.amountMode === "statement" ? "Statement" : fmt(ctx, b.amountMinor, b.currency)) : fmt(ctx, b.kind === "income" ? b.amountMinor : -b.amountMinor, b.currency, { signed: true })),
             !b.autoPost ? h("button", { class: `btn small${late ? " primary" : ""}`, type: "button", title: b.kind === "income" ? "Mark as received" : "Mark as paid", onclick: () => void payBill(ctx, b) }, icon("check", 13)) : null);
         }))
         : h("p", { class: "wl-chart-empty" }, bills.length ? "Nothing due in the next two weeks." : "Add rent, bills and subscriptions to see what's coming."));

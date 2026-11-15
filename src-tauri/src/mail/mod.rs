@@ -10,6 +10,7 @@
 
 mod db;
 mod net;
+mod oauth;
 mod parse;
 mod providers;
 mod secrets;
@@ -126,26 +127,74 @@ fn held(folder: i64) -> HashSet<u32> {
     guard.as_ref().and_then(|all| all.get(&folder)).map(|held| held.keys().copied().collect()).unwrap_or_default()
 }
 
-/// New mail came in: the windows show it, and so does the desktop.
+/// The mail notification still showing, replaced by the next one so they don't pile up.
+static SHOWN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// The page's settings (`config.json`): (the Mail section is on, new mail is shown on the desktop).
+fn settings() -> (bool, bool) {
+    use tauri::Manager;
+    let json = APP
+        .get()
+        .and_then(|app| app.path().app_config_dir().ok())
+        .and_then(|dir| std::fs::read_to_string(dir.join("config.json")).ok())
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .unwrap_or_default();
+    let feature = json.pointer("/features/mail").and_then(|v| v.as_bool()).unwrap_or(true);
+    let notify = json.pointer("/mail/notify").and_then(|v| v.as_bool()).unwrap_or(true);
+    (feature, notify)
+}
+
+/// Brings Zazabor to the Mail section on the inbox (a notification was clicked).
+fn show_inbox(account: &str) {
+    use tauri::Manager;
+    let Some(app) = APP.get() else { return };
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.unminimize();
+        let _ = main.show();
+        let _ = main.set_focus();
+        let _ = main.emit("mail-show-inbox", account);
+        return;
+    }
+    if let Err(err) = crate::new_window(app, "mail", None, None) {
+        eprintln!("Mail: couldn't open a window: {err}");
+    }
+}
+
+/// New mail came in: the windows show it, and so does the desktop (clicking it opens the inbox).
 fn announce(account: &str, arrived: &[&db::Header]) {
     let Some(first) = arrived.iter().max_by_key(|h| h.date) else { return };
     let from = if first.from.name.is_empty() { first.from.addr.clone() } else { first.from.name.clone() };
     if let Some(app) = APP.get() {
         let _ = app.emit("mail-new", serde_json::json!({ "accountId": account, "count": arrived.len(), "from": from, "subject": first.subject }));
     }
+    let (feature, notify) = settings();
+    if !feature || !notify {
+        return;
+    }
+    let email = with_db(|conn| db::accounts(conn)).ok().and_then(|all| all.into_iter().find(|a| a.id == account)).map(|a| a.email).unwrap_or_default();
     // Who wrote stays private while Zazabor is locked.
     let (title, text) = if crate::lock::is_locked() {
-        ("New mail".to_string(), String::new())
+        (if arrived.len() == 1 { "New mail".to_string() } else { format!("{} new messages", arrived.len()) }, email)
     } else if arrived.len() == 1 {
-        (from, first.subject.clone())
+        let subject = if first.subject.trim().is_empty() { "(no subject)" } else { first.subject.trim() };
+        (from, if email.is_empty() { subject.to_string() } else { format!("{subject}\n{email}") })
     } else {
-        (format!("{} new messages", arrived.len()), format!("{from}: {}", first.subject))
+        (format!("{} new messages", arrived.len()), format!("{from}: {}{}", first.subject.trim(), if email.is_empty() { String::new() } else { format!("\n{email}") }))
     };
-    let _ = std::process::Command::new("notify-send").args(["-a", "Zazabor", "-i", "mail-unread", "--", &title, &text]).spawn().map(|mut child| {
-        std::thread::spawn(move || {
-            let _ = child.wait();
-        })
-    });
+    let account = account.to_string();
+    let replaces = SHOWN.load(std::sync::atomic::Ordering::Relaxed);
+    let id = crate::desktop_notify::show(
+        crate::desktop_notify::Note { title: &title, body: &glib_escape(&text), icon: "mail-unread", category: "email.arrived", replaces },
+        Some(Box::new(move || show_inbox(&account))),
+    );
+    if id != 0 {
+        SHOWN.store(id, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Notification bodies may carry a little markup: the text shows as typed.
+fn glib_escape(text: &str) -> String {
+    text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
 /// Keeps a message as the server holds it, with its preview line and its words for the search.
@@ -157,6 +206,17 @@ fn store_body(account: &str, folder: i64, uid: u32, raw: &[u8]) -> Result<()> {
     std::fs::write(&path, raw).map_err(|e| format!("Mail can't keep the message: {e}"))?;
     let summary = parse::summary(raw);
     with_db(|conn| db::set_body(conn, folder, uid, &summary.snippet, summary.attachments, &summary.text))
+}
+
+/// What the account signs in with now: its password, or an access token (renewed when the one
+/// kept has run out) for an account that signed in with Google or Microsoft.
+pub(crate) fn cred(account: &Account) -> Result<net::Cred> {
+    if account.auth.is_empty() || account.auth == "password" {
+        return secrets::get(&account.id).map(net::Cred::Password).ok_or_else(|| "Its password isn't saved any more. Enter it again in the account's settings.".to_string());
+    }
+    let provider = oauth::provider(&account.auth)?;
+    let clients = oauth::clients(&store().dir);
+    oauth::access_token(&provider, &clients, || secrets::get(&account.id), |tokens| secrets::set(&account.id, &account.email, tokens)).map(net::Cred::Token)
 }
 
 fn worker_send(account: &str, cmd: Cmd) {
@@ -208,6 +268,14 @@ pub fn init(app: tauri::AppHandle, dir: PathBuf) {
     secrets::init(dir.clone());
     let _ = STORE.set(Store { dir, conn: Mutex::new(conn), error });
     let _ = APP.set(app);
+    // New mail is checked for from the start, with no window open too (Zazabor running in the
+    // background), so it's announced on the desktop as it arrives.
+    let _ = std::thread::Builder::new().name("mail-start".into()).spawn(|| {
+        std::thread::sleep(Duration::from_secs(4));
+        if settings().0 {
+            start_workers();
+        }
+    });
 }
 
 fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'static) -> impl std::future::Future<Output = Result<T>> {
@@ -381,6 +449,7 @@ pub async fn mail_account_save(input: AccountInput) -> Result<Account> {
             imap: input.imap,
             smtp: input.smtp,
             signature: input.signature,
+            auth: existing.as_ref().map(|e| e.auth.clone()).unwrap_or_else(|| "password".into()),
             synced: 0,
             error: None,
         };
@@ -389,12 +458,15 @@ pub async fn mail_account_save(input: AccountInput) -> Result<Account> {
             None => true,
         };
         if reconnect {
-            let password = if input.password.is_empty() { secrets::get(&account.id).ok_or("Enter the password.")? } else { input.password.clone() };
-            let mut link = net::connect(&account.imap, &account.username, &password)?;
+            let by_password = account.auth == "password";
+            let cred = if by_password && !input.password.is_empty() { net::Cred::Password(input.password.clone()) } else { cred(&account).map_err(|e| if by_password { "Enter the password.".to_string() } else { e })? };
+            let mut link = net::connect(&account.imap, &account.username, &cred)?;
             let _ = link.session.logout();
-            send::check(&account, &password).map_err(|e| format!("Reading mail works, but sending doesn't: {e}"))?;
+            send::check(&account, &cred).map_err(|e| format!("Reading mail works, but sending doesn't: {e}"))?;
             stop_worker(&account.id);
-            secrets::set(&account.id, &account.email, &password)?;
+            if let (true, net::Cred::Password(password)) = (by_password, &cred) {
+                secrets::set(&account.id, &account.email, password)?;
+            }
         }
         with_db(|conn| {
             db::save_account(conn, &account, now())?;
@@ -405,6 +477,116 @@ pub async fn mail_account_save(input: AccountInput) -> Result<Account> {
         with_db(|conn| db::account(conn, &account.id))
     })
     .await
+}
+
+// ---- signing in with Google or Microsoft
+
+/// Which providers can be signed in with (a client ID is known), and the IDs entered here.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OAuthState {
+    google: bool,
+    microsoft: bool,
+    google_id: String,
+    /// Whether a Google secret is there (it isn't handed back).
+    google_secret: bool,
+    microsoft_id: String,
+}
+
+fn oauth_state() -> OAuthState {
+    let c = oauth::clients(&store().dir);
+    OAuthState { google: !c.google_id.is_empty(), microsoft: !c.microsoft_id.is_empty(), google_secret: !c.google_secret.is_empty(), google_id: c.google_id, microsoft_id: c.microsoft_id }
+}
+
+#[tauri::command]
+pub async fn mail_oauth_state() -> Result<OAuthState> {
+    blocking(|| Ok(oauth_state())).await
+}
+
+/// Keeps a provider's client ID ("google" also takes its secret; an empty one keeps what's there).
+#[tauri::command]
+pub async fn mail_oauth_client(provider: String, id: String, secret: String) -> Result<OAuthState> {
+    blocking(move || {
+        let dir = &store().dir;
+        let mut clients = oauth::clients(dir);
+        match provider.as_str() {
+            "google" => {
+                clients.google_id = id;
+                if !secret.trim().is_empty() {
+                    clients.google_secret = secret;
+                }
+            }
+            "microsoft" => clients.microsoft_id = id,
+            _ => return Err("Zazabor can't sign in with that provider.".into()),
+        }
+        oauth::save_clients(dir, &clients)?;
+        Ok(oauth_state())
+    })
+    .await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignedIn {
+    account: Account,
+    /// Signed in and reading mail, but something is off (sending is turned off for the account).
+    warning: Option<String>,
+}
+
+/// Signs in with Google or Microsoft in the browser, and adds the account that signed in (or,
+/// with `account`, signs that account in again). Waits for the browser, up to five minutes.
+#[tauri::command]
+pub async fn mail_oauth_signin(provider: String, account: Option<String>, name: String) -> Result<SignedIn> {
+    blocking(move || {
+        let p = oauth::provider(&provider)?;
+        let existing = match &account {
+            Some(id) => Some(with_db(|conn| db::account(conn, id))?),
+            None => None,
+        };
+        let clients = oauth::clients(&store().dir);
+        let grant = oauth::sign_in(&p, &clients, existing.as_ref().map(|a| a.email.as_str()), |url| crate::open_with_system(std::ffi::OsStr::new(url)).map_err(|e| format!("Couldn't open the browser: {e}")))?;
+        let all = with_db(|conn| db::accounts(conn))?;
+        // Signing in as an address that's already here signs that account in again.
+        let existing = existing.or_else(|| all.iter().find(|a| a.email.eq_ignore_ascii_case(&grant.email)).cloned());
+        if let Some(old) = existing.as_ref().filter(|old| !old.email.eq_ignore_ascii_case(&grant.email)) {
+            return Err(format!("You signed in as {}, but this account is {}. Sign in again and pick {}.", grant.email, old.email, old.email));
+        }
+        let (imap, smtp) = oauth::servers(p.id, &grant.email);
+        let account = Account {
+            id: existing.as_ref().map(|e| e.id.clone()).unwrap_or_else(crate::notes::new_id),
+            email: existing.as_ref().map(|e| e.email.clone()).unwrap_or_else(|| grant.email.clone()),
+            name: existing.as_ref().map(|e| e.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| if name.trim().is_empty() { grant.name.clone() } else { name.trim().to_string() }),
+            color: existing.as_ref().map(|e| e.color.clone()).unwrap_or_else(|| db::COLORS.iter().find(|c| !all.iter().any(|a| a.color == **c)).unwrap_or(&db::COLORS[all.len() % db::COLORS.len()]).to_string()),
+            username: grant.email.clone(),
+            imap,
+            smtp,
+            signature: existing.as_ref().map(|e| e.signature.clone()).unwrap_or_default(),
+            auth: p.id.to_string(),
+            synced: 0,
+            error: None,
+        };
+        let cred = net::Cred::Token(grant.tokens.access.clone());
+        let mut link = net::connect(&account.imap, &account.username, &cred)?;
+        let _ = link.session.logout();
+        // An organisation can turn sending by mail apps off: the account still reads.
+        let warning = send::check(&account, &cred).err().map(|e| format!("Reading mail works, but sending doesn't yet: {e}"));
+        stop_worker(&account.id);
+        secrets::set(&account.id, &account.email, &serde_json::to_string(&grant.tokens).map_err(|e| e.to_string())?)?;
+        with_db(|conn| {
+            db::save_account(conn, &account, now())?;
+            db::set_account_state(conn, &account.id, None, None)
+        })?;
+        start_workers();
+        changed(&account.id);
+        Ok(SignedIn { account: with_db(|conn| db::account(conn, &account.id))?, warning })
+    })
+    .await
+}
+
+/// Stops a sign-in that's waiting for the browser.
+#[tauri::command]
+pub fn mail_oauth_cancel() {
+    oauth::cancel();
 }
 
 #[tauri::command]
@@ -662,7 +844,7 @@ pub async fn mail_read_all(folder: i64) -> Result<()> {
 pub async fn mail_send(out: send::Outgoing) -> Result<()> {
     blocking(move || {
         let account = with_db(|conn| db::account(conn, &out.account_id))?;
-        let password = secrets::get(&account.id).ok_or("This account's password isn't saved any more. Enter it again in the account's settings.")?;
+        let cred = cred(&account)?;
         let original = match out.reply_to {
             Some(id) => with_db(|conn| db::message(conn, id)).ok(),
             None => None,
@@ -683,7 +865,7 @@ pub async fn mail_send(out: send::Outgoing) -> Result<()> {
             });
         }
         let message = send::build(&account, &out, files, original.as_ref())?;
-        let raw = send::send(&account, &password, &message)?;
+        let raw = send::send(&account, &cred, &message)?;
 
         let at = now();
         with_db(|conn| {
@@ -784,6 +966,7 @@ mod tests {
             imap: Server { host: host.clone(), port: imap_port, security: "none".into() },
             smtp: Server { host: host.clone(), port: smtp_port, security: "none".into() },
             signature: String::new(),
+            auth: "password".into(),
             synced: 0,
             error: None,
         };
@@ -792,7 +975,8 @@ mod tests {
             with_db(|conn| db::save_account(conn, a, stamp)).unwrap();
             secrets::set(&a.id, &a.email, "secret").unwrap();
         }
-        send::check(&bob, "secret").unwrap();
+        let secret = net::Cred::Password("secret".into());
+        send::check(&bob, &secret).unwrap();
 
         // Bob writes to Ann, with a file.
         let out = send::Outgoing {
@@ -808,7 +992,7 @@ mod tests {
             draft_id: None,
         };
         let message = send::build(&bob, &out, vec![("menu.txt".into(), "text/plain".into(), b"soup of the day".to_vec())], None).unwrap();
-        send::send(&bob, "secret", &message).unwrap();
+        send::send(&bob, &secret, &message).unwrap();
 
         // Ann's account syncs: the folders appear, then the message with its text.
         start_workers();
@@ -827,12 +1011,12 @@ mod tests {
 
         // New mail while running shows by IDLE, without waiting for the next pass.
         let second = send::build(&bob, &send::Outgoing { subject: "PS".into(), ..out.clone() }, vec![], None).unwrap();
-        send::send(&bob, "secret", &second).unwrap();
+        send::send(&bob, &secret, &second).unwrap();
         wait_for("the second message", || (with_db(|conn| db::threads(conn, &query())).unwrap().len() == 2).then_some(()));
 
         // Reading it reaches the server: a sync afterwards still has it read.
         let read_on_server = |uid: u32| {
-            let mut link = net::connect(&ann.imap, &ann.username, "secret").unwrap();
+            let mut link = net::connect(&ann.imap, &ann.username, &secret).unwrap();
             link.session.select("INBOX").unwrap();
             let seen = link.session.uid_search("SEEN").unwrap().contains(&uid);
             let _ = link.session.logout();
@@ -847,7 +1031,7 @@ mod tests {
         let trash = match with_db(|conn| db::folder_by_role(conn, &ann.id, "trash")).unwrap() {
             Some(trash) => trash,
             None => {
-                let mut link = net::connect(&ann.imap, &ann.username, "secret").unwrap();
+                let mut link = net::connect(&ann.imap, &ann.username, &secret).unwrap();
                 link.session.create("Trash").unwrap();
                 let _ = link.session.logout();
                 worker_send(&ann.id, Cmd::Sync);

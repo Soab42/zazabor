@@ -10,6 +10,7 @@ import { motionTemplates, screenRecorder } from "./motion";
 import { notes } from "./notes";
 import { office } from "./office";
 import { pdf } from "./pdf";
+import { phone } from "./phone";
 import { photo, studio } from "./photo";
 import { sheets } from "./sheets";
 import { backgroundQuit, install, privacyLock, settings, shortcuts, windows } from "./system";
@@ -24,7 +25,7 @@ import { whatsNew } from "./whats-new";
 export const ARTICLES: GuideArticle[] = [
   gettingStarted,
   files, gallery, quickEdit, slideshows, videoPlayer, terminal, codeEditor,
-  notes, time, wallet, walletStatements, clipboard, mail,
+  notes, time, wallet, walletStatements, clipboard, mail, phone,
   office, docs, sheets, pdf,
   studio, photo, videoEditor, motionTemplates, screenRecorder,
   apps, settings, privacyLock, windows, backgroundQuit, install, shortcuts,

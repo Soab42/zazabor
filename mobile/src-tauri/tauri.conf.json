@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Zazabor Wallet",
+  "version": "0.1.0",
+  "identifier": "dev.soab.zazabor.wallet",
+  "build": {
+    "beforeDevCommand": "npm --prefix .. run dev:mobile",
+    "devUrl": "http://localhost:1430",
+    "beforeBuildCommand": "npm --prefix .. run build:mobile",
+    "frontendDist": "../../dist-mobile"
+  },
+  "app": {
+    "windows": [{ "label": "main", "url": "mobile.html", "title": "Zazabor Wallet", "backgroundColor": "#0e0f11" }],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' asset: http://asset.localhost data: blob:; connect-src 'self' ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["../../src-tauri/icons/32x32.png", "../../src-tauri/icons/128x128.png", "../../src-tauri/icons/128x128@2x.png", "../../src-tauri/icons/icon.png"]
+  }
+}

@@ -17,6 +17,8 @@ import { Player } from "./player";
 import { quickHooks } from "./quick-api";
 import { Sections } from "./sections";
 import { VideoSidebar } from "./sidebar";
+import { openReceiverDialog } from "./features/receiver/dialog";
+import { currentCast, onCastChange, onReceiverInfo, receiverSettings } from "./features/receiver/service";
 import { createVideoSurface, glassOf } from "./surface";
 import { wheelStepper } from "./volume";
 
@@ -89,6 +91,7 @@ export class VideoModule implements AppModule {
   private tabs: PanelTab[] = [];
   private readonly overlay = h("div", { class: "vp-overlay" });
   private readonly unsubscribe: () => void;
+  private readonly unsubscribeReceiver: () => void;
 
   private view: "browse" | "player" = "browse";
   private active = false;
@@ -151,6 +154,12 @@ export class VideoModule implements AppModule {
     this.renderRail();
     this.applyView();
     this.unsubscribe = this.player.subscribe(() => this.sync());
+    const unInfo = onReceiverInfo(() => this.renderRail());
+    const unCast = onCastChange(() => this.sync());
+    this.unsubscribeReceiver = () => {
+      unInfo();
+      unCast();
+    };
 
     const context = this.context();
     for (const create of FEATURES) this.features.push(create(context));
@@ -345,7 +354,10 @@ export class VideoModule implements AppModule {
         ...this.featureItems("open"),
       ]);
     });
-    items.push(add);
+    // Cast to This PC: phones send videos here, like to a smart TV (a dot while it listens).
+    const casting = receiverSettings(this.shell.config).enabled;
+    const cast = button("cast", casting ? "Cast to This PC (on)" : "Cast to This PC", false, () => openReceiverDialog(this.shell), casting ? " cast-on" : "");
+    items.push(add, h("span", { class: "vp-rail-fill", "aria-hidden": "true" }), cast);
     this.rail.replaceChildren(...items);
   }
 
@@ -391,7 +403,11 @@ export class VideoModule implements AppModule {
     this.sidebarToggle.disabled = !playing;
     if (this.active && playing) this.surface.start();
     else this.surface.stop();
-    this.crumb.textContent = playing && this.player.current ? basename(dirname(this.player.current)) : this.sections.title;
+    const cast = currentCast();
+    // A cast's address means nothing to people (VLC's is /chromecast/<number>/stream): name the phone.
+    this.crumb.textContent = playing && this.player.current
+      ? cast?.url === this.player.current ? cast.sender : basename(dirname(this.player.current))
+      : this.sections.title;
     const current = this.player.current;
     this.titleEl.textContent = playing && current ? libraryService()?.label(current) ?? stripExtension(basename(current)) : "";
     this.titleEl.title = this.player.current ?? "";
@@ -739,6 +755,7 @@ export class VideoModule implements AppModule {
     for (const untrack of this.untrackGlass) untrack();
     this.unsubscribeLook();
     this.unsubscribe();
+    this.unsubscribeReceiver();
     this.player.dispose();
     this.surface.dispose();
   }

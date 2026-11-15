@@ -95,7 +95,7 @@ export function createReader(host: ReaderHost) {
     button("mail", "Mark as unread (U)", "unread"), star, button("folder", "Move to… (V)", "move"),
     h("span", { class: "spacer" }),
     button("reply", "Reply (R)", () => respond("reply")), button("replyAll", "Reply to all (A)", () => respond("replyAll")), button("forward", "Forward (F)", () => respond("forward")));
-  const empty = h("div", { class: "ml-reader-empty" }, h("div", { class: "cp-empty-tile glass" }, icon("mail", 30)), h("p", null, "Pick a conversation to read it here."));
+  const empty = h("div", { class: "ml-reader-empty" }, h("div", { class: "ml-empty-tile glass" }, icon("mail", 30)), h("p", null, "Pick a conversation to read it here."));
   const el = h("section", { class: "ml-reader empty" }, bar, scroll, empty);
 
   function body(id: number, images: boolean): Promise<Body> {

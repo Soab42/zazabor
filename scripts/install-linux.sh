@@ -78,6 +78,8 @@ if [[ "${1:-}" == "--uninstall" ]]; then
 fi
 
 if [[ $build == 1 ]]; then
+  # The mail sign-in client IDs are compiled into the build (src-tauri/src/mail/oauth.rs).
+  if [[ -f .env.release ]]; then set -a; . ./.env.release; set +a; fi
   npx tauri build --no-bundle
 fi
 

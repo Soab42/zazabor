@@ -9,3 +9,6 @@ src-tauri/target-*/
 src-tauri/pdfium/
 content-dist/
 dist-release/
+.env.release
+dist-mobile/
+mobile/src-tauri/target/

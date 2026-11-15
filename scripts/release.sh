@@ -11,6 +11,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# The mail sign-in client IDs are compiled into the build (src-tauri/src/mail/oauth.rs).
+release_env=.env.release
+if [[ -f "$release_env" ]]; then set -a; . "$release_env"; set +a; fi
+
 repo=Soab42/zazabor
 platform=linux-x86_64
 version="${1:-}"

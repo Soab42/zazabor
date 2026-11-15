@@ -238,9 +238,15 @@ pub fn add(mut item: Item) {
     }
     item.id = new_id();
     item.created = now();
+    // Phone Link: phones that share the clipboard get it too (excluded apps never reach here).
+    let shared = (item.kind == "text").then(|| item.text.clone());
     let gone = record(&mut store.saved.items, item);
     store.forget_images(&gone);
     store.changed();
+    drop(store);
+    if let Some(text) = shared {
+        crate::phonelink::share_clip(&text);
+    }
 }
 
 /// Where watch.rs saves a picture.

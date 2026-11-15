@@ -1,8 +1,10 @@
 mod awake;
 mod background;
+mod cast;
 mod clipboard;
 mod content;
 mod defaults;
+mod desktop_notify;
 mod dims;
 mod download;
 mod feedback;
@@ -15,6 +17,7 @@ mod migrate;
 mod music;
 mod notes;
 mod office;
+mod phonelink;
 mod photo;
 mod programs;
 mod protocol;
@@ -360,6 +363,8 @@ pub fn run() {
             protocol::handle(request, responder)
         })
         .setup(|app| {
+            // Clicks on Zazabor's desktop notifications arrive on the main loop.
+            desktop_notify::init();
             let cache = app.path().app_cache_dir()?;
             if migrate::run(&app.path().app_config_dir()?, &app.path().app_data_dir()?, &cache) {
                 // The first start after the rename from CorePro: its login entry and desktop
@@ -379,6 +384,9 @@ pub fn run() {
             office::init(app.path().app_data_dir()?);
             statements::init(app.handle().clone(), app.path().app_config_dir()?, app.path().app_data_dir()?);
             recorder::init(&app.path().app_data_dir()?);
+            cast::init(app.handle().clone(), app.path().app_data_dir()?);
+            phonelink::init(app.handle().clone(), app.path().app_data_dir()?);
+            phonelink::hfp::init(app.handle().clone());
             // A quick note (`--new-note`) starts with only the note, the clipboard (`--clipboard`)
             // with only the Win+V popup, `--background` with no window at all; otherwise the main
             // window.
@@ -416,6 +424,10 @@ pub fn run() {
             mail::mail_discover,
             mail::mail_account_save,
             mail::mail_account_remove,
+            mail::mail_oauth_state,
+            mail::mail_oauth_client,
+            mail::mail_oauth_signin,
+            mail::mail_oauth_cancel,
             mail::mail_threads,
             mail::mail_thread,
             mail::mail_body,
@@ -519,6 +531,20 @@ pub fn run() {
             wallet::wallet_bill_delete,
             wallet::wallet_bill_pay,
             wallet::wallet_bill_skip,
+            wallet::wallet_cards,
+            wallet::wallet_plans,
+            wallet::wallet_plan,
+            wallet::wallet_plan_preview,
+            wallet::wallet_plan_save,
+            wallet::wallet_plan_pay,
+            wallet::wallet_plan_delete,
+            wallet::wallet_plan_payment_save,
+            wallet::wallet_plan_import,
+            wallet::wallet_fdrs,
+            wallet::wallet_fdr_save,
+            wallet::wallet_fdr_receive,
+            wallet::wallet_fdr_delete,
+            wallet::wallet_plan_payment_delete,
             wallet::wallet_receipts,
             wallet::wallet_receipt_attach,
             wallet::wallet_receipt_remove,
@@ -536,6 +562,12 @@ pub fn run() {
             wallet::wallet_earnings,
             wallet::wallet_project_rate_set,
             wallet::wallet_earnings_post,
+            wallet::wallet_sync_info,
+            wallet::wallet_sync_invite,
+            wallet::wallet_sync_cancel_invite,
+            wallet::wallet_sync_join,
+            wallet::wallet_sync_now,
+            wallet::wallet_sync_forget,
             // office
             office::office_read,
             office::office_write,
@@ -714,6 +746,15 @@ pub fn run() {
             fs::fs_open_default,
             // video
             video::video_open,
+            cast::cast_receiver_start,
+            cast::cast_receiver_stop,
+            cast::cast_receiver_info,
+            cast::cast_pending,
+            cast::cast_taken,
+            cast::cast_decline,
+            cast::cast_end,
+            cast::cast_youtube_code,
+            cast::cast_hostname,
             video::video_set_paused,
             video::video_stop,
             video::video_seek,
@@ -725,6 +766,47 @@ pub fn run() {
             video::video_add_subtitle,
             video::video_state,
             video::video_list,
+            // phone link
+            phonelink::phone_state,
+            phonelink::phone_link_enable,
+            phonelink::phone_pair_answer,
+            phonelink::phone_forget,
+            phonelink::phone_rename,
+            phonelink::phone_threads,
+            phonelink::phone_thread,
+            phonelink::phone_sms_send,
+            phonelink::phone_calls,
+            phonelink::phone_contacts,
+            phonelink::phone_contact_photo,
+            phonelink::phone_notifs,
+            phonelink::phone_notif_dismiss,
+            phonelink::phone_notif_action,
+            phonelink::phone_photos,
+            phonelink::phone_files,
+            phonelink::phone_download,
+            phonelink::phone_upload,
+            phonelink::phone_file_delete,
+            phonelink::phone_transfers,
+            phonelink::phone_transfer_cancel,
+            phonelink::phone_ring,
+            phonelink::phone_mirror,
+            phonelink::phone_clip_share,
+            phonelink::phone_link_call,
+            phonelink::phone_sms_read,
+            phonelink::phone_set_pc_name,
+            phonelink::hfp::phone_bt_state,
+            phonelink::hfp::phone_bt_enable,
+            phonelink::hfp::phone_bt_connect,
+            phonelink::hfp::phone_bt_settings,
+            phonelink::hfp::phone_call_dial,
+            phonelink::hfp::phone_call_answer,
+            phonelink::hfp::phone_call_hangup,
+            phonelink::hfp::phone_call_decline,
+            phonelink::hfp::phone_call_dtmf,
+            phonelink::hfp::phone_call_hold,
+            phonelink::hfp::phone_call_audio,
+            phonelink::hfp::phone_call_mute,
+            phonelink::hfp::phone_call_volume,
             // file operations
             fs::fs_copy,
             fs::fs_move,

@@ -10,6 +10,7 @@ import { accountSheet } from "./accounts";
 import { displayName, mailApi, onMailChanged, onMailError, shortDate, type Account, type Draft, type Folder, type Overview, type Query, type Role, type SavedDraft, type Thread } from "./api";
 import { blankDraft, openCompose, responseDraft, type ComposeHost } from "./compose";
 import "./mail.css";
+import { listen } from "@tauri-apps/api/event";
 import { avatar, createReader, type ThreadAction } from "./reader";
 
 /** What the list shows: every account's folder of a kind, the starred, the drafts, or one folder. */
@@ -57,6 +58,7 @@ export const createMailModule: ModuleFactory = (shell) => {
   let ticket = 0;
   let reloadTimer = 0;
   const unlisten: Promise<() => void>[] = [];
+  let listening = false;
 
   // ---- sidebar
   const compose = h("button", { class: "btn primary ml-compose-btn", type: "button", title: "New message (C)" }, icon("pencil", 15), "New Message");
@@ -114,8 +116,16 @@ export const createMailModule: ModuleFactory = (shell) => {
       } },
     ]);
   });
+  // Folding: the sidebar of mailboxes away (New Message moves to the list's bar), and the list
+  // away while a conversation is open, so it reads full width.
+  const sideToggle = h("button", { class: "icon-btn ml-side-toggle", type: "button" }, icon("sidebar", 16));
+  sideToggle.addEventListener("click", () => fold("side"));
+  const composeMini = h("button", { class: "icon-btn ml-compose-mini", type: "button", title: "New message (C)", "aria-label": "New message" }, icon("pencil", 16));
+  composeMini.addEventListener("click", () => write());
+  const listToggle = h("button", { class: "icon-btn ml-list-toggle", type: "button" }, icon("columns", 17));
+  listToggle.addEventListener("click", () => fold("list"));
   const listBar = h("header", { class: "ml-list-bar" },
-    h("div", { class: "ml-list-head" }, h("div", { class: "ml-list-titles" }, title, subtitle), unreadToggle, syncButton, moreButton),
+    h("div", { class: "ml-list-head" }, sideToggle, h("div", { class: "ml-list-titles" }, title, subtitle), composeMini, unreadToggle, syncButton, moreButton),
     h("label", { class: "search ml-search" }, icon("search", 15), search));
   const bulkCount = h("span", { class: "ml-bulk-count" });
   const bulkButton = (glyph: IconName, label: string, action: ThreadAction) => {
@@ -178,11 +188,37 @@ export const createMailModule: ModuleFactory = (shell) => {
     splitter.addEventListener("pointercancel", up, { once: true });
   });
 
+  reader.el.querySelector(".ml-reader-bar")?.insertBefore(listToggle, reader.el.querySelector(".ml-back")?.nextSibling ?? null);
+
   const welcome = h("div", { class: "ml-welcome", hidden: true });
   const panes = h("div", { class: "ml-panes" }, side, listPane, splitter, reader.el);
   const el = h("section", { class: "mail-module" }, panes, welcome);
   el.style.setProperty("--ml-list-w", `${settings().listWidth}px`);
   new ResizeObserver(() => el.classList.toggle("narrow", el.clientWidth < 1040)).observe(el);
+
+  /** Shows the panes folded or not, as the settings say. */
+  function drawFolds() {
+    const { sideFolded, listFolded } = settings();
+    el.classList.toggle("side-folded", sideFolded);
+    el.classList.toggle("list-folded", listFolded);
+    const sideTitle = sideFolded ? "Show the mailboxes (Ctrl+B)" : "Hide the mailboxes (Ctrl+B)";
+    sideToggle.title = sideTitle;
+    sideToggle.setAttribute("aria-label", sideTitle);
+    sideToggle.setAttribute("aria-pressed", String(sideFolded));
+    const listTitle = listFolded ? "Show the list (Ctrl+Shift+B)" : "Hide the list while reading (Ctrl+Shift+B)";
+    listToggle.title = listTitle;
+    listToggle.setAttribute("aria-label", listTitle);
+    listToggle.setAttribute("aria-pressed", String(listFolded));
+    listToggle.classList.toggle("active", listFolded);
+  }
+
+  function fold(pane: "side" | "list") {
+    if (pane === "side") settings().sideFolded = !settings().sideFolded;
+    else settings().listFolded = !settings().listFolded;
+    shell.saveConfig();
+    drawFolds();
+  }
+  drawFolds();
 
   const report = (err: unknown) => showToast(String(err));
 
@@ -219,7 +255,7 @@ export const createMailModule: ModuleFactory = (shell) => {
   }
 
   async function editAccount(account: Account | null) {
-    const changed = await accountSheet(account, overview?.colors ?? [], (url) => shell.openExternally(url));
+    const changed = await accountSheet(account, overview?.colors ?? [], (url) => shell.openExternally(url), (message) => showToast(message, undefined, 7000));
     if (changed) void reload();
   }
 
@@ -571,7 +607,7 @@ export const createMailModule: ModuleFactory = (shell) => {
   }
 
   function emptyState(glyph: IconName, heading: string, text: string, action?: HTMLElement): HTMLElement {
-    return h("div", { class: "nm-empty ml-empty" }, h("div", { class: "cp-empty-tile glass" }, icon(glyph, 28)), h("h2", null, heading), h("p", null, text), action ?? null);
+    return h("div", { class: "ml-empty" }, h("div", { class: "ml-empty-tile glass" }, icon(glyph, 28)), h("h2", null, heading), h("p", null, text), action ?? null);
   }
 
   function drawList() {
@@ -650,6 +686,11 @@ export const createMailModule: ModuleFactory = (shell) => {
     list.querySelector<HTMLElement>(`.ml-row[data-key="${CSS.escape(keyOf(next))}"]`)?.scrollIntoView({ block: "nearest" });
   }
 
+  // A new-mail notification was clicked: the inbox of every account (the shell brings Mail up).
+  unlisten.push(listen("mail-show-inbox", () => {
+    if (view.kind !== "unified" || view.role !== "inbox") setView(parseView("unified:inbox"), visible);
+  }));
+
   const module: AppModule = {
     id: "mail",
     title: "Mail",
@@ -658,7 +699,8 @@ export const createMailModule: ModuleFactory = (shell) => {
     ownsNewKey: true,
     activate() {
       visible = true;
-      if (!unlisten.length) {
+      if (!listening) {
+        listening = true;
         unlisten.push(onMailChanged(scheduleReload), onMailError((message) => visible && showToast(message)));
       }
       void mailApi.start();
@@ -672,6 +714,7 @@ export const createMailModule: ModuleFactory = (shell) => {
       const ctrl = e.ctrlKey || e.metaKey;
       const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       if (ctrl && key === "n") return write(), true;
+      if (ctrl && key === "b") return fold(e.shiftKey ? "list" : "side"), true;
       if (ctrl && key === "f") return search.focus(), search.select(), true;
       if (ctrl && key === "a") return selectAll(), true;
       if (key === "F5" || (ctrl && key === "r")) return void sync(), true;
@@ -696,13 +739,15 @@ export const createMailModule: ModuleFactory = (shell) => {
         case "x": return current ? (toggleSelected(current), true) : false;
         case "Escape":
           if (selected.size) return selected.clear(), drawList(), true;
-          if (el.classList.contains("narrow") && current) return open(null), true;
+          // Back to the list: in a narrow window, or with the list folded while reading.
+          if ((el.classList.contains("narrow") || settings().listFolded) && current) return open(null), true;
           return false;
         default: return false;
       }
     },
     configChanged() {
       el.style.setProperty("--ml-list-w", `${settings().listWidth}px`);
+      drawFolds();
     },
     onLock() {
       open(null);

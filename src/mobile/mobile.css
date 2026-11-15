@@ -1,0 +1,71 @@
+/*
+ * Zazabor Wallet on a phone: the desktop Wallet module, reflowed for a narrow touch screen.
+ * Everything here is scoped to `html.phone` (set in mobile.html) so the desktop never sees it.
+ */
+
+html.phone {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+html.phone #app { display: flex; padding-top: var(--safe-top); }
+html.phone .wallet-module { position: relative; flex: 1; min-width: 0; height: 100%; overflow: hidden; }
+
+/* ---- the sidebar as a drawer */
+html.phone .wl-side {
+  position: absolute; inset: 0 auto 0 0; z-index: 30; width: min(300px, 84vw);
+  padding-bottom: calc(12px + var(--safe-bottom));
+  background: var(--bg-raised, var(--bg)); translate: -105% 0;
+  transition: translate var(--dur-med, 0.22s) var(--ease-out, ease-out);
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.35);
+}
+html.phone .drawer-open .wl-side { translate: 0 0; }
+html.phone .phone-scrim {
+  position: absolute; inset: 0; z-index: 29; background: rgba(0, 0, 0, 0.45);
+  opacity: 0; pointer-events: none; transition: opacity var(--dur-med, 0.22s);
+}
+html.phone .drawer-open .phone-scrim { opacity: 1; pointer-events: auto; }
+html.phone .wl-nav { min-height: 44px; }
+
+/* ---- the bar: menu, title and buttons on the first row; the month and quick add on the second */
+html.phone .wl-bar { flex-wrap: wrap; height: auto; row-gap: 8px; column-gap: 4px; padding: 8px 10px 10px; }
+html.phone .wl-heading { display: contents; }
+
+html.phone .wl-title { order: 1; flex: 1; min-width: 0; font-size: var(--text-md, 16px); overflow: hidden; text-overflow: ellipsis; }
+html.phone .wl-bar > .icon-btn, html.phone .wl-new { order: 2; }
+html.phone .wl-bar > .phone-menu { order: 0; margin-left: -4px; }
+html.phone .phone-break { order: 3; flex-basis: 100%; height: 0; }
+html.phone .wl-month { order: 4; flex: none; }
+html.phone .wl-quick { order: 5; flex: 1 1 0; max-width: none; min-width: 0; margin: 0; }
+html.phone .wl-new-more { display: none; }
+html.phone .wl-new > .btn:first-child { border-radius: var(--radius-md); }
+html.phone .wl-new .btn { height: 36px; }
+html.phone .wl-scroll { padding: 12px 12px calc(56px + var(--safe-bottom)); -webkit-overflow-scrolling: touch; }
+
+/* ---- touch sizes */
+html.phone .icon-btn { min-width: 38px; min-height: 38px; }
+html.phone input, html.phone select, html.phone textarea { font-size: 16px; } /* no zoom on focus */
+
+/* ---- dialogs and sheets fill the phone */
+html.phone dialog, html.phone .dialog, html.phone .sheet {
+  max-width: 100vw !important; max-height: calc(100dvh - var(--safe-top)) !important;
+}
+
+/* ---- sync button and sheets (sync.ts) */
+html.phone .phone-sync.spinning svg { animation: phone-spin 1s linear infinite; }
+html.phone .phone-sync.problem { color: var(--red, #f85149); }
+html.phone .phone-sync.unpaired { opacity: 0.55; }
+@keyframes phone-spin { to { rotate: 360deg; } }
+html.phone .phone-sheet { width: calc(100vw - 24px); }
+html.phone .phone-scan { width: 100%; height: 44px; justify-content: center; }
+html.phone .wl-pair-code-input { width: 100%; height: 40px; }
+
+/* ---- the desktop's narrow-window rules (wallet.css container queries) squeeze the sidebar to
+   icons and hide the title; the phone has a drawer instead, so it takes only the one-column
+   layouts from them. */
+html.phone .wallet-module { container-type: normal; }
+html.phone .wl-overview-top, html.phone .wl-overview-grid, html.phone .wl-report-grid { grid-template-columns: minmax(0, 1fr); }
+html.phone .wl-tiles-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+html.phone .wl-bill { grid-template-columns: auto minmax(0, 1fr) auto auto auto; }
+html.phone .wl-bill-year { display: none; }

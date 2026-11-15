@@ -283,7 +283,7 @@ export function transactionsView(ctx: Ctx) {
       { label: "Edit…", icon: "pencil", action: () => ctx.openTx(t), disabled: many },
       { label: "Duplicate", icon: "copy", disabled: many || t.kind === "transfer", action: () => ctx.openTx(null, { kind: t.kind === "income" ? "income" : "expense", accountId: t.accountId, amount: plain(t.amountMinor, t.currency), categoryId: t.categoryId, payee: t.payee, note: t.note, date: todayKey() }) },
       { label: "Attach Receipt…", icon: "paperclip", disabled: many || t.kind === "transfer", action: () => void pickReceipts().then((paths) => attachReceipts(ctx, t.id, paths)) },
-      { label: "Repeat…", icon: "repeat", disabled: many || t.kind === "transfer" || !!t.recurringId, action: () => billSheet(ctx, null, t) },
+      { label: "Repeat…", icon: "repeat", disabled: many || !!t.recurringId || (t.kind === "transfer" && t.currency !== ctx.state().accounts.find((a) => a.id === t.counterAccountId)?.currency), action: () => billSheet(ctx, null, t) },
       { label: "Show this account", icon: "wallet", action: () => ctx.go("transactions", { accountId: t.accountId }), disabled: !!accountId },
       "separator",
       { label: many ? `Delete ${chosen().length} transactions` : "Delete", icon: "trash", danger: true, action: () => void remove(chosen()) },

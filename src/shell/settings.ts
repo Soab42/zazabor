@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "../shared/dialog";
 import { clipboardCategory } from "../clipboard/settings";
 import { walletCategory } from "../modules/wallet/settings";
+import { mailCategory } from "../modules/mail/settings";
+import { phoneCategory } from "../modules/phone/settings";
 import { photoCategory } from "../modules/studio/photo/settings-page";
 import { pdfCategory } from "../modules/office/pdf/settings";
 import { aiCategory } from "../shared/ai/settings";
@@ -339,6 +341,8 @@ export class Settings {
       },
       this.notesCategory(),
       walletCategory(this.host),
+      mailCategory(this.host),
+      phoneCategory(this.host),
       pdfCategory(),
       photoCategory(this.host),
       videoEditorCategory(),

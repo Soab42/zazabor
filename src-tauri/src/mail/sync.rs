@@ -279,8 +279,7 @@ impl Worker {
     fn link(&mut self) -> Result<&mut Link, String> {
         if self.link.is_none() {
             let account = with_db(|conn| db::account(conn, &self.account))?;
-            let password = super::secrets::get(&self.account).ok_or("Its password isn't saved any more. Enter it again in the account's settings.")?;
-            let link = net::connect(&account.imap, &account.username, &password)?;
+            let link = net::connect(&account.imap, &account.username, &super::cred(&account)?)?;
             if let Ok(socket) = link.tcp.try_clone() {
                 self.sockets.lock().unwrap_or_else(|e| e.into_inner()).push(socket);
             }
@@ -636,8 +635,7 @@ fn idle(account: String, tx: Sender<Cmd>, stop: Arc<AtomicBool>, sockets: Arc<Mu
         let ready = (|| -> Result<(Link, Folder), String> {
             let acct = with_db(|conn| db::account(conn, &account))?;
             let inbox = with_db(|conn| db::folder_by_role(conn, &account, "inbox"))?.ok_or("no inbox")?;
-            let password = super::secrets::get(&account).ok_or("no password")?;
-            let mut link = net::connect(&acct.imap, &acct.username, &password)?;
+            let mut link = net::connect(&acct.imap, &acct.username, &super::cred(&acct)?)?;
             link.session.select(&inbox.path).map_err(err)?;
             Ok((link, inbox))
         })();

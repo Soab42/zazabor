@@ -221,6 +221,8 @@ fn state() -> CastState {
         searching: lock_ignore_poison(&DISCOVERERS).iter().map(|d| d.label.clone()).collect(),
         devices: lock_ignore_poison(&DEVICES)
             .iter()
+            // This PC's own receiver (Cast to Zazabor) shows up too; casting to yourself is a loop.
+            .filter(|d| !crate::cast::is_own_device(&d.name))
             .map(|d| RendererInfo { id: d.id, name: d.name.clone(), kind: d.kind.clone(), video: d.flags & CAN_VIDEO != 0, audio: d.flags & CAN_AUDIO != 0 })
             .collect(),
         selected: lock_ignore_poison(&SELECTED).as_ref().map(|(id, _)| *id),
