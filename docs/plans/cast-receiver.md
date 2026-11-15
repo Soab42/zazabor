@@ -66,6 +66,13 @@ Framing: a 4-byte big-endian length, then a protobuf `CastMessage` (fields 1 ver
 Every `MEDIA_STATUS` reply must carry the request's `requestId`. VLC ignores other replies while a
 request is pending.
 
+VLC streams Matroska (`video/x-matroska`, or `video/webm` for VP8/VP9) and passes H.264, HEVC, VP8
+and VP9 through; anything else it converts to H.264 or VP8. It decides on the phone whether to
+send the picture at all: with VLC's Settings → Casting → **Audio only** on, or when VLC for Android
+plays a video as audio (`:no-video`), the stream has no video track and LOAD says
+`contentType: audio/x-matroska`. The receiver can't bring the picture back, so it marks the cast
+`audioOnly` and the player shows the title and that setting instead of a black stage.
+
 ## Mirroring protocol (`ZMIR`, TCP 47212)
 
 Phone → PC: the line `ZMIR/1\n`, then one JSON line

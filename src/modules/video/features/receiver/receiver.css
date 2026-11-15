@@ -19,3 +19,19 @@
 .rc-code { color: var(--text); font-size: var(--text-lg); font-variant-numeric: tabular-nums; letter-spacing: 0.06em; }
 .rc-art { display: block; width: 100%; max-height: 180px; object-fit: cover; border-radius: var(--radius-lg); margin-bottom: var(--space-3); }
 .rc-chip .mt-chip-name small { margin-left: 6px; color: var(--text-2); font-weight: 500; }
+
+/* A cast without a picture: its art, title and why, where the video would be. */
+.rc-sound {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; padding: 72px 40px 110px; pointer-events: none;
+  background: radial-gradient(120% 90% at 50% 18%, color-mix(in srgb, var(--accent) 16%, var(--stage)), var(--stage) 72%);
+  animation: fade-in var(--dur-med) var(--ease-out);
+}
+.rc-sound[hidden] { display: none; }
+.rc-sound-art { position: relative; flex: none; display: grid; place-items: center; width: min(32vh, 280px, 60%); aspect-ratio: 1; overflow: hidden; border-radius: var(--radius-xl); background: var(--tile); box-shadow: var(--elev-4); color: var(--faint); }
+.rc-sound-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 250ms var(--ease-out); }
+.rc-sound-art img.loaded { opacity: 1; }
+.rc-sound-text { display: flex; flex-direction: column; align-items: center; gap: 4px; max-width: min(520px, 86%); color: var(--knob); text-align: center; }
+.rc-sound-title { max-width: 100%; overflow: hidden; font-size: var(--text-2xl); font-weight: var(--text-2xl-w); letter-spacing: var(--text-2xl-ls); text-overflow: ellipsis; white-space: nowrap; }
+.rc-sound-from { font-size: var(--text-lg); opacity: 0.78; }
+.rc-sound-why { margin: 10px 0 0; font-size: var(--text-md); line-height: 1.5; opacity: 0.66; }
+@media (prefers-reduced-motion: reduce) { .rc-sound { animation: none; } }

@@ -1450,6 +1450,7 @@ fn load(generation: u64, video_id: String, start: f64) {
                         artwork: r.thumbnail,
                         start_ms: if r.live { 0 } else { (start * 1000.0) as i64 },
                         live: r.live,
+                        audio_only: false,
                         options: r.options,
                         sender,
                         sender_key,
@@ -1864,7 +1865,7 @@ asyncio.run(main())
 
         let started = Instant::now();
         let url = loop {
-            if let Some(url) = super::super::testing::current_url() {
+            if let Some((url, _)) = super::super::testing::current_media() {
                 break url;
             }
             if started.elapsed() > Duration::from_secs(150) {

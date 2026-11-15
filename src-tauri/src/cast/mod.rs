@@ -67,6 +67,9 @@ pub struct Media {
     pub start_ms: i64,
     /// A live stream: no seeking, no length.
     pub live: bool,
+    /// The sender says it sends sound only (VLC's LOAD has `contentType: audio/…` when its
+    /// "Audio only" casting setting is on, or VLC for Android plays the video as audio).
+    pub audio_only: bool,
     /// libVLC media options for this address (`:input-slave=…`, `:network-caching=…`).
     pub options: Vec<String>,
     /// The phone's name as the user knows it ("Pixel 7", "VLC on 192.168.1.20").
@@ -86,6 +89,8 @@ pub struct PlayRequest {
     pub artwork: Option<String>,
     pub start_ms: i64,
     pub live: bool,
+    /// No picture is coming: the page says why instead of showing a black screen.
+    pub audio_only: bool,
     pub source: Source,
     pub source_label: &'static str,
     pub sender: String,
@@ -301,6 +306,7 @@ pub fn play(source: Source, media: Media) -> u64 {
         artwork: media.artwork.clone(),
         start_ms: media.start_ms,
         live: media.live,
+        audio_only: media.audio_only,
         source,
         source_label: source.label(),
         sender: media.sender.clone(),
@@ -526,9 +532,9 @@ pub(crate) mod testing {
         GENERATION.fetch_add(1, Ordering::SeqCst) + 1
     }
 
-    /// The address of the cast playing now.
-    pub fn current_url() -> Option<String> {
-        lock(&SESSION).as_ref().filter(|s| !s.over).map(|s| s.media.url.clone())
+    /// The address of the cast playing now, and whether the sender said it is sound only.
+    pub fn current_media() -> Option<(String, bool)> {
+        lock(&SESSION).as_ref().filter(|s| !s.over).map(|s| (s.media.url.clone(), s.media.audio_only))
     }
 }
 

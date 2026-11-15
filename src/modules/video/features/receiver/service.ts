@@ -39,6 +39,8 @@ export interface PlayRequest {
   artwork: string | null;
   startMs: number;
   live: boolean;
+  /** The phone sends no picture (VLC's "Audio only" casting, a song over DLNA). */
+  audioOnly: boolean;
   source: CastSource;
   sourceLabel: string;
   sender: string;
