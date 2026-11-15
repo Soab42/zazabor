@@ -2,13 +2,13 @@ import type { Config } from "../config";
 import type { IconName } from "../ui/icons";
 
 /** The features Zazabor is made of; each can be turned off in Settings. */
-export type ModuleId = "files" | "gallery" | "video" | "terminal" | "notes" | "time" | "wallet" | "office" | "studio" | "clipboard";
+export type ModuleId = "files" | "gallery" | "video" | "terminal" | "notes" | "time" | "wallet" | "office" | "studio" | "clipboard" | "apps" | "mail";
 
-export const MODULE_IDS: readonly ModuleId[] = ["files", "gallery", "video", "terminal", "notes", "time", "wallet", "office", "studio", "clipboard"];
+export const MODULE_IDS: readonly ModuleId[] = ["files", "gallery", "video", "terminal", "notes", "time", "wallet", "office", "studio", "clipboard", "apps", "mail"];
 
 /** A dot on a module's rail button while it has something going on (Time: a timer running). */
 export interface RailStatus {
-  /** "live" pulses (a task timer runs), "paused" (an activity runs), "on" (checked in, nothing running). */
+  /** "live" pulses (a task timer runs), "paused" (an activity runs), "on" (checked in, nothing running; Mail: unread mail). */
   tone: "live" | "paused" | "on";
   /** Added to the button's tooltip. */
   title: string;

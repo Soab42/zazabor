@@ -1,9 +1,11 @@
 import type { GuideArticle } from "../types";
+import { apps } from "./apps";
 import { clipboard } from "./clipboard";
 import { docs } from "./docs";
 import { codeEditor, files } from "./files";
 import { gallery, quickEdit, slideshows } from "./gallery";
 import { gettingStarted } from "./getting-started";
+import { mail } from "./mail";
 import { motionTemplates, screenRecorder } from "./motion";
 import { notes } from "./notes";
 import { office } from "./office";
@@ -22,9 +24,9 @@ import { whatsNew } from "./whats-new";
 export const ARTICLES: GuideArticle[] = [
   gettingStarted,
   files, gallery, quickEdit, slideshows, videoPlayer, terminal, codeEditor,
-  notes, time, wallet, walletStatements, clipboard,
+  notes, time, wallet, walletStatements, clipboard, mail,
   office, docs, sheets, pdf,
   studio, photo, videoEditor, motionTemplates, screenRecorder,
-  settings, privacyLock, windows, backgroundQuit, install, shortcuts,
+  apps, settings, privacyLock, windows, backgroundQuit, install, shortcuts,
   whatsNew,
 ];

@@ -121,6 +121,7 @@ const paths = {
   barChart: `<path d="M4.5 20h15M7 16.5V11M12 16.5V6M17 16.5v-8"/>`,
   target: `<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor"/>`,
   pieChart: `<path d="M12 3.5v8.5h8.5A8.5 8.5 0 1 1 12 3.5z"/><path d="M15 3.8a8.5 8.5 0 0 1 5.2 5.2H15z"/>`,
+  package: `<path d="M12 3.2l7.8 4.1v9.4L12 20.8l-7.8-4.1V7.3z"/><path d="M4.4 7.4L12 11.4l7.6-4M12 11.4v9.2M8.1 5.3l7.7 4.1"/>`,
   archive: `<rect x="3.5" y="4.5" width="17" height="4" rx="1"/><path d="M5 8.5v10a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5v-10M10 12.5h4"/>`,
   wallet: `<path d="M5 7.5h13.5a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18V6.5A1.5 1.5 0 0 1 5.5 5H17"/><path d="M20 11.5h-4a1.75 1.75 0 0 0 0 3.5h4"/><circle cx="16.25" cy="13.25" r=".6" fill="currentColor"/>`,
   // ---- Office (add its icons below this line)
@@ -294,6 +295,14 @@ const paths = {
   stAlert: `<path d="M12 4.2 3.6 18.8h16.8z"/><path d="M12 10v4.2M12 16.6v.01"/>`,
   stStatement: `<path d="M6.5 3.5h8l3 3v14h-11z"/><path d="M14.5 3.5v3h3"/><path d="M9 11h6M9 14h6M9 17h3.5"/>`,
   // ---- Screen recorder (add its icons below this line)
+  mail: `<rect x="3.5" y="5.5" width="17" height="13" rx="2.2"/><path d="M4.2 7.6l7.8 5.9 7.8-5.9"/>`,
+  mailOpen: `<path d="M3.5 10.2L12 4.5l8.5 5.7v7.3a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M4 10.6l8 5 8-5"/>`,
+  inbox: `<path d="M3.5 13.5l2.6-7.2a2 2 0 0 1 1.9-1.3h8a2 2 0 0 1 1.9 1.3l2.6 7.2v4a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M3.5 13.5h4.6l1.2 2.5h5.4l1.2-2.5h4.6"/>`,
+  send: `<path d="M20.5 3.5L10 14"/><path d="M20.5 3.5l-6.3 17-4.2-6.5-6.5-4.2z"/>`,
+  reply: `<path d="M9.5 7l-5 5 5 5"/><path d="M4.5 12h9a6 6 0 0 1 6 6v.5"/>`,
+  replyAll: `<path d="M7.5 7l-5 5 5 5"/><path d="M12.5 7l-5 5 5 5"/><path d="M7.5 12h7a6 6 0 0 1 6 6v.5"/>`,
+  forward: `<path d="M14.5 7l5 5-5 5"/><path d="M19.5 12h-9a6 6 0 0 0-6 6v.5"/>`,
+  junk: `<path d="M8.2 3.5h7.6l4.7 4.7v7.6l-4.7 4.7H8.2l-4.7-4.7V8.2z"/><path d="M12 8v5M12 16.2v.01"/>`,
   recRecord: `<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.2" fill="currentColor" stroke="none"/>`,
   recScreen: `<rect x="3" y="4.5" width="18" height="12" rx="1.8"/><path d="M9 20h6M12 16.5V20"/>`,
   recWindow: `<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 8.5h17"/><circle cx="6.3" cy="6.5" r=".6" fill="currentColor"/><circle cx="8.4" cy="6.5" r=".6" fill="currentColor"/>`,

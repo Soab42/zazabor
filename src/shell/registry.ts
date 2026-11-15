@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { watchMailStatus } from "../modules/mail/status";
 import { watchTimeStatus } from "../modules/time/status";
 import { notesApi } from "../notes/api";
 import type { IconName } from "../ui/icons";
@@ -87,5 +88,18 @@ export const MODULES: Record<ModuleId, ModuleMeta> = {
       label: "Show Clipboard Popup",
       open: () => void invoke("clipboard_popup").catch((err) => console.warn("Could not show the clipboard:", err)),
     },
+  },
+  mail: {
+    title: "Mail",
+    icon: "mail",
+    blurb: "All your email accounts in one inbox: read, search and answer, with each account's folders beside it.",
+    load: async () => (await import("../modules/mail")).createMailModule,
+    status: watchMailStatus,
+  },
+  apps: {
+    title: "Apps",
+    icon: "package",
+    blurb: "Every installed app in one list, uninstalled the way it was installed, like Windows' Installed apps.",
+    load: async () => (await import("../modules/apps")).createAppsModule,
   },
 };

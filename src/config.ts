@@ -91,6 +91,8 @@ export interface Config {
   wallet: WalletSettings;
   office: OfficeSettings;
   clipboard: ClipboardSettings;
+  apps: AppsSettings;
+  mail: MailSettings;
   studio: StudioSettings;
   guide: GuideSettings;
   updates: UpdateSettings;
@@ -110,6 +112,41 @@ function normalizeUpdates(raw: Partial<UpdateSettings> | undefined): UpdateSetti
 }
 
 /** The clipboard history's page side (the history and its recording settings live in the backend, see clipboard/mod.rs). */
+/** The Mail section (src/modules/mail). The accounts and the mail itself live in the backend (mail/mod.rs). */
+export interface MailSettings {
+  /** What the list shows: "unified:inbox", "unified:sent", "starred", "drafts" or "folder:<id>". */
+  view: string;
+  /** Pictures a message links from the web: asked for each message, or always loaded. */
+  images: "ask" | "always";
+  /** Accounts whose folders are folded away in the sidebar. */
+  collapsed: string[];
+  /** The list pane's width in pixels. */
+  listWidth: number;
+}
+
+function normalizeMail(raw: Partial<MailSettings> | undefined): MailSettings {
+  const width = Number(raw?.listWidth);
+  return {
+    view: typeof raw?.view === "string" && raw.view.length < 40 ? raw.view : "unified:inbox",
+    images: raw?.images === "always" ? "always" : "ask",
+    collapsed: Array.isArray(raw?.collapsed) ? raw.collapsed.filter((id) => typeof id === "string").slice(0, 50) : [],
+    listWidth: Number.isFinite(width) ? Math.min(620, Math.max(280, Math.round(width))) : 380,
+  };
+}
+
+/** The Apps section (src/modules/apps). */
+export interface AppsSettings {
+  sort: "name" | "size" | "date";
+  /** Which kind of apps it shows: all, packages, Flatpaks, Snaps, home installs or launchers. */
+  group: "all" | "system" | "flatpak" | "snap" | "home" | "other";
+}
+
+function normalizeApps(raw: Partial<AppsSettings> | undefined): AppsSettings {
+  const sort = raw?.sort === "size" || raw?.sort === "date" ? raw.sort : "name";
+  const groups: AppsSettings["group"][] = ["all", "system", "flatpak", "snap", "home", "other"];
+  return { sort, group: groups.includes(raw?.group as AppsSettings["group"]) ? (raw!.group as AppsSettings["group"]) : "all" };
+}
+
 /** The user guide (src/guide). */
 export interface GuideSettings {
   /** The article read last; it opens there next time. */
@@ -327,6 +364,8 @@ const DEFAULTS: Config = {
   wallet: structuredClone(DEFAULT_WALLET),
   office: structuredClone(DEFAULT_OFFICE),
   clipboard: structuredClone(DEFAULT_CLIPBOARD),
+  apps: normalizeApps(undefined),
+  mail: normalizeMail(undefined),
   studio: structuredClone(DEFAULT_STUDIO),
   guide: { last: null },
   updates: { auto: true, skipped: null },
@@ -366,6 +405,8 @@ export function parseConfig(raw: string): Config {
     wallet: normalizeWallet(parsed.wallet),
     office: normalizeOffice(parsed.office),
     clipboard: normalizeClipboard(parsed.clipboard),
+    apps: normalizeApps(parsed.apps),
+    mail: normalizeMail(parsed.mail),
     studio: normalizeStudio(parsed.studio),
     guide: normalizeGuide(parsed.guide),
     updates: normalizeUpdates(parsed.updates),
