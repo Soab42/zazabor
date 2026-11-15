@@ -982,7 +982,7 @@ class LinkService : Service() {
     }
 
     private fun friendly(e: Exception, pc: String, host: String, port: Int): String = when (e) {
-        is ConnectException, is NoRouteToHostException -> "Can't reach $pc ($host:$port). Is Phone Link on in Zazabor?"
+        is ConnectException, is NoRouteToHostException -> "Can't reach $pc ($host:$port). Is Phone Link on in Zazabor Home?"
         is SocketTimeoutException -> "$pc didn't answer"
         is java.net.UnknownHostException -> "Unknown address $host"
         else -> e.message ?: e.javaClass.simpleName

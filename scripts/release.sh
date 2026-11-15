@@ -112,3 +112,4 @@ git push -q origin HEAD "v$version"
 gh release create "v$version" "$out/$archive" "$out/latest.json" "$out/latest.json.sig" \
   --repo "$repo" --title "Zazabor Home $version" --notes "${notes:-Zazabor Home $version}" --latest
 echo "Released: https://github.com/$repo/releases/tag/v$version"
+echo "Now attach the phone apps: scripts/release-phone-apps.sh v$version"

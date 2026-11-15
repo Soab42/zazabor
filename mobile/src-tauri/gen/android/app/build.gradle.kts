@@ -14,6 +14,17 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// Release builds are signed with the key in ~/.config/zazabor-release (never in the repository);
+// ZAZABOR_ANDROID_SIGNING names another properties file. Without one, release builds are unsigned.
+val releaseSigning = Properties().apply {
+    val path = System.getenv("ZAZABOR_ANDROID_SIGNING")
+        ?: "${System.getProperty("user.home")}/.config/zazabor-release/android-signing.properties"
+    val propFile = file(path)
+    if (propFile.exists()) {
+        propFile.inputStream().use { load(it) }
+    }
+}
+
 android {
     compileSdk = 37
     namespace = "dev.soab.zazabor.wallet"
@@ -24,6 +35,16 @@ android {
         targetSdk = 37
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+    }
+    signingConfigs {
+        if (releaseSigning.containsKey("storeFile")) {
+            create("release") {
+                storeFile = file(releaseSigning.getProperty("storeFile"))
+                storePassword = releaseSigning.getProperty("storePassword")
+                keyAlias = releaseSigning.getProperty("keyAlias")
+                keyPassword = releaseSigning.getProperty("keyPassword")
+            }
+        }
     }
     buildTypes {
         getByName("debug") {
@@ -39,6 +60,7 @@ android {
             }
         }
         getByName("release") {
+            signingConfigs.findByName("release")?.let { signingConfig = it }
             optimization {
                enable = true
             }
