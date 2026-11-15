@@ -2,7 +2,8 @@
 //! control, and DIAL for YouTube. One thread per connection, one request per connection
 //! (`Connection: close`), small bodies only.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::time::Duration;
 
@@ -10,6 +11,11 @@ use std::time::Duration;
 const PREFERRED_PORT: u16 = 47_213;
 const MAX_BODY: usize = 1 << 20;
 const MAX_HEAD_LINES: usize = 100;
+/// The request line and headers together; a phone's requests are well under 2 KiB.
+const MAX_HEAD_BYTES: u64 = 16 * 1024;
+/// Connections served at once; more are closed straight away.
+const MAX_CONNECTIONS: usize = 32;
+static CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
 const IO_TIMEOUT: Duration = Duration::from_secs(15);
 
 pub struct Request {
@@ -98,6 +104,7 @@ fn reason(status: u16) -> &'static str {
         405 => "Method Not Allowed",
         412 => "Precondition Failed",
         413 => "Payload Too Large",
+        431 => "Request Header Fields Too Large",
         500 => "Internal Server Error",
         501 => "Not Implemented",
         503 => "Service Unavailable",
@@ -122,7 +129,17 @@ pub fn start(generation: u64) -> Result<Server, String> {
             while super::alive(generation) {
                 match listener.accept() {
                     Ok((stream, _)) => {
-                        let _ = std::thread::Builder::new().name("cast-http-conn".into()).spawn(move || serve(stream));
+                        if CONNECTIONS.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
+                            CONNECTIONS.fetch_sub(1, Ordering::SeqCst);
+                            continue;
+                        }
+                        let spawned = std::thread::Builder::new().name("cast-http-conn".into()).spawn(move || {
+                            serve(stream);
+                            CONNECTIONS.fetch_sub(1, Ordering::SeqCst);
+                        });
+                        if spawned.is_err() {
+                            CONNECTIONS.fetch_sub(1, Ordering::SeqCst);
+                        }
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(Duration::from_millis(150)),
                     Err(_) => std::thread::sleep(Duration::from_millis(500)),
@@ -151,8 +168,23 @@ fn route(request: &Request) -> Response {
 }
 
 fn read_request(mut reader: impl BufRead, peer: SocketAddr, local: SocketAddr) -> Result<Request, u16> {
+    let (method, path, query, headers) = read_head(&mut (&mut reader).take(MAX_HEAD_BYTES))?;
+    let length: usize = headers.iter().find(|(k, _)| k == "content-length").and_then(|(_, v)| v.parse().ok()).unwrap_or(0);
+    if length > MAX_BODY {
+        return Err(413);
+    }
+    let mut body = vec![0; length];
+    reader.read_exact(&mut body).map_err(|_| 400u16)?;
+    Ok(Request { method, path, query, headers, body, peer, local })
+}
+
+type Head = (String, String, String, Vec<(String, String)>);
+
+/// Reads up to the blank line that ends the headers, from a reader capped at MAX_HEAD_BYTES: a
+/// line that the cap cuts off (no newline) is 431, so a client can't make it buffer without end.
+fn read_head(reader: &mut impl BufRead) -> Result<Head, u16> {
     let mut line = String::new();
-    reader.read_line(&mut line).map_err(|_| 400u16)?;
+    read_head_line(reader, &mut line)?;
     let mut parts = line.split_whitespace();
     let method = parts.next().ok_or(400u16)?.to_string();
     let target = parts.next().ok_or(400u16)?.to_string();
@@ -163,7 +195,7 @@ fn read_request(mut reader: impl BufRead, peer: SocketAddr, local: SocketAddr) -
     let mut headers = Vec::new();
     for _ in 0..MAX_HEAD_LINES {
         line.clear();
-        if reader.read_line(&mut line).map_err(|_| 400u16)? == 0 {
+        if read_head_line(reader, &mut line)? == 0 {
             break;
         }
         let trimmed = line.trim_end();
@@ -174,13 +206,15 @@ fn read_request(mut reader: impl BufRead, peer: SocketAddr, local: SocketAddr) -
             headers.push((k.trim().to_ascii_lowercase(), v.trim().to_string()));
         }
     }
-    let length: usize = headers.iter().find(|(k, _)| k == "content-length").and_then(|(_, v)| v.parse().ok()).unwrap_or(0);
-    if length > MAX_BODY {
-        return Err(413);
+    Ok((method, path, query, headers))
+}
+
+fn read_head_line(reader: &mut impl BufRead, line: &mut String) -> Result<usize, u16> {
+    let n = reader.read_line(line).map_err(|_| 400u16)?;
+    if n > 0 && !line.ends_with('\n') {
+        return Err(431);
     }
-    let mut body = vec![0; length];
-    reader.read_exact(&mut body).map_err(|_| 400u16)?;
-    Ok(Request { method, path, query, headers, body, peer, local })
+    Ok(n)
 }
 
 /// Decodes `a=1&b=x%20y` into pairs (`+` is a space).
@@ -250,6 +284,16 @@ mod tests {
         assert_eq!(r.query, "x=1");
         assert_eq!(r.header("SoapAction"), Some("\"urn:x#Play\""));
         assert_eq!(r.body, b"body");
+    }
+
+    #[test]
+    fn refuses_an_endless_header() {
+        let addr: SocketAddr = "127.0.0.1:1".parse().unwrap();
+        let mut raw = b"GET / HTTP/1.1\r\nX-Long: ".to_vec();
+        raw.extend(std::iter::repeat(b'a').take(MAX_HEAD_BYTES as usize));
+        assert_eq!(read_request(&raw[..], addr, addr).err(), Some(431));
+        let endless_line = vec![b'G'; 1 << 20];
+        assert_eq!(read_request(&endless_line[..], addr, addr).err(), Some(431));
     }
 
     #[test]
