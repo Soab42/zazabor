@@ -659,8 +659,34 @@ pub fn serve_thumb(request: Request<Vec<u8>>, responder: UriSchemeResponder) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    /// What the player made of an address: frames drawn, and its state at the end.
+    pub(crate) struct Played {
+        pub frames: u32,
+        pub playing: bool,
+        pub video_width: u32,
+        pub state: String,
+    }
+
+    /// Plays `location` for `secs` (with the page's frame route counting the pictures), then stops.
+    pub(crate) fn play_for(location: &str, secs: u64) -> Played {
+        open(location.to_string(), 640, 360, 0).unwrap();
+        let (mut after, mut frames) = (0, 0);
+        let started = std::time::Instant::now();
+        while started.elapsed() < Duration::from_secs(secs) {
+            let response = frame::response(after);
+            if response.status() == StatusCode::OK {
+                let body = response.body();
+                after = u32::from_le_bytes(body[12..16].try_into().unwrap()) as u64;
+                frames += 1;
+            }
+        }
+        let state = snapshot();
+        stop_player();
+        Played { frames, playing: state.playing, video_width: state.video_width, state: format!("{state:?}") }
+    }
 
     /// Live check against a real file: `VIDEO_TEST_FILE=/path/to.mp4 cargo test live -- --ignored`.
     #[test]

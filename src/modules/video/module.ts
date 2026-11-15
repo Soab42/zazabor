@@ -447,7 +447,9 @@ export class VideoModule implements AppModule {
       this.wake();
     }
     const error = this.player.error;
-    const loading = current !== null && !error && this.player.state.length <= 0;
+    // A live stream (a cast, a radio) never learns its length: it has loaded once it plays.
+    const { length, playing, videoWidth } = this.player.state;
+    const loading = current !== null && !error && length <= 0 && !playing && videoWidth <= 0;
     const key = error ? `e:${error}` : loading ? "l" : "";
     if (key === this.overlayKey) return;
     this.overlayKey = key;

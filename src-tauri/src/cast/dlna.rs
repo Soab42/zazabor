@@ -235,6 +235,8 @@ fn media_for(uri: &str, metadata: &str, sender: &str, sender_key: &str) -> Media
         artwork: field("albumArtURI").filter(|u| u.starts_with("http")),
         start_ms: 0,
         live: class.contains("videoBroadcast") || class.contains("audioBroadcast"),
+        // object.item.audioItem(.musicTrack, .audioBroadcast…): a song or a radio, no picture.
+        audio_only: class.contains("audioItem"),
         options: Vec::new(),
         sender: sender.to_string(),
         sender_key: sender_key.to_string(),
@@ -759,6 +761,9 @@ mod tests {
         assert_eq!(arg(&meta, "class").unwrap(), "object.item.videoItem");
         assert_eq!(arg(body, "Missing"), None);
         assert_eq!(arg("<a><Speed/></a>", "Speed").unwrap(), "");
+        assert!(!media_for("http://192.168.1.5:8080/a.mp4", &meta, "Phone", "dlna:x").audio_only);
+        let song = "<DIDL-Lite><item><dc:title>Song</dc:title><upnp:class>object.item.audioItem.musicTrack</upnp:class></item></DIDL-Lite>";
+        assert!(media_for("http://192.168.1.5:8080/a.mp3", song, "Phone", "dlna:x").audio_only);
     }
 
     #[test]

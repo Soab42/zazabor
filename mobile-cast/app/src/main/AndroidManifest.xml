@@ -34,6 +34,8 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <!-- Updates itself from GitHub releases (Updater.kt): there's no store to do it. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Calls work without telephony hardware being required (tablets can still link). -->
     <uses-feature
@@ -115,5 +117,8 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+        <receiver
+            android:name=".UpdateReceiver"
+            android:exported="false" />
     </application>
 </manifest>

@@ -144,6 +144,7 @@ class MainActivity : Activity() {
         // Back from Settings: a permission may have changed.
         renderChecklist()
         if (LinkPrefs(this).paired) LinkService.refresh(this)
+        Updater.maybeCheck(this, "link")
     }
 
     override fun onStop() {
@@ -391,6 +392,12 @@ class MainActivity : Activity() {
             text = "Mirroring sends the screen and the sound apps play. Calls and some apps keep their sound private."
             setLineSpacing(0f, 1.2f)
             setPadding(dp(4), dp(28), dp(4), 0)
+        })
+        val version = packageManager.getPackageInfo(packageName, 0).versionName
+        column.addView(text(12f, R.color.muted).apply {
+            text = "Zazabor Link $version · Check for Updates"
+            setPadding(dp(4), dp(18), dp(4), dp(6))
+            setOnClickListener { Updater.check(this@MainActivity, "link", manual = true) }
         })
 
         val scroll = ScrollView(this).apply {

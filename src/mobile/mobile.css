@@ -5,7 +5,8 @@
 
 html.phone {
   --safe-top: env(safe-area-inset-top, 0px);
-  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* --nav-bottom: the gesture or button bar, from the Android app (src/mobile/main.ts). */
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--nav-bottom, 0px));
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }
@@ -128,3 +129,10 @@ html.phone .wl-calc-key { height: 44px; font-size: 17px; }
 
 /* Bills: a long name pushes the Subscription badge onto its own line instead of clipping it. */
 html.phone .wl-bill-name { flex-wrap: wrap; row-gap: 2px; white-space: normal; }
+
+/* ---- the drawer's foot: the app's version and Check for Updates (Updater.kt) */
+html.phone .phone-updates {
+  display: flex; align-items: center; gap: 8px; margin: 12px 8px 0; padding: 10px 12px; border: 0; border-radius: var(--radius-md);
+  background: rgba(var(--fg), 0.05); color: var(--muted); font: inherit; font-size: var(--text-sm); text-align: left;
+}
+html.phone .phone-updates-check { margin-left: auto; color: var(--accent); font-weight: 600; }

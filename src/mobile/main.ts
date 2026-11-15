@@ -68,6 +68,20 @@ if (side && bar) {
   bar.prepend(h("button", { class: "icon-btn phone-menu", type: "button", "aria-label": "Menu", onclick: () => setOpen(true) }, icon("sidebar", 20)));
   bar.querySelector(".wl-new")?.before(phoneSync((text) => showToast(text, undefined, 3200)));
   bar.append(h("div", { class: "phone-break" }));
+  // The gesture or button bar's height, which the WebView doesn't report as a safe area.
+  const system = (window as unknown as { ZazaborSystem?: { bottomInset(): number } }).ZazaborSystem;
+  if (system) {
+    const inset = () => document.documentElement.style.setProperty("--nav-bottom", `${system.bottomInset()}px`);
+    inset();
+    window.addEventListener("resize", inset);
+  }
+  // The app updates itself from GitHub (Updater.kt, there's no store): it asks on its own every
+  // few hours, and this asks now. The bridge is only there in the Android app.
+  const updates = (window as unknown as { ZazaborUpdates?: { check(): void; version(): string } }).ZazaborUpdates;
+  if (updates) {
+    side.append(h("button", { class: "phone-updates", type: "button", onclick: () => updates.check() },
+      icon("download", 14), h("span", null, `Zazabor Wallet ${updates.version()}`), h("span", { class: "phone-updates-check" }, "Check for Updates")));
+  }
   side.addEventListener("click", (e) => {
     if ((e.target as HTMLElement).closest("button, a")) setOpen(false);
   });

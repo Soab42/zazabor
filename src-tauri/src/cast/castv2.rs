@@ -510,6 +510,8 @@ fn media_from(media: &Value, url: &str, load: &Value, sender_id: &str, peer: IpA
         start_ms: load["currentTime"].as_f64().map(|t| (t * 1000.0) as i64).unwrap_or(0),
         // VLC always says LIVE: it streams whatever it plays, and seeks by loading again.
         live: media["streamType"].as_str() == Some("LIVE"),
+        // VLC names what it streams: audio/x-matroska (or audio/webm) when it sends no picture.
+        audio_only: media["contentType"].as_str().is_some_and(|t| t.trim().to_ascii_lowercase().starts_with("audio/")),
         options: Vec::new(),
         sender: format!("{app} on {peer}"),
         sender_key: format!("cast:{peer}"),
@@ -633,61 +635,111 @@ mod tests {
         assert_eq!(replies[0].json()["type"], "PONG");
         assert_eq!(replies[0].destination, "sender-vlc");
     }
-}
-
-/// The real VLC on this PC casts a short clip here, as a phone's VLC would. Needs `cvlc` and
-/// `ffmpeg`/`ffprobe`: `cargo test --lib cast::castv2::live -- --ignored --nocapture`.
-#[cfg(test)]
-mod live {
-    use std::process::{Command, Stdio};
-    use std::time::{Duration, Instant};
 
     #[test]
-    #[ignore]
-    fn vlc_casts_to_us() {
+    fn a_sound_only_load_is_marked() {
+        let peer: IpAddr = "192.168.1.20".parse().unwrap();
+        let load = |content_type: &str| {
+            let media = json!({"contentId": "http://192.168.1.20:8010/chromecast/1/2/stream", "streamType": "LIVE", "contentType": content_type, "metadata": {"title": "Clip"}});
+            media_from(&media, "http://192.168.1.20:8010/chromecast/1/2/stream", &json!({"currentTime": 0}), "sender-vlc", peer)
+        };
+        // What VLC sends: video/x-matroska or video/webm with a picture, audio/… without one.
+        assert!(!load("video/x-matroska").audio_only);
+        assert!(!load("video/webm").audio_only);
+        assert!(load("audio/x-matroska").audio_only);
+        assert!(load("audio/webm").audio_only);
+        let media = load("audio/x-matroska");
+        assert_eq!((media.title.as_deref(), media.live, media.sender.as_str()), (Some("Clip"), true, "VLC on 192.168.1.20"));
+    }
+}
+
+/// The real VLC on this PC casts a short clip here, as a phone's VLC would, and the player
+/// draws it. Needs `cvlc`, and `ffmpeg` to make the clip unless `CAST_TEST_CLIP` names one (a few
+/// seconds with picture and sound). The tests share the receiver and the player, so run them one
+/// at a time: `cargo test --lib cast::castv2::live -- --ignored --nocapture --test-threads=1`.
+#[cfg(test)]
+mod live {
+    use std::path::PathBuf;
+    use std::process::{Child, Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    struct Cast {
+        vlc: Child,
+        url: String,
+        audio_only: bool,
+        dir: PathBuf,
+    }
+
+    impl Drop for Cast {
+        fn drop(&mut self) {
+            let _ = self.vlc.kill();
+            let _ = self.vlc.wait();
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    /// Starts a receiver and has VLC cast to it (with `extra` VLC arguments) until it sends LOAD.
+    fn cast(extra: &[&str]) -> Cast {
         let generation = super::super::testing::begin();
         let port = super::start(generation).expect("listen");
-        let dir = std::env::temp_dir().join(format!("zazabor-cast-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("zazabor-cast-test-{}-{generation}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let clip = dir.join("clip.mp4");
-        let made = Command::new("ffmpeg")
-            .args(["-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=640x360:rate=25", "-f", "lavfi", "-i", "sine=frequency=440", "-t", "5", "-c:v", "libopenh264", "-b:v", "1M", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"])
-            .arg(&clip)
-            .status()
-            .unwrap();
-        assert!(made.success());
-        let mut vlc = Command::new("cvlc")
+        let clip = std::env::var_os("CAST_TEST_CLIP").map(PathBuf::from).unwrap_or_else(|| {
+            let clip = dir.join("clip.mp4");
+            let made = Command::new("ffmpeg")
+                .args(["-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=640x360:rate=25", "-f", "lavfi", "-i", "sine=frequency=440", "-t", "5", "-c:v", "libopenh264", "-b:v", "1M", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"])
+                .arg(&clip)
+                .status()
+                .expect("ffmpeg (or set CAST_TEST_CLIP)");
+            assert!(made.success());
+            clip
+        });
+        let vlc = Command::new("cvlc")
             .arg(&clip)
             .arg("--sout")
             .arg(format!("#chromecast{{ip=127.0.0.1,port={port}}}"))
             .args(["--play-and-exit", "-vv", "--demux-filter=cc_demux"])
+            .args(extra)
             .stdout(Stdio::null())
             .stderr(std::fs::File::create(dir.join("vlc.log")).unwrap())
             .spawn()
             .expect("cvlc");
+        let mut cast = Cast { vlc, url: String::new(), audio_only: false, dir };
         let started = Instant::now();
-        let url = loop {
-            if let Some(url) = super::super::testing::current_url() {
-                break url;
+        loop {
+            if let Some((url, audio_only)) = super::super::testing::current_media() {
+                (cast.url, cast.audio_only) = (url, audio_only);
+                println!("VLC asked us to play {} (sound only: {audio_only})", cast.url);
+                return cast;
             }
             if started.elapsed() > Duration::from_secs(20) {
-                let _ = vlc.kill();
-                let log = std::fs::read_to_string(dir.join("vlc.log")).unwrap_or_default();
+                let log = std::fs::read_to_string(cast.dir.join("vlc.log")).unwrap_or_default();
                 let cc: Vec<&str> = log.lines().filter(|l| l.contains("chromecast") || l.contains("tls") || l.contains("gnutls")).collect();
                 panic!("VLC never sent LOAD:\n{}", cc[cc.len().saturating_sub(40)..].join("\n"));
             }
             std::thread::sleep(Duration::from_millis(200));
-        };
-        println!("VLC asked us to play {url}");
-        let probe = Command::new("ffprobe").args(["-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height", "-of", "compact", "-rw_timeout", "10000000"]).arg(&url).output().unwrap();
-        let text = String::from_utf8_lossy(&probe.stdout);
-        println!("{text}");
-        let _ = vlc.kill();
-        let _ = vlc.wait();
-        let log = std::fs::read_to_string(dir.join("vlc.log")).unwrap_or_default();
-        let cc: Vec<&str> = log.lines().filter(|l| l.contains("chromecast") || l.contains("httpd")).collect();
-        println!("{}", cc[cc.len().saturating_sub(50)..].join("\n"));
-        let _ = std::fs::remove_dir_all(&dir);
-        assert!(text.contains("codec_type=video"), "no video in VLC's stream: {}", String::from_utf8_lossy(&probe.stderr));
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn vlc_casts_to_us() {
+        let cast = cast(&[]);
+        assert!(!cast.audio_only);
+        let played = crate::video::tests::play_for(&cast.url, 6);
+        println!("player: {} frames; {}", played.frames, played.state);
+        assert!(played.frames >= 25 && played.video_width > 0, "the player drew no picture: {}", played.state);
+    }
+
+    /// VLC's "Audio only" casting setting (and VLC for Android playing a video as audio) sends
+    /// no picture at all. The LOAD says so, and the page explains it instead of a black screen.
+    #[test]
+    #[ignore]
+    fn vlc_sound_only_cast_is_marked() {
+        let cast = cast(&["--no-sout-chromecast-video"]);
+        assert!(cast.audio_only, "LOAD should say audio/…");
+        let played = crate::video::tests::play_for(&cast.url, 5);
+        println!("player: {} frames; {}", played.frames, played.state);
+        assert!(played.playing && played.frames == 0 && played.video_width == 0, "{}", played.state);
     }
 }
