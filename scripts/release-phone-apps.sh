@@ -8,6 +8,11 @@
 #   scripts/release-phone-apps.sh             build, and attach to the latest release
 #   scripts/release-phone-apps.sh v0.2.5      attach to that release
 #   scripts/release-phone-apps.sh --build     build into dist-release/phone only
+#   PHONE_NOTES="What's new" scripts/release-phone-apps.sh   the same notes shown in both apps' update popup
+#
+# phone-apps.json, uploaded with them, is what the apps' updater reads (Updater.kt in each app):
+# each app's version, version code, file, size and SHA-256. Android only installs an update signed
+# with the same key as the installed copy, so the list itself needs no signature.
 #
 # The key: ~/.config/zazabor-release/android-release.jks, with its passwords in
 # android-signing.properties next to it (ZAZABOR_ANDROID_SIGNING names another file). Back both
@@ -38,7 +43,23 @@ for apk in "$out"/zazabor-link.apk "$out"/zazabor-wallet.apk; do
   echo "$(basename "$apk"): $(numfmt --to=iec --suffix=B "$(stat -c %s "$apk")"), $("$build_tools/aapt2" dump badging "$apk" | grep -o "versionName='[^']*'")"
 done
 
+entry() { # app file
+  local apk="$out/$2" badging
+  badging="$("$build_tools/aapt2" dump badging "$apk" | head -1)"
+  node -e '
+    const [app, file, bytes, sha256, badging, notes] = process.argv.slice(1);
+    const version = /versionName='"'"'([^'"'"']*)'"'"'/.exec(badging)[1];
+    const code = Number(/versionCode='"'"'([0-9]+)'"'"'/.exec(badging)[1]);
+    process.stdout.write(JSON.stringify([app, { version, code, file, bytes: Number(bytes), sha256, notes }]));
+  ' "$1" "$2" "$(stat -c %s "$apk")" "$(sha256sum "$apk" | cut -d' ' -f1)" "$badging" "${PHONE_NOTES:-}"
+}
+node -e '
+  const apps = Object.fromEntries(process.argv.slice(1).map((e) => JSON.parse(e)));
+  process.stdout.write(JSON.stringify({ kind: "zazabor-phone-apps", published: Math.floor(Date.now() / 1000), apps }, null, 1) + "\n");
+' "$(entry link zazabor-link.apk)" "$(entry wallet zazabor-wallet.apk)" > "$out/phone-apps.json"
+cat "$out/phone-apps.json"
+
 [[ "${1:-}" == "--build" ]] && exit 0
 tag="${1:-$(gh release view --repo "$repo" --json tagName -q .tagName)}"
-gh release upload "$tag" "$out/zazabor-link.apk" "$out/zazabor-wallet.apk" --repo "$repo" --clobber
+gh release upload "$tag" "$out/zazabor-link.apk" "$out/zazabor-wallet.apk" "$out/phone-apps.json" --repo "$repo" --clobber
 echo "Attached to https://github.com/$repo/releases/tag/$tag"
