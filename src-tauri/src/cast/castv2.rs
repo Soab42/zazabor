@@ -420,7 +420,7 @@ fn receiver_status(conn: &Conn, request_id: i64) -> Value {
                 "isIdleScreen": false,
                 "namespaces": [{"name": NS_MEDIA}],
                 "sessionId": app.session_id,
-                "statusText": "Zazabor",
+                "statusText": "Zazabor Home",
                 "transportId": app.transport_id,
             })
         })

@@ -78,7 +78,7 @@ export const quickEdit: GuideArticle = {
       title: "Save it",
       steps: [
         "Press **Save a copy** ({Ctrl+S}). It writes IMG_1234 (edited).jpg next to the original and shows it.",
-        "To replace the photo itself, open the arrow beside it and choose **Save over original…**; Zazabor asks first.",
+        "To replace the photo itself, open the arrow beside it and choose **Save over original…**; Zazabor Home asks first.",
         "Choose **Open in Photo** to keep working in Studio's Photo editor: your edits arrive as an adjustment layer.",
       ],
       tips: ["The colour profile and camera details are kept; the orientation is set upright."],

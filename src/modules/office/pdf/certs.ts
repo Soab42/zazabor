@@ -182,7 +182,7 @@ export function signDialog(savedPicture: string | null): Promise<SignChoice | nu
     };
     const dialog = openDialog({
       title: "Sign with a Certificate",
-      subtitle: "A digital signature proves who signed and that nothing changed since. Zazabor saves the signed file right away.",
+      subtitle: "A digital signature proves who signed and that nothing changed since. Zazabor Home saves the signed file right away.",
       icon: "pfCertificate",
       tone: "work",
       class: "pf-wide",

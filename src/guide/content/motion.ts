@@ -17,7 +17,7 @@ export const motionTemplates: GuideArticle = {
         "Turn on **Bangla preview** to see the templates with Bangla text.",
       ],
       tips: [
-        "A few templates come with Zazabor; the rest come from Zazabor's online library and keep growing. Each downloads with its fonts the first time it's shown (they're small), so they work offline afterwards.",
+        "A few templates come with Zazabor Home; the rest come from Zazabor Home's online library and keep growing. Each downloads with its fonts the first time it's shown (they're small), so they work offline afterwards.",
         "Each template works in 9:16, 1:1, 4:5 and 16:9: the layout rearranges itself rather than cropping.",
       ],
     },
@@ -43,7 +43,7 @@ export const motionTemplates: GuideArticle = {
       tips: [
         "Anything you changed by hand on one template stays; **Reset to kit** brings that template back to the kit.",
         "**Export Brand Kit** saves a .zazkit file to share or back up; **Import Brand Kits** reads one.",
-        "About 30 fonts come with Zazabor, including Bangla ones (Hind Siliguri, Anek Bangla, Baloo Da 2, Tiro Bangla, Galada). All are free to use in commercial videos.",
+        "About 30 fonts come with Zazabor Home, including Bangla ones (Hind Siliguri, Anek Bangla, Baloo Da 2, Tiro Bangla, Galada). All are free to use in commercial videos.",
       ],
     },
     {
@@ -68,7 +68,7 @@ export const screenRecorder: GuideArticle = {
   group: "studio",
   summary: "Record your screen, a window or an area, with your voice, the sound you hear and a camera bubble. Not finished yet: try it, but don't rely on it.",
   open: { module: "studio", target: "record", label: "Open Screen Recorder" },
-  needs: "This is an early preview. Opening it lists your screens, microphones and cameras, and on some computers that has made Zazabor close; if that happens, it'll be fixed in a later version.",
+  needs: "This is an early preview. Opening it lists your screens, microphones and cameras, and on some computers that has made Zazabor Home close; if that happens, it'll be fixed in a later version.",
   topics: [
     {
       title: "Record",

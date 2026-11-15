@@ -368,7 +368,7 @@ export function protectDialog(): Promise<ProtectChoice | null> {
     };
     const dialog = openDialog({
       title: "Protect with a Password",
-      subtitle: "AES-256 encryption. Keep the passwords somewhere safe: Zazabor can't open the file without them.",
+      subtitle: "AES-256 encryption. Keep the passwords somewhere safe: Zazabor Home can't open the file without them.",
       icon: "lock",
       tone: "work",
       class: "pf-wide",

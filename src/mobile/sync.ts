@@ -101,7 +101,7 @@ export function phoneSync(toast: (text: string) => void): HTMLElement {
       class: "phone-sheet",
       body: [
         h("ol", { class: "wl-pair-steps" },
-          h("li", null, "On the computer, open Zazabor → Settings → Wallet → Devices."),
+          h("li", null, "On the computer, open Zazabor Home → Settings → Wallet → Devices."),
           h("li", null, "Click Pair a Phone."),
           h("li", null, "Scan the code it shows. Both need to be on the same Wi-Fi.")),
         scanButton,
@@ -140,7 +140,7 @@ export function phoneSync(toast: (text: string) => void): HTMLElement {
       body: [
         h("div", { class: "st-wallet-devices" }, ...rows),
         problem ? h("p", { class: "tt-error" }, problem) : null,
-        h("p", { class: "sf-hint" }, "Syncs over the Wi-Fi whenever this app is open and the computer is on with Zazabor running."),
+        h("p", { class: "sf-hint" }, "Syncs over the Wi-Fi whenever this app is open and the computer is on with Zazabor Home running."),
       ],
       foot: [
         h("button", { class: "btn", type: "button", onclick: () => (dialog.close(), pairSheet()) }, "Pair Another"),

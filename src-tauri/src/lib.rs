@@ -1,5 +1,6 @@
 mod awake;
 mod background;
+mod brand;
 mod cast;
 mod clipboard;
 mod content;
@@ -254,7 +255,7 @@ pub(crate) fn show_main(app: &tauri::AppHandle, path: Option<String>) {
     }
     *PENDING_PATH.lock().unwrap_or_else(|e| e.into_inner()) = path;
     if let Err(err) = build_main(app) {
-        eprintln!("Could not open Zazabor's window: {err}");
+        eprintln!("Could not open Zazabor Home's window: {err}");
     }
 }
 
@@ -306,7 +307,7 @@ pub(crate) fn new_window(
     let start = serde_json::json!({ "module": module, "path": path, "siblings": siblings });
     let window = tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::App("index.html".into()))
         .on_navigation(stays_in_app)
-        .title("Zazabor")
+        .title("Zazabor Home")
         .inner_size(1280.0, 820.0)
         .min_inner_size(860.0, 560.0)
         .background_color(tauri::webview::Color(0x0e, 0x0f, 0x11, 0xff))
@@ -372,6 +373,8 @@ pub fn run() {
                 background::adopt_old_entry();
                 notes::quick::adopt_old_shortcuts();
             }
+            // Zazabor became Zazabor Home: an installed copy renames its menu entry and icons.
+            std::thread::spawn(brand::refresh);
             protocol::init(cache.join("renders"));
             dims::init(cache.join("dimensions.json"));
             lock::init(app.path().app_config_dir()?);
@@ -885,7 +888,7 @@ pub fn run() {
             video::renderers::video_cast_stop_discovery
         ])
         .build(tauri::generate_context!())
-        .expect("error while running Zazabor")
+        .expect("error while running Zazabor Home")
         .run(|_, event| match event {
             // The last window closed: in the background mode Zazabor keeps running (for the
             // clipboard history); a later launch shows the window again.

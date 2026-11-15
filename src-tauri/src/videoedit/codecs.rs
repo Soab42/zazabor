@@ -16,7 +16,7 @@ pub fn install_with(program: &str, args: &[&str], packages: &[String]) -> Result
         return Err("Nothing to install.".into());
     }
     if let Some(p) = packages.iter().find(|p| !ALLOWED.contains(&p.as_str())) {
-        return Err(format!("Zazabor doesn't install “{p}”."));
+        return Err(format!("Zazabor Home doesn't install “{p}”."));
     }
     let output = Command::new(program)
         .args(args)
@@ -44,7 +44,7 @@ pub fn install(packages: &[String]) -> Result<Encoders, String> {
         install_with(&program, &[], packages)?;
     } else {
         if Command::new("sh").args(["-c", "command -v apt-get && command -v pkexec"]).output().map_or(true, |o| !o.status.success()) {
-            return Err(format!("This system doesn't use apt with pkexec. Install {} with your package manager, then restart Zazabor.", packages.join(", ")));
+            return Err(format!("This system doesn't use apt with pkexec. Install {} with your package manager, then restart Zazabor Home.", packages.join(", ")));
         }
         install_with("pkexec", &["apt-get", "install", "-y"], packages)?;
     }

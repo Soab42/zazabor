@@ -12,14 +12,14 @@ export const mail: GuideArticle = {
       title: "Add an account",
       steps: [
         "Open **Mail** on the rail and press **Add an Email Account** (later: **Add Account** at the bottom of the sidebar).",
-        "For Gmail, Google Workspace, Outlook.com or Microsoft 365, press **Sign in with Google** or **Sign in with Microsoft**: your browser opens their sign-in page, and once you allow it the account is added. Zazabor never sees that password.",
-        "For anything else, enter your name, your email address and the password, then press **Add Account**. Zazabor works out the mail servers from the address and signs in to check both reading and sending.",
+        "For Gmail, Google Workspace, Outlook.com or Microsoft 365, press **Sign in with Google** or **Sign in with Microsoft**: your browser opens their sign-in page, and once you allow it the account is added. Zazabor Home never sees that password.",
+        "For anything else, enter your name, your email address and the password, then press **Add Account**. Zazabor Home works out the mail servers from the address and signs in to check both reading and sending.",
         "Your mail starts coming in, newest first.",
       ],
       tips: [
         "The first time, **Sign in with Google** or **Microsoft** asks for a *client ID*: Google and Microsoft only sign people in to an app registered with them. The sheet lists the steps and opens the right page; it is done once.",
         "With a Google project still in *Testing*, Google asks you to sign in again every 7 days: **Sign In Again** is in the account's settings.",
-        "A work or school Microsoft account may need its administrator to allow IMAP, and sending by mail apps. Zazabor says so when reading works and sending doesn't.",
+        "A work or school Microsoft account may need its administrator to allow IMAP, and sending by mail apps. Zazabor Home says so when reading works and sending doesn't.",
         "**Yahoo, iCloud, Fastmail and AOL** (and Gmail, if you'd rather not sign in that way) want an *app password*, not your usual one: a note under the password says so and links to the page that makes one.",
         "**Proton Mail** works through Proton Mail Bridge: start it and use the password Bridge shows.",
         "For any other address, open **Server settings** to check or type the IMAP and SMTP servers your provider gives you.",

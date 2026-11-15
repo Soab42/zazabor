@@ -19,7 +19,7 @@ export const wallet: GuideArticle = {
       title: "Add spending and income",
       steps: [
         "Click the **Quick add** bar ({Ctrl+K}) and type it as you'd say it: \"250 lunch bkash\" or \"+45000 salary city bank 25 oct\".",
-        "Chips show how Zazabor understood it. Press {Enter} to add, or {Tab} to open the full form first.",
+        "Chips show how Zazabor Home understood it. Press {Enter} to add, or {Tab} to open the full form first.",
         "Or press **New** ({Ctrl+E}) for the full form: amount, category, account, payee, date and note.",
         "For money between your own accounts, choose a transfer; a fee (a bKash cash-out charge) goes to Fees.",
       ],
@@ -45,7 +45,7 @@ export const wallet: GuideArticle = {
       steps: [
         "Open **Bills** and press **New Bill**: rent, DESCO, Netflix, or income like a salary.",
         "Choose how often it repeats, and whether it posts by itself or only reminds you.",
-        "A reminder shows as unpaid until you press **Mark Paid**. If Zazabor was closed for a while, missed periods catch up when it opens.",
+        "A reminder shows as unpaid until you press **Mark Paid**. If Zazabor Home was closed for a while, missed periods catch up when it opens.",
         "Or turn on **Repeat it** at the bottom of any new spending, income or transfer: pick how often, and with **Auto pay** on it posts by itself from the next date.",
         "Choose **Transfer** to move money between your own accounts on a schedule, like savings each payday. Or right-click a transfer in Transactions and choose **Repeat…**.",
       ],
@@ -98,7 +98,7 @@ export const wallet: GuideArticle = {
       title: "Backups and privacy",
       tips: [
         "A backup is made every day (the last 14 are kept). **Back Up Now** and **Restore** are in **Accounts** and **Settings → Wallet**.",
-        "With the privacy lock on, Wallet hides completely while Zazabor is locked.",
+        "With the privacy lock on, Wallet hides completely while Zazabor Home is locked.",
       ],
     },
   ],
@@ -118,7 +118,7 @@ export const walletStatements: GuideArticle = {
       title: "Upload a statement",
       steps: [
         "Open **Import & Export** and press **Upload Statement…**, or drop the file there: a bank or bKash/Nagad statement as PDF, CSV or Excel.",
-        "Zazabor reads it and finds the account by bank and the last four digits, or offers to create it (it remembers your choice).",
+        "Zazabor Home reads it and finds the account by bank and the last four digits, or offers to create it (it remembers your choice).",
         "Review the rows: each has a category from your rules and past payees, and rows already in Wallet are marked as duplicates.",
         "Check the balance check: opening balance + credits − debits must equal the closing balance, row by row. Rows that don't add up are flagged, never changed.",
         "Press **Import … Transactions**. Changed your mind? **Undo Import** takes the whole statement back.",
@@ -137,7 +137,7 @@ export const walletStatements: GuideArticle = {
         "Press **Test the Key**.",
         "Now a scan or photo of a statement offers **Read with Claude…**. The statement is sent to Anthropic only then.",
       ],
-      tips: ["AI is refused while Zazabor is locked. The balance check still runs on what Claude reads."],
+      tips: ["AI is refused while Zazabor Home is locked. The balance check still runs on what Claude reads."],
     },
     {
       title: "Statement to Excel",
@@ -149,7 +149,7 @@ export const walletStatements: GuideArticle = {
     {
       title: "Import and export your own files",
       steps: [
-        "Press **Choose File…** to import any CSV or Excel file: Zazabor maps the date, description and money columns, and you can fix the mapping. Mappings and rules are saved for next time.",
+        "Press **Choose File…** to import any CSV or Excel file: Zazabor Home maps the date, description and money columns, and you can fix the mapping. Mappings and rules are saved for next time.",
         "Press **Export…** for CSV, Excel (a sheet per month) or JSON. **Open in Sheets** opens an export in Office.",
         "A file you exported can be imported again without making duplicates.",
       ],

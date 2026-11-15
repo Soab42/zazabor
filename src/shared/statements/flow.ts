@@ -108,7 +108,7 @@ export async function openStatement(path: string, host: StatementHost): Promise<
     const ai = await statementsApi.aiState().catch(() => null);
     const why = !statement
       ? "It's a picture, so its text has to be read first."
-      : statement.warnings[0] ?? "Zazabor couldn't find a table of transactions in it.";
+      : statement.warnings[0] ?? "Zazabor Home couldn't find a table of transactions in it.";
     if (!ai?.consent || !ai.hasKey) return needsClaude(host, path, why);
     try {
       statement = await readWithClaude(path, items);

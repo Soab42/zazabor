@@ -121,7 +121,7 @@ pub fn read_from(r: &mut impl Read) -> Result<GgmlModel, String> {
         let (dtype, size) = match ttype {
             0 => (DType::F32, 4),
             1 => (DType::F16, 2),
-            _ => return Err("This captions model is quantized, which Zazabor can't read; use Base or Small.".into()),
+            _ => return Err("This captions model is quantized, which Zazabor Home can't read; use Base or Small.".into()),
         };
         let elements: usize = ne.iter().product();
         if elements == 0 || elements > 1 << 30 {

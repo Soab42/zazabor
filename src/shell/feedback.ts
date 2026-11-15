@@ -10,7 +10,7 @@ import { icon, type IconName } from "../ui/icons";
  * (src-tauri/src/feedback.rs). Nothing is sent until the report is submitted there.
  */
 
-const NEW_ISSUE = "https://github.com/Soab42/zazabor/issues/new";
+const NEW_ISSUE = "https://github.com/Soab42/zazabor-home/issues/new";
 
 /** Opens the issue form for a bug or a feature request. */
 export async function openFeedback(kind: "bug" | "feature") {
@@ -35,9 +35,9 @@ export function feedbackGroup(): SettingsGroup {
   return {
     title: "Feedback",
     rows: [
-      row("Report a Bug", "Something broken, or not working as it should? Tell us on GitHub. Your Zazabor version and system are filled in; nothing is sent until you submit it there.",
+      row("Report a Bug", "Something broken, or not working as it should? Tell us on GitHub. Your Zazabor Home version and system are filled in; nothing is sent until you submit it there.",
         "bug", "Report a Bug…", "problem crash issue error feedback", () => void openFeedback("bug")),
-      row("Request a Feature", "An idea that would make Zazabor better? Describe it on GitHub, where you can also follow what happens to it.",
+      row("Request a Feature", "An idea that would make Zazabor Home better? Describe it on GitHub, where you can also follow what happens to it.",
         "sparkles", "Request a Feature…", "idea suggestion wish feedback", () => void openFeedback("feature")),
     ],
   };

@@ -53,7 +53,7 @@ export function walletCategory(host: { readonly config: Config; configChanged():
   }
 
   function drawRates() {
-    if (!state || !earnings) return rates.replaceChildren(h("span", { class: "sf-hint" }, "Unlock Zazabor to see them."));
+    if (!state || !earnings) return rates.replaceChildren(h("span", { class: "sf-hint" }, "Unlock Zazabor Home to see them."));
     const projects = [...new Set([...earnings.projects, ...earnings.rates.map((r) => r.project)])].sort((a, b) => a.localeCompare(b));
     if (!projects.length) return rates.replaceChildren(h("span", { class: "sf-hint" }, "Projects appear here once Time has tracked work on a task with a project."));
     rates.replaceChildren(...projects.map((project) => {

@@ -39,9 +39,9 @@ export const notes: GuideArticle = {
       title: "A note from anywhere",
       steps: [
         "Go to **Settings → Notes** and press **Add Shortcut** (Super+Alt+N by default).",
-        "Now that key opens a new note from any app, even when Zazabor isn't running.",
+        "Now that key opens a new note from any app, even when Zazabor Home isn't running.",
       ],
-      tips: ["The Zazabor menu entry's right-click has **New Note** too."],
+      tips: ["The Zazabor Home menu entry's right-click has **New Note** too."],
     },
     {
       title: "Sync between computers",

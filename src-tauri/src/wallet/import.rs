@@ -116,7 +116,7 @@ pub fn read_table(path: &Path, sheet: Option<u32>) -> Result<Table> {
             }
             Ok(Table { rows: trim_rows(rows), sheets })
         }
-        "xls" | "ods" => Err(format!("Zazabor reads .xlsx and .csv statements. Open “{shown}” in Sheets and save it as .xlsx first.")),
+        "xls" | "ods" => Err(format!("Zazabor Home reads .xlsx and .csv statements. Open “{shown}” in Sheets and save it as .xlsx first.")),
         _ => Err(format!("“{shown}” isn't a CSV or Excel file.")),
     }
 }

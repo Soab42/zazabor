@@ -66,10 +66,10 @@ fn parse(bytes: &[u8], signature: &str) -> Result<Library, String> {
     crate::signing::verify(bytes, signature)?;
     let catalog: Value = serde_json::from_slice(bytes).map_err(|e| format!("The library's catalog isn't readable: {e}"))?;
     if catalog["kind"] != KIND {
-        return Err("That isn't Zazabor's library catalog.".into());
+        return Err("That isn't Zazabor Home's library catalog.".into());
     }
     if catalog["format"].as_u64() != Some(FORMAT) {
-        return Err("The library needs a newer Zazabor. Update Zazabor to get it.".into());
+        return Err("The library needs a newer Zazabor Home. Update Zazabor Home to get it.".into());
     }
     let mut files = HashMap::new();
     collect(&catalog, &mut files);
@@ -233,7 +233,7 @@ struct Progress<'a> {
 /// Downloads a library file if it isn't here yet; its path.
 fn ensure(app: &tauri::AppHandle, dir: &Path, file: &str) -> Result<PathBuf, String> {
     let lib = library(dir).ok_or("The library isn't available yet. Connect to the internet and try again.")?;
-    let (bytes, sha) = lib.files.get(file).cloned().ok_or_else(|| format!("“{file}” isn't in Zazabor's library."))?;
+    let (bytes, sha) = lib.files.get(file).cloned().ok_or_else(|| format!("“{file}” isn't in Zazabor Home's library."))?;
     let dest = dir.join(file);
     let gate = gate(file);
     let _held = lock(&gate);

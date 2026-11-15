@@ -24,14 +24,14 @@ export const settings: GuideArticle = {
         "**AI**: your Claude API key, for reading scanned statements. See [[wallet-statements|Statements]].",
         "**Keyboard**: a reference of the shortcuts.",
         "Then a page per section: Files, Gallery, Notes (sync and the quick-note shortcut), Wallet, PDF (OCR languages), Photo (AI models), Video Editor, Clipboard (Super+V, background mode, Quit), and Video's own pages (Interface, Playback, Video, Audio, Subtitles, Library, Network, Performance, Recording & Casting).",
-        "**General → Help** opens this guide. **Zazabor** has the version, updates, the library, and Feedback.",
+        "**General → Help** opens this guide. **Zazabor Home** has the version, updates, the library, and Feedback.",
       ],
     },
     {
       title: "Report a bug or ask for a feature",
       steps: [
-        "Go to **Settings → Zazabor → Feedback**.",
-        "Press **Report a Bug…** or **Request a Feature…**. A form opens on GitHub in your browser, with your Zazabor version and system already filled in.",
+        "Go to **Settings → Zazabor Home → Feedback**.",
+        "Press **Report a Bug…** or **Request a Feature…**. A form opens on GitHub in your browser, with your Zazabor Home version and system already filled in.",
         "Describe what happened (or your idea) and submit it there. Nothing is sent before you do; you'll need a GitHub account.",
       ],
     },
@@ -44,7 +44,7 @@ export const privacyLock: GuideArticle = {
   title: "Privacy lock",
   icon: "lock",
   group: "system",
-  summary: "Lock Zazabor with a password so people using your computer can't browse your photos, money or notes.",
+  summary: "Lock Zazabor Home with a password so people using your computer can't browse your photos, money or notes.",
   topics: [
     {
       title: "Set it up",
@@ -54,9 +54,9 @@ export const privacyLock: GuideArticle = {
         "Lock any time with **Lock now** or {Ctrl+L}.",
       ],
       tips: [
-        "While locked, Zazabor hides everything and refuses to scan folders, show pictures or touch Wallet. Locking one window locks them all.",
+        "While locked, Zazabor Home hides everything and refuses to scan folders, show pictures or touch Wallet. Locking one window locks them all.",
         "Hidden albums only show while unlocked.",
-        "The lock doesn't encrypt your files on disk; it keeps people out of Zazabor.",
+        "The lock doesn't encrypt your files on disk; it keeps people out of Zazabor Home.",
         "Auto-lock waits while a video or slideshow plays.",
       ],
     },
@@ -87,7 +87,7 @@ export const windows: GuideArticle = {
       ],
       tips: [
         "Change the theme in one window and the others follow.",
-        "Only one Zazabor runs at a time: opening it again, or opening a file with it from another app, brings up the running one.",
+        "Only one Zazabor Home runs at a time: opening it again, or opening a file with it from another app, brings up the running one.",
       ],
     },
   ],
@@ -99,21 +99,21 @@ export const backgroundQuit: GuideArticle = {
   title: "Background mode & Quit",
   icon: "moon",
   group: "system",
-  summary: "Keep Zazabor running without a window (for the clipboard history), and quit it completely.",
+  summary: "Keep Zazabor Home running without a window (for the clipboard history), and quit it completely.",
   topics: [
     {
       title: "Run in the background",
       steps: [
         "Open **Settings → Clipboard** and turn on **Run in the background**.",
-        "Zazabor now starts at login with no window, and keeps running after you close its window, so the clipboard history, quick notes and Time are always ready.",
-        "Open Zazabor from the applications menu to show its window again.",
+        "Zazabor Home now starts at login with no window, and keeps running after you close its window, so the clipboard history, quick notes and Time are always ready.",
+        "Open Zazabor Home from the applications menu to show its window again.",
       ],
     },
     {
-      title: "Quit Zazabor",
+      title: "Quit Zazabor Home",
       steps: [
-        "Press **Quit Zazabor** in **Settings → Clipboard**, or right-click Zazabor in the applications menu and choose **Quit Zazabor**.",
-        "If an Office file has unsaved changes, Zazabor asks to save it first. **Cancel** keeps Zazabor running.",
+        "Press **Quit Zazabor Home** in **Settings → Clipboard**, or right-click Zazabor Home in the applications menu and choose **Quit Zazabor Home**.",
+        "If an Office file has unsaved changes, Zazabor Home asks to save it first. **Cancel** keeps Zazabor Home running.",
       ],
       tips: ["From a terminal, typing zazabor --quit does the same."],
     },
@@ -126,19 +126,19 @@ export const install: GuideArticle = {
   title: "Install & update",
   icon: "download",
   group: "system",
-  summary: "Install Zazabor for your user on Linux (no root needed), update it, or remove it.",
+  summary: "Install Zazabor Home for your user on Linux (no root needed), update it, or remove it.",
   topics: [
     {
       title: "Install or update",
       steps: [
-        "In the Zazabor source folder, run scripts/install-linux.sh. It builds Zazabor and installs it into ~/.local, with an applications-menu entry.",
-        "Zazabor is added to **Open With** for pictures, videos, folders, Word, Excel, CSV and PDF files. Your default apps don't change until you choose: **Settings → General → Default apps** makes Zazabor (or any other app) what opens each kind of file.",
-        "Zazabor updates itself. A few seconds after it starts (and when your computer comes back online), it checks GitHub; when there's a newer version, a window shows what's new. Press **Install Update**, then **Restart Now**. **Later** asks again at the next start; **Skip This Version** waits for the one after. Nothing installs without you.",
-        "**Settings → Zazabor → Updates** does the same at any time.",
+        "In the Zazabor Home source folder, run scripts/install-linux.sh. It builds Zazabor Home and installs it into ~/.local, with an applications-menu entry.",
+        "Zazabor Home is added to **Open With** for pictures, videos, folders, Word, Excel, CSV and PDF files. Your default apps don't change until you choose: **Settings → General → Default apps** makes Zazabor Home (or any other app) what opens each kind of file.",
+        "Zazabor Home updates itself. A few seconds after it starts (and when your computer comes back online), it checks GitHub; when there's a newer version, a window shows what's new. Press **Install Update**, then **Restart Now**. **Later** asks again at the next start; **Skip This Version** waits for the one after. Nothing installs without you.",
+        "**Settings → Zazabor Home → Updates** does the same at any time.",
         "**Check for Updates** asks at once; turn off **Check for updates automatically** to only check by hand.",
       ],
       tips: [
-        "Add --background to start Zazabor in the background at login; --uninstall removes it (your files and settings stay).",
+        "Add --background to start Zazabor Home in the background at login; --uninstall removes it (your files and settings stay).",
         "The installer also fetches PDFium for the PDF app's redaction and **Edit Text** (a pinned release, checked against its checksum) and installs it into ~/.local/lib/zazabor/.",
       ],
     },
@@ -147,14 +147,14 @@ export const install: GuideArticle = {
       tips: [
         "Video export and playback use GStreamer; some formats need extra codec packages. The Video Editor explains what's missing.",
         "PDF → Word \"Keep the layout\" and some compression options use LibreOffice and Ghostscript when they're installed.",
-        "AI models and OCR languages download inside Zazabor when you first use them, after asking.",
+        "AI models and OCR languages download inside Zazabor Home when you first use them, after asking.",
       ],
     },
     {
       title: "Templates, music and fonts",
       steps: [
-        "Zazabor comes with a few motion templates and its sound effects. The rest of its library (more templates, the soundtracks and the template fonts) downloads from Zazabor's library online the first time you use each piece, and stays on your computer.",
-        "New templates and music appear by themselves within the hour; **Settings → Zazabor → Library → Check Now** looks at once.",
+        "Zazabor Home comes with a few motion templates and its sound effects. The rest of its library (more templates, the soundtracks and the template fonts) downloads from Zazabor Home's library online the first time you use each piece, and stays on your computer.",
+        "New templates and music appear by themselves within the hour; **Settings → Zazabor Home → Library → Check Now** looks at once.",
         "**Remove Downloads** frees the space. Anything you use again downloads again, and projects that use it fetch it when they open.",
       ],
     },
@@ -176,7 +176,7 @@ export const shortcuts: GuideArticle = {
         ["Ctrl+,", "Settings"],
         ["F1", "This guide, on the section you're in"],
         ["Ctrl+N", "A new window of the section (Office: a new file; Notes: a new note)"],
-        ["Ctrl+L", "Lock Zazabor (when the privacy lock is set up)"],
+        ["Ctrl+L", "Lock Zazabor Home (when the privacy lock is set up)"],
         ["Esc", "Close Settings, the guide or a dialog"],
       ],
     },

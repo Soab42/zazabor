@@ -202,7 +202,7 @@ fn control_phone(mut phone: TcpStream, session: u64, generation: u64, feed: &Fee
 fn read_hello(reader: &mut impl BufRead) -> Result<Hello, String> {
     let magic = read_line(reader, 64).ok_or("no hello")?;
     if magic.trim_end() != "ZMIR/1" {
-        return Err("unsupported protocol (update Zazabor Cast or Zazabor)".into());
+        return Err("unsupported protocol (update Zazabor Cast or Zazabor Home)".into());
     }
     let line = read_line(reader, 4096).ok_or("no hello")?;
     serde_json::from_str(&line).map_err(|e| format!("bad hello: {e}"))
@@ -251,7 +251,7 @@ fn wait_for_answer(session: u64, generation: u64, phone: &TcpStream) -> Result<(
     let began = Instant::now();
     loop {
         if !super::alive(generation) {
-            return Err("Zazabor stopped receiving".into());
+            return Err("Zazabor Home stopped receiving".into());
         }
         if hung_up(phone) {
             return Err("the phone hung up".into());
@@ -262,9 +262,9 @@ fn wait_for_answer(session: u64, generation: u64, phone: &TcpStream) -> Result<(
             PlayState::Loading => {}
             PlayState::Idle if status.error.as_deref() == Some("declined") => return Err("declined".into()),
             // No answer before the hub gave up on the page, or another cast took over.
-            PlayState::Idle => return Err("Zazabor didn't open it (no answer, or another cast started)".into()),
+            PlayState::Idle => return Err("Zazabor Home didn't open it (no answer, or another cast started)".into()),
             PlayState::Error | PlayState::Ended => {
-                return Err(status.error.unwrap_or_else(|| "Zazabor couldn't open the stream".into()))
+                return Err(status.error.unwrap_or_else(|| "Zazabor Home couldn't open the stream".into()))
             }
         }
         if began.elapsed() >= ANSWER_TIMEOUT {

@@ -77,7 +77,7 @@ export const pdf: GuideArticle = {
         "**Remove Hidden Info** removes metadata, attachments and scripts; **Reduce Size** compresses the file.",
       ],
       tips: [
-        "Redacting a signed file makes its signatures show as invalid; Zazabor warns you first.",
+        "Redacting a signed file makes its signatures show as invalid; Zazabor Home warns you first.",
         "Redaction can't be undone once the file is saved: keep a copy of the original.",
       ],
     },

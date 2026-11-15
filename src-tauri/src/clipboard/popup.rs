@@ -11,7 +11,7 @@ use tauri::{Emitter, Manager};
 
 pub const LABEL: &str = "clipboard-popup";
 /// Its title (never shown: it has no frame), which `x11::own_window` looks for.
-const TITLE: &str = "Clipboard — Zazabor";
+const TITLE: &str = "Clipboard — Zazabor Home";
 const WIDTH: f64 = 360.0;
 const HEIGHT: f64 = 470.0;
 

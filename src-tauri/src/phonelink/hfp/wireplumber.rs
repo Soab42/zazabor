@@ -20,9 +20,9 @@ const ROLES: &str = "[ a2dp_sink a2dp_source bap_sink bap_source hfp_ag ]";
 /// `bluez_monitor.properties`) and before `90-enable-all.lua` starts the monitor.
 pub fn lua_text() -> String {
     format!(
-        "-- Written by Zazabor (Phone → Bluetooth calls). Zazabor answers phone calls as the\n\
+        "-- Written by Zazabor Home (Phone → Bluetooth calls). Zazabor Home answers phone calls as the\n\
          -- Bluetooth hands-free unit itself, so PipeWire leaves that role (hfp_hf) to it. Turning\n\
-         -- Bluetooth calls off in Zazabor removes this file.\n\
+         -- Bluetooth calls off in Zazabor Home removes this file.\n\
          if bluez_monitor ~= nil and bluez_monitor.properties ~= nil then\n  \
          bluez_monitor.properties[\"bluez5.roles\"] = \"{ROLES}\"\n\
          end\n"
@@ -32,7 +32,7 @@ pub fn lua_text() -> String {
 /// The drop-in for WirePlumber 0.5.
 pub fn conf_text() -> String {
     format!(
-        "# Written by Zazabor (Phone → Bluetooth calls). Zazabor answers phone calls as the\n\
+        "# Written by Zazabor Home (Phone → Bluetooth calls). Zazabor Home answers phone calls as the\n\
          # Bluetooth hands-free unit itself, so PipeWire leaves that role (hfp_hf) to it. Turning\n\
          # Bluetooth calls off in Zazabor removes this file.\n\
          monitor.bluez.properties = {{\n  \

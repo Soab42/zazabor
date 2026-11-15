@@ -329,7 +329,7 @@ export class Shell implements ShellContext {
         this.config.module = id;
         this.saveConfig();
       } else {
-        void getCurrentWindow().setTitle(`${MODULES[id].title} — Zazabor`).catch(() => undefined);
+        void getCurrentWindow().setTitle(`${MODULES[id].title} — Zazabor Home`).catch(() => undefined);
       }
     }
     this.revealActive();

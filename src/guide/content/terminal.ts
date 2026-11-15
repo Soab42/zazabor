@@ -35,7 +35,7 @@ export const terminal: GuideArticle = {
         "Drag the drawer's top edge to make it taller or shorter; **Maximize** gives it most of the window.",
         "**Fold** (or double-click the edge) shrinks it to its tabs: what runs keeps running, an agent like Claude Code included. A tab names what's running in it.",
         "When a command finishes while the drawer is folded or hidden, its tab and the rail's terminal button get a dot: green when it worked, red when it failed. Click the strip to unfold it.",
-        "{Ctrl+`} in the drawer hides it; {Ctrl+Shift+`} opens a new terminal there. The drawer stays as you left it, in every window, the next time Zazabor starts.",
+        "{Ctrl+`} in the drawer hides it; {Ctrl+Shift+`} opens a new terminal there. The drawer stays as you left it, in every window, the next time Zazabor Home starts.",
       ],
       tips: ["In Sheets, {Ctrl+`} still shows formulas; use the rail's button there."],
     },

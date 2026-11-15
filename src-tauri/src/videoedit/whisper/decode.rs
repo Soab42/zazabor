@@ -36,7 +36,7 @@ pub struct Specials {
 impl Specials {
     pub fn for_vocab(n_vocab: usize) -> Result<Specials, String> {
         if n_vocab < 51865 {
-            return Err("This captions model only knows English; Zazabor uses the multilingual ones.".into());
+            return Err("This captions model only knows English; Zazabor Home uses the multilingual ones.".into());
         }
         let dt = (n_vocab - 51765 - 1) as u32 - 98;
         Ok(Specials { eot: 50257, sot: 50258, transcribe: 50358 + dt, no_speech: 50361 + dt, no_timestamps: 50362 + dt, begin: 50363 + dt })

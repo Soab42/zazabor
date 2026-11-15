@@ -2,15 +2,75 @@
 //! control, and DIAL for YouTube. One thread per connection, one request per connection
 //! (`Connection: close`), small bodies only.
 
-use std::io::{BufRead, BufReader, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::time::Duration;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 /// Tried first, so phones that remember the address find it again after a restart.
 const PREFERRED_PORT: u16 = 47_213;
 const MAX_BODY: usize = 1 << 20;
 const MAX_HEAD_LINES: usize = 100;
+/// The request line and headers together; a phone's requests are well under 2 KiB.
+const MAX_HEAD_BYTES: u64 = 16 * 1024;
+/// Connections served at once, in all and from one device; more are closed straight away.
+const MAX_CONNECTIONS: usize = 32;
+const MAX_PER_PEER: usize = 8;
+/// Open connections by the device they came from.
+static OPEN: Mutex<Option<HashMap<IpAddr, usize>>> = Mutex::new(None);
+/// For the whole request, however slowly it arrives, and again for the response.
 const IO_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// A place among the connections being served, given back when the connection ends (or panics).
+struct Slot(IpAddr);
+
+impl Slot {
+    fn take(ip: IpAddr) -> Option<Slot> {
+        let mut open = OPEN.lock().unwrap_or_else(|e| e.into_inner());
+        let open = open.get_or_insert_with(HashMap::new);
+        let from_peer = open.get(&ip).copied().unwrap_or(0);
+        if open.values().sum::<usize>() >= MAX_CONNECTIONS || from_peer >= MAX_PER_PEER {
+            return None;
+        }
+        open.insert(ip, from_peer + 1);
+        Some(Slot(ip))
+    }
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        let mut open = OPEN.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(open) = open.as_mut() {
+            match open.get(&self.0).copied() {
+                Some(n) if n > 1 => {
+                    open.insert(self.0, n - 1);
+                }
+                _ => {
+                    open.remove(&self.0);
+                }
+            }
+        }
+    }
+}
+
+/// Reads from the connection until one deadline, shortening the socket's timeout before each read,
+/// so a client that trickles a byte at a time can't hold its connection open past IO_TIMEOUT.
+struct Deadline {
+    stream: TcpStream,
+    until: Instant,
+}
+
+impl Read for Deadline {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let left = self.until.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(std::io::ErrorKind::TimedOut.into());
+        }
+        self.stream.set_read_timeout(Some(left))?;
+        self.stream.read(buf)
+    }
+}
 
 pub struct Request {
     pub method: String,
@@ -98,6 +158,7 @@ fn reason(status: u16) -> &'static str {
         405 => "Method Not Allowed",
         412 => "Precondition Failed",
         413 => "Payload Too Large",
+        431 => "Request Header Fields Too Large",
         500 => "Internal Server Error",
         501 => "Not Implemented",
         503 => "Service Unavailable",
@@ -121,8 +182,12 @@ pub fn start(generation: u64) -> Result<Server, String> {
         .spawn(move || {
             while super::alive(generation) {
                 match listener.accept() {
-                    Ok((stream, _)) => {
-                        let _ = std::thread::Builder::new().name("cast-http-conn".into()).spawn(move || serve(stream));
+                    Ok((stream, peer)) => {
+                        let Some(slot) = Slot::take(peer.ip()) else { continue };
+                        let _ = std::thread::Builder::new().name("cast-http-conn".into()).spawn(move || {
+                            let _slot = slot;
+                            serve(stream);
+                        });
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(Duration::from_millis(150)),
                     Err(_) => std::thread::sleep(Duration::from_millis(500)),
@@ -135,11 +200,11 @@ pub fn start(generation: u64) -> Result<Server, String> {
 
 fn serve(stream: TcpStream) {
     let _ = stream.set_nonblocking(false);
-    let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
     let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
     let (Ok(peer), Ok(local)) = (stream.peer_addr(), stream.local_addr()) else { return };
     let Ok(mut writer) = stream.try_clone() else { return };
-    let response = match read_request(BufReader::new(stream), peer, local) {
+    let reader = BufReader::new(Deadline { stream, until: Instant::now() + IO_TIMEOUT });
+    let response = match read_request(reader, peer, local) {
         Ok(request) => route(&request),
         Err(status) => Response::new(status),
     };
@@ -151,8 +216,23 @@ fn route(request: &Request) -> Response {
 }
 
 fn read_request(mut reader: impl BufRead, peer: SocketAddr, local: SocketAddr) -> Result<Request, u16> {
+    let (method, path, query, headers) = read_head(&mut (&mut reader).take(MAX_HEAD_BYTES))?;
+    let length: usize = headers.iter().find(|(k, _)| k == "content-length").and_then(|(_, v)| v.parse().ok()).unwrap_or(0);
+    if length > MAX_BODY {
+        return Err(413);
+    }
+    let mut body = vec![0; length];
+    reader.read_exact(&mut body).map_err(|_| 400u16)?;
+    Ok(Request { method, path, query, headers, body, peer, local })
+}
+
+type Head = (String, String, String, Vec<(String, String)>);
+
+/// Reads up to the blank line that ends the headers, from a reader capped at MAX_HEAD_BYTES: a
+/// line that the cap cuts off (no newline) is 431, so a client can't make it buffer without end.
+fn read_head(reader: &mut impl BufRead) -> Result<Head, u16> {
     let mut line = String::new();
-    reader.read_line(&mut line).map_err(|_| 400u16)?;
+    read_head_line(reader, &mut line)?;
     let mut parts = line.split_whitespace();
     let method = parts.next().ok_or(400u16)?.to_string();
     let target = parts.next().ok_or(400u16)?.to_string();
@@ -163,7 +243,7 @@ fn read_request(mut reader: impl BufRead, peer: SocketAddr, local: SocketAddr) -
     let mut headers = Vec::new();
     for _ in 0..MAX_HEAD_LINES {
         line.clear();
-        if reader.read_line(&mut line).map_err(|_| 400u16)? == 0 {
+        if read_head_line(reader, &mut line)? == 0 {
             break;
         }
         let trimmed = line.trim_end();
@@ -174,13 +254,15 @@ fn read_request(mut reader: impl BufRead, peer: SocketAddr, local: SocketAddr) -
             headers.push((k.trim().to_ascii_lowercase(), v.trim().to_string()));
         }
     }
-    let length: usize = headers.iter().find(|(k, _)| k == "content-length").and_then(|(_, v)| v.parse().ok()).unwrap_or(0);
-    if length > MAX_BODY {
-        return Err(413);
+    Ok((method, path, query, headers))
+}
+
+fn read_head_line(reader: &mut impl BufRead, line: &mut String) -> Result<usize, u16> {
+    let n = reader.read_line(line).map_err(|_| 400u16)?;
+    if n > 0 && !line.ends_with('\n') {
+        return Err(431);
     }
-    let mut body = vec![0; length];
-    reader.read_exact(&mut body).map_err(|_| 400u16)?;
-    Ok(Request { method, path, query, headers, body, peer, local })
+    Ok(n)
 }
 
 /// Decodes `a=1&b=x%20y` into pairs (`+` is a space).
@@ -250,6 +332,25 @@ mod tests {
         assert_eq!(r.query, "x=1");
         assert_eq!(r.header("SoapAction"), Some("\"urn:x#Play\""));
         assert_eq!(r.body, b"body");
+    }
+
+    #[test]
+    fn refuses_an_endless_header() {
+        let addr: SocketAddr = "127.0.0.1:1".parse().unwrap();
+        let mut raw = b"GET / HTTP/1.1\r\nX-Long: ".to_vec();
+        raw.extend(std::iter::repeat(b'a').take(MAX_HEAD_BYTES as usize));
+        assert_eq!(read_request(&raw[..], addr, addr).err(), Some(431));
+        let endless_line = vec![b'G'; 1 << 20];
+        assert_eq!(read_request(&endless_line[..], addr, addr).err(), Some(431));
+    }
+
+    #[test]
+    fn limits_connections_per_device_and_gives_them_back() {
+        let ip: IpAddr = "10.9.8.7".parse().unwrap();
+        let held: Vec<Slot> = (0..MAX_PER_PEER).map(|_| Slot::take(ip).unwrap()).collect();
+        assert!(Slot::take(ip).is_none());
+        drop(held);
+        assert!(Slot::take(ip).is_some());
     }
 
     #[test]

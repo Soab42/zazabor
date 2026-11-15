@@ -67,7 +67,7 @@ pub fn provider(id: &str) -> Result<Provider> {
             loopback: "localhost",
             extra: &[("response_mode", "query"), ("prompt", "select_account")],
         }),
-        _ => Err("Zazabor can't sign in with that provider.".into()),
+        _ => Err("Zazabor Home can't sign in with that provider.".into()),
     }
 }
 
@@ -176,7 +176,7 @@ fn random(bytes: usize) -> String {
 fn ask(provider: &Provider, form: &[(&str, &str)]) -> Result<TokenAnswer> {
     let response = agent().post(&provider.token_url).send_form(form.iter().copied()).map_err(|e| format!("Couldn't reach {}: {e}", provider.name))?;
     let body = response.into_body().with_config().limit(1 << 20).read_to_string().map_err(|e| format!("{} didn't answer: {e}", provider.name))?;
-    let answer: TokenAnswer = serde_json::from_str(&body).map_err(|_| format!("{} gave an answer Zazabor can't read.", provider.name))?;
+    let answer: TokenAnswer = serde_json::from_str(&body).map_err(|_| format!("{} gave an answer Zazabor Home can't read.", provider.name))?;
     if !answer.error.is_empty() || answer.access_token.is_empty() {
         let why = answer.error_description.lines().next().unwrap_or("").trim().to_string();
         return Err(match answer.error.as_str() {
@@ -230,7 +230,7 @@ fn read_answer(stream: &mut std::net::TcpStream) -> Option<Vec<(String, String)>
 
 fn reply(stream: &mut std::net::TcpStream, ok: bool, heading: &str, text: &str) {
     let body = format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><title>Zazabor</title><style>body{{font:16px system-ui,sans-serif;display:grid;place-items:center;height:100vh;margin:0;background:#0e0f11;color:#e8e8ea}}main{{text-align:center;max-width:420px;padding:24px}}h1{{font-size:22px;margin:0 0 8px}}p{{color:#a0a0a8;line-height:1.5}}</style></head><body><main><h1>{heading}</h1><p>{text}</p></main></body></html>"
+        "<!doctype html><html><head><meta charset=\"utf-8\"><title>Zazabor Home</title><style>body{{font:16px system-ui,sans-serif;display:grid;place-items:center;height:100vh;margin:0;background:#0e0f11;color:#e8e8ea}}main{{text-align:center;max-width:420px;padding:24px}}h1{{font-size:22px;margin:0 0 8px}}p{{color:#a0a0a8;line-height:1.5}}</style></head><body><main><h1>{heading}</h1><p>{text}</p></main></body></html>"
     );
     let status = if ok { "200 OK" } else { "400 Bad Request" };
     let _ = stream.write_all(format!("HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes());
@@ -246,7 +246,7 @@ pub fn cancel() {
 /// trades the answer for tokens. `hint` is the address to sign in as, when it's known.
 pub fn sign_in(provider: &Provider, clients: &Clients, hint: Option<&str>, open: impl FnOnce(&str) -> Result<()>) -> Result<Grant> {
     let (client_id, secret) = client_of(provider, clients)?;
-    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| format!("Zazabor can't listen for the sign-in: {e}"))?;
+    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| format!("Zazabor Home can't listen for the sign-in: {e}"))?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     // A browser may take "localhost" for the IPv6 loopback.
     let also = (provider.loopback == "localhost").then(|| TcpListener::bind(("::1", port)).ok()).flatten();
@@ -289,15 +289,15 @@ pub fn sign_in(provider: &Provider, clients: &Clients, hint: Option<&str>, open:
         };
         let get = |name: &str| query.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str()).unwrap_or("");
         if get("state") != state {
-            reply(&mut stream, false, "This isn't the sign-in Zazabor started", "Go back to Zazabor and try again.");
+            reply(&mut stream, false, "This isn't the sign-in Zazabor Home started", "Go back to Zazabor Home and try again.");
             continue;
         }
         if !get("error").is_empty() {
-            reply(&mut stream, false, "Not signed in", "You can close this tab and go back to Zazabor.");
+            reply(&mut stream, false, "Not signed in", "You can close this tab and go back to Zazabor Home.");
             let why = get("error_description");
             return Err(if get("error") == "access_denied" { format!("{} didn't get permission to read your mail.", provider.name) } else { format!("{} refused: {}", provider.name, if why.is_empty() { get("error") } else { why }) });
         }
-        reply(&mut stream, true, "You're signed in", "You can close this tab and go back to Zazabor.");
+        reply(&mut stream, true, "You're signed in", "You can close this tab and go back to Zazabor Home.");
         break get("code").to_string();
     };
 
@@ -307,7 +307,7 @@ pub fn sign_in(provider: &Provider, clients: &Clients, hint: Option<&str>, open:
     }
     let answer = ask(provider, &form)?;
     if answer.refresh_token.is_empty() {
-        return Err(format!("{} signed you in but gave nothing to stay signed in with. Remove Zazabor under your account's connected apps and sign in again.", provider.name));
+        return Err(format!("{} signed you in but gave nothing to stay signed in with. Remove Zazabor Home under your account's connected apps and sign in again.", provider.name));
     }
     let (email, name) = identity(&answer.id_token);
     if !email.contains('@') {

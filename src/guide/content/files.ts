@@ -48,7 +48,7 @@ export const files: GuideArticle = {
         "Press {Delete} to move to the Trash. In the Trash, **Put Back** returns a file where it was; {Shift+Delete} deletes for good.",
         "Changed your mind? {Ctrl+Z} undoes the last operation, and {Ctrl+Y} redoes it.",
       ],
-      tips: ["Big copies and moves run as jobs with a progress bar. If a name is taken, Zazabor asks what to do."],
+      tips: ["Big copies and moves run as jobs with a progress bar. If a name is taken, Zazabor Home asks what to do."],
     },
     {
       title: "Search, tags and archives",

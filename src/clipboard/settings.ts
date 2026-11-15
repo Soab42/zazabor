@@ -30,9 +30,9 @@ export function clipboardCategory(): Category {
     void clipboardApi.setSettings(settings).catch((err) => console.warn("Couldn't change the clipboard settings:", err));
   };
 
-  const enabled = toggle("Clipboard history", "Keeps what you copy (the last 25, plus what you pin) to paste again from the popup. It pauses while Zazabor is locked, and skips what password managers mark as secret.", (on) => save({ enabled: on }));
-  const clearOnExit = toggle("Clear when Zazabor quits", "Pinned items stay, as they do on Windows after a restart.", (on) => save({ clearOnExit: on }));
-  const background = toggle("Run in the background", "Zazabor starts when you log in and keeps running after its window closes, so the history records everything you copy and Super+V answers at once. Opening Zazabor shows its window again.",
+  const enabled = toggle("Clipboard history", "Keeps what you copy (the last 25, plus what you pin) to paste again from the popup. It pauses while Zazabor Home is locked, and skips what password managers mark as secret.", (on) => save({ enabled: on }));
+  const clearOnExit = toggle("Clear when Zazabor Home quits", "Pinned items stay, as they do on Windows after a restart.", (on) => save({ clearOnExit: on }));
+  const background = toggle("Run in the background", "Zazabor Home starts when you log in and keeps running after its window closes, so the history records everything you copy and Super+V answers at once. Opening Zazabor Home shows its window again.",
     (on) => void invoke("app_set_background", { on }).catch((err) => {
       background.input.checked = !on;
       console.warn("Couldn't change starting at login:", err);
@@ -81,8 +81,8 @@ export function clipboardCategory(): Category {
     keys.hidden = setButton.hidden = !s.supported;
     copyCommand.hidden = s.supported;
     remove.hidden = s.state === "none";
-    setButton.textContent = s.state === "installed" ? "Update" : s.state === "other" ? "Use This Zazabor" : "Add Shortcut";
-    shortcutState.textContent = !s.supported ? "" : s.state === "installed" ? "On" : s.state === "other" ? "Opens another Zazabor" : "";
+    setButton.textContent = s.state === "installed" ? "Update" : s.state === "other" ? "Use This Zazabor Home" : "Add Shortcut";
+    shortcutState.textContent = !s.supported ? "" : s.state === "installed" ? "On" : s.state === "other" ? "Opens another Zazabor Home" : "";
     shortcutState.classList.remove("st-error");
     drawConflict();
   };
@@ -127,8 +127,8 @@ export function clipboardCategory(): Category {
         rows: [
           enabled.row,
           background.row,
-          wide("Quit Zazabor", "Closes every window and stops Zazabor, the background mode too, until you open it again. Office asks about unsaved files first. The menu entry's right-click has Quit as well.",
-            h("div", { class: "st-inline" }, button("Quit Zazabor", () => void invoke("app_quit").catch((err) => console.warn("Couldn't quit:", err)), "btn small ghost"))),
+          wide("Quit Zazabor Home", "Closes every window and stops Zazabor Home, the background mode too, until you open it again. Office asks about unsaved files first. The menu entry's right-click has Quit as well.",
+            h("div", { class: "st-inline" }, button("Quit Zazabor Home", () => void invoke("app_quit").catch((err) => console.warn("Couldn't quit:", err)), "btn small ghost"))),
           clearOnExit.row,
           wide("Don't keep copies from", "Copies made in these apps never enter the history (a password manager, a banking app). Right-click an item in the Clipboard section to add its app.", chips),
           wide("Clear history", "Removes everything but the pinned items.", h("div", { class: "st-inline" }, button("Clear All", () => void clipboardApi.clear(), "btn small ghost"))),
@@ -137,7 +137,7 @@ export function clipboardCategory(): Category {
       {
         title: "Popup",
         rows: [
-          wide("Keyboard shortcut", "Opens the clipboard popup from anywhere, like Win+V, and starts Zazabor when it isn't running. It runs “zazabor --clipboard”, which you can also bind yourself.",
+          wide("Keyboard shortcut", "Opens the clipboard popup from anywhere, like Win+V, and starts Zazabor Home when it isn't running. It runs “zazabor --clipboard”, which you can also bind yourself.",
             h("div", { class: "st-inline" }, shortcutState, keys, remove, setButton, copyCommand)),
           { label: "Super+V GNOME", el: h("div", { class: "sf-row plain wide st-notes-row" }, conflictRow) },
           wide("Open the popup now", "Shows it next to the pointer.", h("div", { class: "st-inline" }, button("Show Popup", () => void clipboardApi.togglePopup()))),

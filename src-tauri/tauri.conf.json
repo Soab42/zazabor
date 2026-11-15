@@ -1,7 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Zazabor",
-  "version": "0.2.3",
+  "productName": "Zazabor Home",
+  "mainBinaryName": "zazabor",
+  "version": "0.2.4",
   "identifier": "dev.soab.zazabor",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -14,7 +15,7 @@
       {
         "label": "main",
         "create": false,
-        "title": "Zazabor",
+        "title": "Zazabor Home",
         "width": 1400,
         "height": 900,
         "minWidth": 860,

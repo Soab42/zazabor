@@ -431,7 +431,7 @@ class FilePicker {
       h("div", { class: "fs-state-card plain" }, h("div", { class: "fs-state-icon" }, icon(glyph, 28)), h("h2", null, title), h("p", null, text));
     let content: HTMLElement | null = null;
     if (this.loading) content = h("span", { class: "spinner large" });
-    else if (this.problem?.kind === "locked") content = card("lock", "Zazabor is locked", "Unlock Zazabor to browse your files.");
+    else if (this.problem?.kind === "locked") content = card("lock", "Zazabor Home is locked", "Unlock Zazabor Home to browse your files.");
     else if (this.problem) content = card("info", "Can't open this folder", this.problem.text);
     else if (!this.shown.length) {
       content = this.search.value.trim()

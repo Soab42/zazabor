@@ -39,7 +39,7 @@ export const office: GuideArticle = {
     {
       title: "AutoRecover",
       tips: [
-        "Unsaved work is copied every 20 seconds. If Zazabor stops before you save (a crash, a power cut), Home offers it back under **Recovered**.",
+        "Unsaved work is copied every 20 seconds. If Zazabor Home stops before you save (a crash, a power cut), Home offers it back under **Recovered**.",
         "Closing the window with unsaved files asks about each one.",
       ],
     },

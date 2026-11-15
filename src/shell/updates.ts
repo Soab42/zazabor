@@ -31,7 +31,7 @@ interface Progress {
   installed: string | null;
 }
 
-const RELEASES = "https://github.com/Soab42/zazabor/releases/latest";
+const RELEASES = "https://github.com/Soab42/zazabor-home/releases/latest";
 const CHECK_EVERY_MS = 12 * 3600_000;
 /** New templates and music reach a running Zazabor within this long. */
 const LIBRARY_EVERY_MS = 3600_000;
@@ -135,7 +135,7 @@ function showUpdatePopup(c: UpdateCheck, host: UpdateHost) {
   const card = h("div", { class: "modal up-popup", role: "dialog", "aria-modal": "true", "aria-labelledby": "up-title" },
     h("div", { class: "modal-head up-head" },
       h("img", { src: "/logo.svg", alt: "", width: 48, height: 48 }),
-      h("div", { class: "up-heading" }, h("h2", { id: "up-title" }, `Zazabor ${version} is available`), sub),
+      h("div", { class: "up-heading" }, h("h2", { id: "up-title" }, `Zazabor Home ${version} is available`), sub),
       h("button", { class: "icon-btn small", type: "button", title: "Later (Esc)", "aria-label": "Later", onclick: () => close() }, icon("close", 14))),
     h("div", { class: "modal-body" }, notes, c.whyNot ? h("p", { class: "up-why" }, c.whyNot) : null, progress, status),
     foot);
@@ -186,7 +186,7 @@ function showUpdatePopup(c: UpdateCheck, host: UpdateHost) {
         bar.style.width = `${p.total ? Math.min(100, (p.done / p.total) * 100) : 100}%`;
       });
       bar.style.width = "100%";
-      status.textContent = `Zazabor ${done} is installed. Restart to start using it: windows with unsaved work ask first.`;
+      status.textContent = `Zazabor Home ${done} is installed. Restart to start using it: windows with unsaved work ask first.`;
       setFoot(h("span", { class: "spacer" }), button("Restart Later", close), button("Restart Now", () => void updateApi.restart(), "btn primary"));
     } catch (err) {
       installing = false;
@@ -228,7 +228,7 @@ export function updateGroups(config: Config, saveConfig: () => void): SettingsGr
   };
   const installed = (version: string) => {
     u.extra.hidden = true;
-    show(`Zazabor ${version} is installed. Restart to start using it.`, u.button("Restart Now", () => void updateApi.restart(), true));
+    show(`Zazabor Home ${version} is installed. Restart to start using it.`, u.button("Restart Now", () => void updateApi.restart(), true));
   };
   const check = async () => {
     show("Checking for updates…");
@@ -240,18 +240,18 @@ export function updateGroups(config: Config, saveConfig: () => void): SettingsGr
       return show(`Couldn't check for updates: ${err}`, u.button("Try Again", () => void check()));
     }
     if (c.installed) return installed(c.installed);
-    if (!c.available) return show(`Zazabor ${c.current} is up to date.`, u.button("Check Again", () => void check()));
+    if (!c.available) return show(`Zazabor Home ${c.current} is up to date.`, u.button("Check Again", () => void check()));
     const version = c.available;
     u.extra.textContent = c.notes;
     u.extra.hidden = !c.notes;
     if (c.whyNot) {
-      return show(`Zazabor ${version} is available. ${c.whyNot}`, u.button("Open the Release Page", () => openLink(RELEASES)));
+      return show(`Zazabor Home ${version} is available. ${c.whyNot}`, u.button("Open the Release Page", () => openLink(RELEASES)));
     }
-    show(`Zazabor ${version} is available (${formatBytes(c.bytes)}). You have ${c.current}.`,
+    show(`Zazabor Home ${version} is available (${formatBytes(c.bytes)}). You have ${c.current}.`,
       u.button("Skip This Version", () => {
         config.updates.skipped = version;
         saveConfig();
-        show(`Zazabor ${version} was skipped; a later version will be offered.`, u.button("Check Again", () => void check()));
+        show(`Zazabor Home ${version} was skipped; a later version will be offered.`, u.button("Check Again", () => void check()));
       }),
       u.button("Install Update", () => void install(), true));
   };
@@ -279,19 +279,19 @@ export function updateGroups(config: Config, saveConfig: () => void): SettingsGr
   const autoRow: SettingsRow = {
     label: "Check for updates automatically",
     el: h("label", { class: "sf-row sf-toggle" }, h("div", { class: "st-text" }, h("span", { class: "sf-label" }, "Check for updates automatically"),
-      h("p", { class: "sf-hint" }, "Asks GitHub for a newer Zazabor now and then, and says when there's one. Nothing installs without you.")), auto),
+      h("p", { class: "sf-hint" }, "Asks GitHub for a newer Zazabor Home now and then, and says when there's one. Nothing installs without you.")), auto),
   };
 
   // ---- the content library
   const lib = statusRow("Templates, music and fonts", "content library download motion templates soundtracks");
   const showLibrary = async (refresh: boolean) => {
-    lib.status.textContent = refresh ? "Checking Zazabor's library…" : "";
+    lib.status.textContent = refresh ? "Checking Zazabor Home's library…" : "";
     const s = await library(refresh);
     const c = s.catalog;
     const when = c ? new Date(c.published * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "";
     lib.status.textContent = c
       ? `${c.templates.length} templates, ${c.music.length} soundtracks and ${c.fonts.length} font families, updated ${when}. They download when you first use them.`
-      : "Zazabor gets its library of templates, soundtracks and fonts when it's online.";
+      : "Zazabor Home gets its library of templates, soundtracks and fonts when it's online.";
     if (s.error && refresh) lib.status.textContent += ` (Couldn't reach the library: ${s.error})`;
   };
   lib.actions.append(lib.button("Check Now", () => void showLibrary(true)));

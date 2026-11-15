@@ -46,7 +46,7 @@
   }
 
   // The latest release.
-  fetch("https://api.github.com/repos/Soab42/zazabor/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
+  fetch("https://api.github.com/repos/Soab42/zazabor-home/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
     .then((r) => (r.ok ? r.json() : null))
     .then((release) => {
       const v = release?.tag_name?.replace(/^v/, "");

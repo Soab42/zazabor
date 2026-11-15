@@ -89,7 +89,7 @@ pub async fn pdf_signature_add(app: tauri::AppHandle, kind: String, name: String
         let _guard = STORE.lock().map_err(|e| e.to_string())?;
         let mut list = read_all(&path);
         if list.len() >= MAX_KEPT {
-            return Err(format!("Zazabor keeps up to {MAX_KEPT} signatures and initials. Delete one to keep another."));
+            return Err(format!("Zazabor Home keeps up to {MAX_KEPT} signatures and initials. Delete one to keep another."));
         }
         let created = crate::notes::now();
         let signature = Signature { id: format!("sig-{created}-{}", list.len()), kind, name: name.trim().to_string(), image, created };

@@ -402,7 +402,7 @@ pub async fn videoedit_sounds(app: tauri::AppHandle) -> Result<serde_json::Value
     let dir = app.path().resource_dir().map_err(|e| e.to_string())?.join("resources").join("sfx");
     let manifest = std::fs::read_to_string(dir.join("sounds.json")).map_err(|e| {
         eprintln!("[video-editor] no sound effects at {}: {e}", dir.display());
-        format!("Zazabor's sound effects are missing: {e}")
+        format!("Zazabor Home's sound effects are missing: {e}")
     })?;
     let mut sounds: serde_json::Value = serde_json::from_str(&manifest).map_err(|e| e.to_string())?;
     for s in sounds.as_array_mut().into_iter().flatten() {

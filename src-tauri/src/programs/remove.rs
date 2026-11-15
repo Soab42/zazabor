@@ -442,7 +442,7 @@ pub fn plan(env: &Env, all: &scan::Scan, id: &str) -> Result<(Plan, Context), St
     let home = &env.home;
 
     if is_self(&found) {
-        plan.blocked = Some("This is Zazabor. It can’t uninstall itself while it’s running.".into());
+        plan.blocked = Some("This is Zazabor Home. It can’t uninstall itself while it’s running.".into());
         return Ok((plan, Context { reference: flatpak_ref(all, &found), found, files }));
     }
 
@@ -520,7 +520,7 @@ pub fn plan(env: &Env, all: &scan::Scan, id: &str) -> Result<(Plan, Context), St
         }
         Source::Manual => {
             let place = found.program.as_ref().map(|p| shown(p, home)).unwrap_or_else(|| "outside a package".into());
-            plan.blocked = Some(format!("It was installed for everyone by hand ({place}), not from a package, so Zazabor can’t tell which files are its own. Remove it the way it was installed."));
+            plan.blocked = Some(format!("It was installed for everyone by hand ({place}), not from a package, so Zazabor Home can’t tell which files are its own. Remove it the way it was installed."));
         }
     }
 
@@ -789,7 +789,7 @@ pub fn uninstall(env: &Env, plan: &Plan, ctx: &Context, options: &Options, repor
         Source::Web | Source::Launcher | Source::Missing => {
             outcome.message = format!("{}’s launcher was removed.", plan.name);
         }
-        Source::Manual => return Err("Zazabor can’t uninstall this.".into()),
+        Source::Manual => return Err("Zazabor Home can’t uninstall this.".into()),
     }
 
     // The app is gone; its launchers, icons and autostart entries follow, then the ticked leftovers.

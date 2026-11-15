@@ -177,7 +177,7 @@ export const createOfficeModule: ModuleFactory = (shell) => {
   function recoveredList(): HTMLElement | null {
     if (view !== "home" || !recovered.length) return null;
     return h("div", { class: "of-recovered" },
-      h("div", { class: "of-hub-head" }, icon("undo", 16), h("h2", null, "Recovered"), h("span", { class: "of-recovered-hint" }, "Zazabor closed before these were saved.")),
+      h("div", { class: "of-hub-head" }, icon("undo", 16), h("h2", null, "Recovered"), h("span", { class: "of-recovered-hint" }, "Zazabor Home closed before these were saved.")),
       h("div", { class: "of-recent" }, ...recovered.map((r) => h("div", { class: `of-recent-row tone-${r.kind}`, title: r.path ?? "Never saved" },
         h("span", { class: "of-kind" }, icon(KIND_ICON[r.kind], 15)),
         h("span", { class: "of-recent-name" }, r.name),
@@ -281,7 +281,7 @@ export const createOfficeModule: ModuleFactory = (shell) => {
   /** A window of its own carries the file's name, as Word's and Excel's do. */
   function retitle() {
     if (isMainWindow) return;
-    const title = current ? `${current.title()}${current.dirty() ? " •" : ""} — Office` : "Office — Zazabor";
+    const title = current ? `${current.title()}${current.dirty() ? " •" : ""} — Office` : "Office — Zazabor Home";
     void getCurrentWindow().setTitle(title).catch(() => undefined);
   }
 

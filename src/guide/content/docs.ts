@@ -45,7 +45,7 @@ export const docs: GuideArticle = {
         "**Rotate** turns or flips it; **Alt Text** describes it for screen readers.",
       ],
       tips: [
-        "Saved as .docx, the layout comes with it. Pictures behind or in front of the text are saved with Square wrapping, and Zazabor tells you so.",
+        "Saved as .docx, the layout comes with it. Pictures behind or in front of the text are saved with Square wrapping, and Zazabor Home tells you so.",
       ],
     },
     {

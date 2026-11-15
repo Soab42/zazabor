@@ -46,7 +46,7 @@ export const sheets: GuideArticle = {
         "Press {Ctrl+F} to find and {Ctrl+H} to replace.",
         "**Formulas** has the function library by category, **Name Manager** and **Define Name**, **Show Formulas** and **Calculate Now**.",
       ],
-      tips: ["Zazabor can't save an AutoFilter into the .xlsx, make charts or pivot tables yet."],
+      tips: ["Zazabor Home can't save an AutoFilter into the .xlsx, make charts or pivot tables yet."],
     },
     {
       title: "Sheets, view and print",

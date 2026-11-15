@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Publishes a Zazabor release on GitHub, which installed copies update to (src-tauri/src/update.rs,
+# Publishes a Zazabor Home release on GitHub, which installed copies update to (src-tauri/src/update.rs,
 # Settings → Zazabor → Updates): sets the version, builds, packs the program with its sound
 # effects, writes latest.json (the version, the notes, the archive's size and SHA-256) signed with
 # the release key (tools/release/sign.mjs), commits and tags the version, and creates the release
@@ -15,7 +15,10 @@ cd "$(dirname "$0")/.."
 release_env=.env.release
 if [[ -f "$release_env" ]]; then set -a; . "$release_env"; set +a; fi
 
-repo=Soab42/zazabor
+repo=Soab42/zazabor-home
+# Manifests name downloads under the repository's old name, which GitHub redirects: copies before
+# 0.2.5 only accept updates from there (src-tauri/src/update.rs, DOWNLOADS_FROM).
+downloads_repo=Soab42/zazabor
 platform=linux-x86_64
 version="${1:-}"
 shift || true
@@ -70,7 +73,7 @@ JS
 npx tauri build --no-bundle
 
 out="dist-release/$version"
-archive="zazabor-$version-$platform.tar.gz"
+archive="zazabor-home-$version-$platform.tar.gz"
 rm -rf "$out"
 mkdir -p "$out/stage/resources"
 install -m755 src-tauri/target/release/zazabor "$out/stage/zazabor"
@@ -78,7 +81,7 @@ cp -r src-tauri/resources/sfx "$out/stage/resources/sfx"
 tar czf "$out/$archive" -C "$out/stage" zazabor resources
 rm -rf "$out/stage"
 
-node - "$version" "$out/$archive" "https://github.com/$repo/releases/download/v$version/$archive" "$platform" "$notes" <<'JS' > "$out/latest.json"
+node - "$version" "$out/$archive" "https://github.com/$downloads_repo/releases/download/v$version/$archive" "$platform" "$notes" <<'JS' > "$out/latest.json"
 const fs = require("fs");
 const crypto = require("crypto");
 const [version, file, url, platform, notes] = process.argv.slice(2);
@@ -103,9 +106,9 @@ fi
 # From here the new version stays.
 trap 'rm -rf "$saved"' EXIT
 git add "${versioned[@]}"
-git commit -q -m "Zazabor $version"
+git commit -q -m "Zazabor Home $version"
 git tag "v$version"
 git push -q origin HEAD "v$version"
 gh release create "v$version" "$out/$archive" "$out/latest.json" "$out/latest.json.sig" \
-  --repo "$repo" --title "Zazabor $version" --notes "${notes:-Zazabor $version}" --latest
+  --repo "$repo" --title "Zazabor Home $version" --notes "${notes:-Zazabor Home $version}" --latest
 echo "Released: https://github.com/$repo/releases/tag/v$version"

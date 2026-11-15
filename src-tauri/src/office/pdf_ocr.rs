@@ -31,7 +31,7 @@ pub const LANGUAGES: [Language; 2] = [
 static CANCELLED: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
 
 fn language(code: &str) -> Result<&'static Language, String> {
-    LANGUAGES.iter().find(|l| l.code == code).ok_or_else(|| format!("Zazabor has no OCR data for “{code}”."))
+    LANGUAGES.iter().find(|l| l.code == code).ok_or_else(|| format!("Zazabor Home has no OCR data for “{code}”."))
 }
 
 fn dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {

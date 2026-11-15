@@ -205,7 +205,7 @@ export const createPdfEditor: EditorFactory = async (host, file, template, recov
     override addLinkAttributes(link: HTMLAnchorElement, url: string) {
       const safe = safeLink(url);
       link.href = safe ?? "#";
-      link.title = safe ?? `${url} (Zazabor doesn't open this kind of link)`;
+      link.title = safe ?? `${url} (Zazabor Home doesn't open this kind of link)`;
       link.rel = "noopener noreferrer nofollow";
       link.removeAttribute("target");
       link.onclick = (e) => {

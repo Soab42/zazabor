@@ -177,7 +177,7 @@ pub struct Shortcut {
 /// `tauri dev` stops ("connection refused"), so from one it runs the installed Zazabor instead.
 fn command(slot: &Slot) -> Result<String, String> {
     let exe = if cfg!(debug_assertions) { installed() } else { std::env::current_exe().ok() };
-    let exe = exe.ok_or("This development build can’t be the shortcut’s target. Install Zazabor (scripts/install-linux.sh) and set the shortcut there.")?;
+    let exe = exe.ok_or("This development build can’t be the shortcut’s target. Install Zazabor Home (scripts/install-linux.sh) and set the shortcut there.")?;
     Ok(format!("\"{}\" {}", exe.to_string_lossy(), slot.flag))
 }
 
@@ -251,7 +251,7 @@ pub fn adopt_old_shortcuts() {
 /// Adds, updates or (with `None`) removes one of Zazabor's desktop shortcuts.
 pub fn set_shortcut(slot: &Slot, binding: Option<String>) -> Result<Shortcut, String> {
     if !schema_installed(KEYS_SCHEMA) || !schema_installed(KEY_SCHEMA) {
-        return Err("This desktop doesn’t offer custom keyboard shortcuts Zazabor can set. Add one in your desktop’s keyboard settings instead.".into());
+        return Err("This desktop doesn’t offer custom keyboard shortcuts Zazabor Home can set. Add one in your desktop’s keyboard settings instead.".into());
     }
     let command = if binding.is_some() { command(slot)? } else { String::new() };
     let list = gio::Settings::new(KEYS_SCHEMA);
