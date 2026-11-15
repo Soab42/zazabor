@@ -45,6 +45,11 @@ class MainActivity : Activity() {
         private const val REQUEST_PERMISSIONS = 1
         private const val REQUEST_PROJECTION = 2
         private const val REQUEST_LINK_PERMISSION = 3
+        /** Permissions Android holds back from apps installed outside a store (restricted settings). */
+        private val RESTRICTED = setOf(
+            Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS, Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_CALL_LOG,
+        )
+        private val STORES = setOf("com.android.vending", "org.fdroid.fdroid", "com.xiaomi.market", "com.sec.android.app.samsungapps")
         /** `adb shell am start -n dev.soab.zazabor.cast/.MainActivity --es address 10.0.2.2:47212` */
         const val EXTRA_ADDRESS = "address"
         /** Phone Link's `mirror.start`: a one-time token LinkService checks (see [LinkService.takeMirror]). */
@@ -173,6 +178,10 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         if (requestCode == REQUEST_LINK_PERMISSION) {
+            val blocked = permissions.indices.any { i ->
+                grantResults.getOrNull(i) != PackageManager.PERMISSION_GRANTED && permissions[i] in RESTRICTED
+            }
+            if (blocked && restrictedSettings()) explainRestricted()
             renderChecklist()
             if (LinkPrefs(this).paired) LinkService.refresh(this)
             return
@@ -783,11 +792,46 @@ class MainActivity : Activity() {
         requestPermissions(permissions, REQUEST_LINK_PERMISSION)
     }
 
+    /**
+     * Android 13 and later keep texts, call history and notification access from apps installed
+     * from a browser ("restricted settings") until the user allows them on the app's info page. It
+     * says nothing when it refuses, so the app does.
+     */
+    private fun restrictedSettings(): Boolean {
+        if (Build.VERSION.SDK_INT < 33) return false
+        return try {
+            val ops = getSystemService(android.app.AppOpsManager::class.java)
+            ops.unsafeCheckOpNoThrow("android:access_restricted_settings", applicationInfo.uid, packageName) != android.app.AppOpsManager.MODE_ALLOWED &&
+                !fromStore()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun fromStore(): Boolean = try {
+        packageManager.getInstallSourceInfo(packageName).installingPackageName in STORES
+    } catch (_: Exception) {
+        false
+    }
+
+    private fun explainRestricted() {
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Android needs one more step")
+            .setMessage(
+                "Android keeps texts, calls and notifications from apps installed from a browser.\n\n" +
+                    "On the next screen, tap ⋮ (top right) → Allow restricted settings, then come back and tap Allow again.",
+            )
+            .setPositiveButton("Open App Info") { _, _ -> openAppSettings() }
+            .setNegativeButton("Not Now", null)
+            .show()
+    }
+
     private fun openAppSettings() {
         tryStart(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
     }
 
     private fun openNotificationAccess() {
+        if (restrictedSettings()) return explainRestricted()
         val component = ComponentName(this, NotifListener::class.java)
         val detail = if (Build.VERSION.SDK_INT >= 30) {
             Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)

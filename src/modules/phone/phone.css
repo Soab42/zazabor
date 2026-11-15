@@ -6,7 +6,17 @@
 :root { --pl-green: #30c85e; --pl-red: #ff453a; }
 :root[data-theme="light"] { --pl-green: #28b553; --pl-red: #f2382e; }
 
-.phone-module { display: flex; flex-direction: column; min-width: 0; }
+.phone-module { position: relative; isolation: isolate; display: flex; flex-direction: column; min-width: 0; }
+
+/* The linked phone's wallpaper: blurred and faint behind the section, so the glass picks up its
+   colours; sharp on the phone's card, under a shade that keeps the card's text readable. */
+.pl-wallpaper {
+  position: absolute; inset: -60px; z-index: -1; pointer-events: none; opacity: 0;
+  background: center / cover no-repeat; filter: blur(48px) saturate(1.35);
+  transition: opacity var(--dur-slow, 0.4s) var(--ease-out, ease-out);
+}
+.phone-module.has-wallpaper .pl-wallpaper { opacity: 0.42; }
+:root[data-theme="light"] .phone-module.has-wallpaper .pl-wallpaper { opacity: 0.3; }
 .pl-panes { flex: 1; display: flex; min-height: 0; min-width: 0; }
 .pl-panes[hidden], .pl-welcome[hidden], .phone-module [hidden] { display: none !important; }
 .phone-module .spacer, .pl-sheet .spacer, .pl-calls .spacer, .pl-tray .spacer, .pl-preview .spacer { flex: 1; }
@@ -23,6 +33,23 @@
   background: rgba(var(--fg), 0.05); box-shadow: inset 0 1px 0 var(--spec), inset 0 0 0 0.5px var(--line-strong);
 }
 .pl-card:empty { display: none; }
+.pl-card.has-wallpaper {
+  --text: #fff; --text-2: rgba(255, 255, 255, 0.9); --muted: rgba(255, 255, 255, 0.76); --line: rgba(255, 255, 255, 0.16); --line-strong: rgba(255, 255, 255, 0.24);
+  min-height: 176px; color: #fff;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.12) 0%, rgba(0, 0, 0, 0.28) 45%, rgba(0, 0, 0, 0.66) 100%), var(--pl-wallpaper) center 28% / cover no-repeat;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 0 0 0.5px rgba(255, 255, 255, 0.18), 0 10px 28px -12px rgba(0, 0, 0, 0.55);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.pl-card.has-wallpaper .pl-card-top { margin-bottom: auto; }
+.pl-card.has-wallpaper .pl-card-device { background: rgba(255, 255, 255, 0.18); color: #fff; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+.pl-card.has-wallpaper .pl-card-device.on { background: rgba(255, 255, 255, 0.26); color: #fff; }
+.pl-card.has-wallpaper .pl-link { background: rgba(0, 0, 0, 0.3); color: rgba(255, 255, 255, 0.85); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+.pl-card.has-wallpaper .pl-card-action {
+  background: rgba(0, 0, 0, 0.32); color: #fff; box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.2);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); text-shadow: none;
+}
+.pl-card.has-wallpaper .pl-card-action:hover { background: rgba(0, 0, 0, 0.46); }
+.pl-card.has-wallpaper .pl-card-action.active { background: rgba(255, 255, 255, 0.3); color: #fff; }
 .pl-card-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .pl-card-device {
   flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px;

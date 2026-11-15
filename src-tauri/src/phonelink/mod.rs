@@ -659,6 +659,22 @@ impl Hub {
         Ok(data_url("image/jpeg", answer.get("jpeg").and_then(Value::as_str)))
     }
 
+    /// The phone's wallpaper as a `data:` URL: fresh from the phone when it's linked (and kept),
+    /// otherwise the one it last sent. None when it never shared one (a Link app before 0.3.1, or
+    /// no All files access on the phone).
+    pub fn wallpaper(&self, phone_id: &str) -> Result<Option<String>, String> {
+        let fresh = self
+            .need(phone_id)
+            .and_then(|link| link.request(json!({"t": "wallpaper"}), self.timing.request))
+            .ok()
+            .and_then(|answer| data_url("image/jpeg", answer.get("jpeg").and_then(Value::as_str)));
+        if let Some(url) = fresh {
+            self.with_db(|c| store::set_wallpaper(c, phone_id, &url))?;
+            return Ok(Some(url));
+        }
+        self.with_db(|c| store::wallpaper(c, phone_id))
+    }
+
     fn fetch_notifs(&self, phone_id: &str) -> Result<Vec<Value>, String> {
         let answer = self.need(phone_id)?.request(json!({"t": "notif.list"}), self.timing.request)?;
         let notifs = answer.get("notifs").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -1123,6 +1139,11 @@ pub async fn phone_contacts(phone_id: String) -> Result<Vec<Value>, String> {
 #[tauri::command]
 pub async fn phone_contact_photo(phone_id: String, id: Value) -> Result<Option<String>, String> {
     private(move |h| h.contact_photo(&phone_id, id)).await
+}
+
+#[tauri::command]
+pub async fn phone_wallpaper(phone_id: String) -> Result<Option<String>, String> {
+    private(move |h| h.wallpaper(&phone_id)).await
 }
 
 #[tauri::command]

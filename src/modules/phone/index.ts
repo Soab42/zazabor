@@ -89,16 +89,52 @@ export const createPhoneModule: ModuleFactory = (shell) => {
   main.append(dropOverlay);
   const panes = h("div", { class: "pl-panes" }, side, main);
   const welcome = h("div", { class: "pl-welcome", hidden: true });
-  const el = h("section", { class: "phone-module" }, panes, welcome);
+  // The phone's wallpaper, blurred, behind the whole section (and sharp on its card), so the page
+  // looks like the phone it's linked to.
+  const backdrop = h("div", { class: "pl-wallpaper", "aria-hidden": "true" });
+  const el = h("section", { class: "phone-module" }, backdrop, panes, welcome);
   new ResizeObserver(() => {
     el.classList.toggle("narrow", el.clientWidth < 980);
     el.classList.toggle("compact", el.clientWidth < 720);
   }).observe(el);
 
+  // ---- the phone's wallpaper: asked for once each time a phone links, kept between
+
+  const wallpapers = new Map<string, string | null>();
+  const askedWhileLinked = new Set<string>();
+  const asking = new Set<string>();
+  function wallpaperOf(phone: Phone): string | null {
+    const id = phone.phoneId;
+    if (!phone.connected) askedWhileLinked.delete(id);
+    const stale = !wallpapers.has(id) || (phone.connected && !askedWhileLinked.has(id));
+    if (stale && !asking.has(id)) {
+      asking.add(id);
+      if (phone.connected) askedWhileLinked.add(id);
+      void phoneApi.wallpaper(id).then(
+        (url) => {
+          const changed = wallpapers.get(id) !== url;
+          wallpapers.set(id, url);
+          if (changed && current()?.phoneId === id) drawCard();
+        },
+        () => wallpapers.has(id) || wallpapers.set(id, null),
+      ).finally(() => asking.delete(id));
+    }
+    return wallpapers.get(id) ?? null;
+  }
+  function wear(url: string | null) {
+    const image = url ? `url("${url}")` : "";
+    el.classList.toggle("has-wallpaper", !!url);
+    backdrop.style.backgroundImage = image;
+    card.classList.toggle("has-wallpaper", !!url);
+    if (url) card.style.setProperty("--pl-wallpaper", image);
+    else card.style.removeProperty("--pl-wallpaper");
+  }
+
   // ---- the phone's card
 
   function drawCard() {
     const phone = current();
+    wear(phone ? wallpaperOf(phone) : null);
     if (!phone) return card.replaceChildren();
     const bt = getBt();
     const btPhone = bt?.devices.find((d) => d.connected && (d.phoneId === phone.phoneId || d.name === phone.name)) ?? null;

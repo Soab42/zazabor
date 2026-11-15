@@ -781,6 +781,7 @@ pub fn run() {
             phonelink::phone_calls,
             phonelink::phone_contacts,
             phonelink::phone_contact_photo,
+            phonelink::phone_wallpaper,
             phonelink::phone_notifs,
             phonelink::phone_notif_dismiss,
             phonelink::phone_notif_action,

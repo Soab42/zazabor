@@ -197,6 +197,7 @@ export function createMock(mode: string): PhoneMock {
       if (!c?.hasPhoto) return null;
       return photoSvg((c.name.length * 53) % 360, c.name.length);
     },
+    phone_wallpaper: () => photoSvg(212, 3),
     phone_notifs: () => notifs,
     phone_notif_dismiss: (a) => {
       const i = notifs.findIndex((n) => n.key === a.key);

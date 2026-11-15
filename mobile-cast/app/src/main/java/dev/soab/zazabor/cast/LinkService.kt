@@ -601,6 +601,7 @@ class LinkService : Service() {
                 "calls.list" -> re.put("calls", CallHistory.list(this, names, msg.optInt("limit", 100)))
                 "contacts.list" -> re.put("contacts", PhoneContacts.list(this))
                 "contact.photo" -> re.put("jpeg", PhoneContacts.photo(this, msg.getLong("id")) ?: JSONObject.NULL)
+                "wallpaper" -> re.put("jpeg", PhoneWallpaper.jpeg(this) ?: JSONObject.NULL)
                 "notif.list" -> re.put("notifs", listener().list())
                 "notif.dismiss" -> listener().dismiss(msg.getString("key"))
                 "notif.action" -> listener().act(

@@ -127,6 +127,9 @@ fn serve(mut reader: BufReader<TcpStream>, mut rx: Cipher, w: Arc<Mutex<(TcpStre
                         {"threadId": 3, "addresses": ["+8801722000000"], "name": null, "snippet": "Old", "at": 1_600_000_000_000i64, "unread": 0, "count": 1}
                     ]})));
                 }
+                "wallpaper" => {
+                    let _ = send(re(json!({"jpeg": "V0FMTA=="})));
+                }
                 "contacts.list" => {
                     let _ = send(re(json!({"contacts": [{"id": 1, "name": "Ada Lovelace", "numbers": [{"number": "01711-000000", "label": "mobile"}], "starred": true, "hasPhoto": false}]})));
                 }
@@ -375,6 +378,10 @@ fn a_phone_pairs_reconnects_and_talks() {
     assert_eq!(bad.state, "failed");
     assert_eq!(files_in(&downloads), ["clip (2).bin", "clip.bin", "note.txt"], "no part files left behind");
 
+    // The phone's wallpaper: fetched, and kept for when it isn't linked.
+    assert_eq!(hub.wallpaper(PHONE_ID).unwrap().as_deref(), Some("data:image/jpeg;base64,V0FMTA=="));
+    assert_eq!(hub.with_db(|c| store::wallpaper(c, PHONE_ID)).unwrap().as_deref(), Some("data:image/jpeg;base64,V0FMTA=="));
+
     // Mirroring is asked for with the receiver's port.
     hub.mirror(PHONE_ID, Some(47299)).unwrap();
     assert_eq!(phone.next_msg("mirror.start")["port"], 47299);
@@ -386,6 +393,7 @@ fn a_phone_pairs_reconnects_and_talks() {
     hub.forget(PHONE_ID).unwrap();
     wait_for("the phone to go", || (!hub.is_connected(PHONE_ID)).then_some(()));
     assert!(hub.state().phones.is_empty());
+    assert_eq!(hub.wallpaper(PHONE_ID).unwrap(), None, "the wallpaper goes with it");
     hub.stop();
     assert_eq!(hub.state().port, None);
     let _ = std::fs::remove_dir_all(&root);
