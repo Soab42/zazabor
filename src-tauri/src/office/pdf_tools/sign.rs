@@ -322,7 +322,7 @@ pub fn sign(pdf: &[u8], spec: &SignSpec, picture: Option<&[u8]>) -> Result<Vec<u
         sig.set("ContactInfo", Object::String(super::annots::text_string(spec.contact.trim()), StringFormat::Literal));
     }
     let mut app = Dictionary::new();
-    app.set("Name", "Zazabor");
+    app.set("Name", "Zazabor Home");
     let mut build = Dictionary::new();
     build.set("App", Object::Dictionary(app));
     sig.set("Prop_Build", Object::Dictionary(build));
@@ -580,7 +580,7 @@ fn check_one(pdf: &[u8], doc: &Document, sig: &Dictionary, info: &mut SigInfo) {
     // Who signed, even when the rest can't be checked.
     let der = der_prefix(&contents);
     let Ok(p7) = Pkcs7::from_der(der) else {
-        info.problem = Some("The signature isn't one Zazabor can read.".into());
+        info.problem = Some("The signature isn't one Zazabor Home can read.".into());
         return;
     };
     let Ok(empty) = Stack::<X509>::new() else { return };

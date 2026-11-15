@@ -19,7 +19,7 @@ fn verify_with(public_key: &str, data: &[u8], signature: &str) -> Result<(), Str
     let signature = b64.decode(signature.trim()).map_err(|_| "The signature isn't readable.".to_string())?;
     UnparsedPublicKey::new(&ED25519, key)
         .verify(data, &signature)
-        .map_err(|_| "The download isn't signed by Zazabor, so it wasn't used.".to_string())
+        .map_err(|_| "The download isn't signed by Zazabor Home, so it wasn't used.".to_string())
 }
 
 #[cfg(test)]

@@ -40,7 +40,7 @@ export function openReceiverDialog(host: ReceiverHost) {
 
   const enabled = h("input", { type: "checkbox", class: "switch", role: "switch", "aria-label": "Let phones cast to this PC" });
   enabled.checked = settings.enabled;
-  const name = textInput("Zazabor", settings.name);
+  const name = textInput("Zazabor Home", settings.name);
   const error = errorLine();
   const ask = h("input", { type: "checkbox", class: "switch", role: "switch", "aria-label": "Ask before a new phone plays" });
   ask.checked = settings.ask;
@@ -83,7 +83,7 @@ export function openReceiverDialog(host: ReceiverHost) {
 
   dialog.body.append(
     h("div", { class: "mt-card rc-card" },
-      switchRow("Let phones cast to this PC", "Zazabor listens on your local network while this is on.", enabled),
+      switchRow("Let phones cast to this PC", "Zazabor Home listens on your local network while this is on.", enabled),
       h("div", { class: "rc-row" }, h("span", { class: "rc-row-text" }, h("strong", null, "Name phones see")), name),
       switchRow("Ask before a new phone plays", "Phones you allowed always skip the question.", ask)),
     error.el,
@@ -118,7 +118,7 @@ export function openReceiverDialog(host: ReceiverHost) {
       h("div", { class: "rc-ways" }, ...ways),
       ...discovery.map((s) => h("p", { class: "mt-error" }, `${s.label}: ${s.error}. Phones may not find this PC on their own.`)),
       hint(info.addresses.length
-        ? `This PC is ${info.addresses.join(", ")} on your network. If phones can't find it, check that they're on the same Wi-Fi and that a firewall allows Zazabor.`
+        ? `This PC is ${info.addresses.join(", ")} on your network. If phones can't find it, check that they're on the same Wi-Fi and that a firewall allows Zazabor Home.`
         : "This PC doesn't seem to be on a network right now."),
       trustedList(),
     );

@@ -468,7 +468,7 @@ export function importView(ctx: Ctx) {
     start.replaceChildren(
       h("div", { class: "wl-import-hero" },
         h("span", { class: "wl-chip wl-c-blue", style: { width: "44px", height: "44px" } }, icon("download", 22)),
-        h("div", null, h("h3", null, "Upload a statement"), h("p", { class: "wl-card-sub" }, "A PDF, scan, photo, CSV or Excel statement from your bank, card or bKash (or drop it here). Zazabor reads it, checks it against its own balances, finds the account and adds what's new; importing the same statement twice adds nothing. Save it as Excel from the same window."))),
+        h("div", null, h("h3", null, "Upload a statement"), h("p", { class: "wl-card-sub" }, "A PDF, scan, photo, CSV or Excel statement from your bank, card or bKash (or drop it here). Zazabor Home reads it, checks it against its own balances, finds the account and adds what's new; importing the same statement twice adds nothing. Save it as Excel from the same window."))),
       h("div", { class: "wl-inline" },
         h("button", { class: "btn primary", type: "button", onclick: () => void uploadStatement(ctx) }, icon("stStatement", 15), "Upload Statement…"),
         field("Map the columns myself, into", account),

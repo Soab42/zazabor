@@ -14,9 +14,9 @@ export function mailCategory(host: { readonly config: Config; configChanged(): v
     input.addEventListener("change", () => set(input.checked));
     return { input, row: { label, el: h("label", { class: "sf-row sf-toggle" }, h("div", { class: "st-text" }, h("span", { class: "sf-label" }, label), h("p", { class: "sf-hint" }, hint)), input) } satisfies SettingsRow };
   };
-  const notify = toggle("Show new mail on the desktop", "A notification with who wrote and the subject when mail arrives in an inbox. Clicking it opens the inbox. While Zazabor is locked it only says that mail came.",
+  const notify = toggle("Show new mail on the desktop", "A notification with who wrote and the subject when mail arrives in an inbox. Clicking it opens the inbox. While Zazabor Home is locked it only says that mail came.",
     (on) => ((host.config.mail.notify = on), host.configChanged()));
-  const background = toggle("Check for mail in the background", "Zazabor starts when you log in and keeps running after its window closes, so new mail is announced as it arrives. The clipboard history uses the same setting.",
+  const background = toggle("Check for mail in the background", "Zazabor Home starts when you log in and keeps running after its window closes, so new mail is announced as it arrives. The clipboard history uses the same setting.",
     (on) => void invoke("app_set_background", { on }).catch((err) => {
       background.input.checked = !on;
       console.warn("Couldn't change the background mode:", err);

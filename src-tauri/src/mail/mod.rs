@@ -517,7 +517,7 @@ pub async fn mail_oauth_client(provider: String, id: String, secret: String) -> 
                 }
             }
             "microsoft" => clients.microsoft_id = id,
-            _ => return Err("Zazabor can't sign in with that provider.".into()),
+            _ => return Err("Zazabor Home can't sign in with that provider.".into()),
         }
         oauth::save_clients(dir, &clients)?;
         Ok(oauth_state())

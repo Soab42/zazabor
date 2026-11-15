@@ -117,7 +117,7 @@ export function createBackstage(host: BackstageHost) {
     const recover = h("div", { class: "of-bs-card" },
       h("div", { class: "of-bs-card-title" }, icon("clock", 16), "AutoRecover"),
       h("p", null, file.dirty()
-        ? "There are unsaved changes. A copy is kept every 20 seconds; if Zazabor stops before you save, Home offers it back."
+        ? "There are unsaved changes. A copy is kept every 20 seconds; if Zazabor Home stops before you save, Home offers it back."
         : "Everything is saved."));
     return [
       ...heading("Info", file.title()),

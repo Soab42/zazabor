@@ -443,7 +443,7 @@ fn connect(addresses: &[String], port: u16, device: &str) -> Result<TcpStream> {
             return Ok(s);
         }
     }
-    Err("Couldn't reach the computer. Check that it's on, Zazabor is open, and both are on the same Wi-Fi.".into())
+    Err("Couldn't reach the computer. Check that it's on, Zazabor Home is open, and both are on the same Wi-Fi.".into())
 }
 
 /// Calls a desktop and syncs both ways. `invite` is set the first time (from the QR code); later

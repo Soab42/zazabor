@@ -357,7 +357,7 @@ fn check_origin(origin: Option<&str>) -> Option<Option<String>> {
 fn device_description(info: &DialInfo) -> String {
     format!(
         r#"<?xml version="1.0" encoding="utf-8"?>
-<root xmlns="urn:schemas-upnp-org:device-1-0"><specVersion><major>1</major><minor>0</minor></specVersion><device><deviceType>{DEVICE_TYPE}</deviceType><friendlyName>{}</friendlyName><manufacturer>Zazabor</manufacturer><modelName>Zazabor</modelName><UDN>uuid:{}</UDN><iconList><icon><mimetype>image/png</mimetype><width>128</width><height>128</height><depth>32</depth><url>/dlna/icon.png</url></icon></iconList><serviceList><service><serviceType>{DIAL_SERVICE}</serviceType><serviceId>urn:dial-multiscreen-org:serviceId:dial</serviceId><controlURL>/dial/control</controlURL><eventSubURL></eventSubURL><SCPDURL>/dial/scpd.xml</SCPDURL></service></serviceList></device></root>"#,
+<root xmlns="urn:schemas-upnp-org:device-1-0"><specVersion><major>1</major><minor>0</minor></specVersion><device><deviceType>{DEVICE_TYPE}</deviceType><friendlyName>{}</friendlyName><manufacturer>Zazabor Home</manufacturer><modelName>Zazabor Home</modelName><UDN>uuid:{}</UDN><iconList><icon><mimetype>image/png</mimetype><width>128</width><height>128</height><depth>32</depth><url>/dlna/icon.png</url></icon></iconList><serviceList><service><serviceType>{DIAL_SERVICE}</serviceType><serviceId>urn:dial-multiscreen-org:serviceId:dial</serviceId><controlURL>/dial/control</controlURL><eventSubURL></eventSubURL><SCPDURL>/dial/scpd.xml</SCPDURL></service></serviceList></device></root>"#,
         xml_escape(&info.name),
         xml_escape(&info.uuid),
     )

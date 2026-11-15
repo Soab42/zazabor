@@ -90,7 +90,7 @@ fn description() -> String {
     };
     format!(
         r#"<?xml version="1.0" encoding="utf-8"?>
-<root xmlns="urn:schemas-upnp-org:device-1-0" xmlns:dlna="urn:schemas-dlna-org:device-1-0"><specVersion><major>1</major><minor>0</minor></specVersion><device><deviceType>{DEVICE_TYPE}</deviceType><friendlyName>{}</friendlyName><manufacturer>Zazabor</manufacturer><manufacturerURL>https://github.com/Soab42/zazabor</manufacturerURL><modelDescription>Zazabor media player</modelDescription><modelName>Zazabor</modelName><modelNumber>1</modelNumber><UDN>uuid:{}</UDN><dlna:X_DLNADOC>DMR-1.50</dlna:X_DLNADOC><iconList><icon><mimetype>image/png</mimetype><width>128</width><height>128</height><depth>32</depth><url>/dlna/icon.png</url></icon></iconList><serviceList>{}{}{}</serviceList></device></root>"#,
+<root xmlns="urn:schemas-upnp-org:device-1-0" xmlns:dlna="urn:schemas-dlna-org:device-1-0"><specVersion><major>1</major><minor>0</minor></specVersion><device><deviceType>{DEVICE_TYPE}</deviceType><friendlyName>{}</friendlyName><manufacturer>Zazabor Home</manufacturer><manufacturerURL>https://github.com/Soab42/zazabor-home</manufacturerURL><modelDescription>Zazabor Home media player</modelDescription><modelName>Zazabor Home</modelName><modelNumber>1</modelNumber><UDN>uuid:{}</UDN><dlna:X_DLNADOC>DMR-1.50</dlna:X_DLNADOC><iconList><icon><mimetype>image/png</mimetype><width>128</width><height>128</height><depth>32</depth><url>/dlna/icon.png</url></icon></iconList><serviceList>{}{}{}</serviceList></device></root>"#,
         xml_escape(&name),
         xml_escape(&id),
         service(AVT, "avt", "AVTransport"),

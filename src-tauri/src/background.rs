@@ -49,7 +49,7 @@ fn entry_text(exe: &str) -> String {
     // The Exec line quotes a path with spaces (desktop entry spec).
     let exe = if exe.contains(' ') { format!("\"{exe}\"") } else { exe.to_string() };
     format!(
-        "[Desktop Entry]\nType=Application\nName=Zazabor\nComment=Keeps the clipboard history, quick notes and the time tracker ready\n\
+        "[Desktop Entry]\nType=Application\nName=Zazabor Home\nComment=Keeps the clipboard history, quick notes and the time tracker ready\n\
          Exec={exe} {FLAG}\nIcon=zazabor\nTerminal=false\nNoDisplay=true\nX-GNOME-Autostart-enabled=true\n"
     )
 }

@@ -290,7 +290,7 @@ fn wait_for_pipewire() -> Result<(), String> {
             }
         }
         if start.elapsed() > Duration::from_secs(12) {
-            return Err("PipeWire still holds the Bluetooth hands-free role after restarting WirePlumber, so Zazabor can't take calls.".into());
+            return Err("PipeWire still holds the Bluetooth hands-free role after restarting WirePlumber, so Zazabor Home can't take calls.".into());
         }
         std::thread::sleep(Duration::from_millis(400));
     }
@@ -409,7 +409,7 @@ fn new_connection(path: String, fd: OwnedFd) -> Result<(), String> {
     {
         let inner = lock(&STATE);
         if !inner.enabled {
-            return Err("Bluetooth calls are off in Zazabor.".into());
+            return Err("Bluetooth calls are off in Zazabor Home.".into());
         }
         if let Some(s) = inner.session.as_ref().filter(|s| !s.is_closed()) {
             if s.device != path && inner.wanted.as_deref() != Some(path.as_str()) {

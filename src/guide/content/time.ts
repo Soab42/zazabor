@@ -34,7 +34,7 @@ export const time: GuideArticle = {
     {
       title: "The daily report",
       steps: [
-        "Open **Daily Report**: Zazabor writes it from the day's entries (check-in and check-out, time per task with notes, breaks, idle time).",
+        "Open **Daily Report**: Zazabor Home writes it from the day's entries (check-in and check-out, time per task with notes, breaks, idle time).",
         "Edit the text, or press **Regenerate** to write it again.",
         "**Copy** it, **Save as Draft**, or **Submit Report**. There's one report per day; step back to earlier days.",
       ],

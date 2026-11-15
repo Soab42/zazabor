@@ -10,7 +10,7 @@
 # SHA-256 matches the manifest.
 set -eu
 
-repo="Soab42/zazabor"
+repo="Soab42/zazabor-home"
 site="https://soab42.github.io/zazabor-content"
 latest="https://github.com/$repo/releases/latest/download"
 downloads="https://github.com/$repo/releases/download/"
@@ -19,9 +19,9 @@ lib_dir="$HOME/.local/lib/Zazabor"
 data_dir="${XDG_DATA_HOME:-$HOME/.local/share}"
 
 say() { printf '\033[1m%s\033[0m\n' "$*"; }
-fail() { printf 'Zazabor: %s\n' "$*" >&2; exit 1; }
+fail() { printf 'Zazabor Home: %s\n' "$*" >&2; exit 1; }
 
-[ "$(uname -s)" = Linux ] && [ "$(uname -m)" = x86_64 ] || fail "Zazabor runs on Linux (x86-64) for now."
+[ "$(uname -s)" = Linux ] && [ "$(uname -m)" = x86_64 ] || fail "Zazabor Home runs on Linux (x86-64) for now."
 command -v python3 >/dev/null || fail "the installer needs python3."
 command -v sha256sum >/dev/null || fail "the installer needs sha256sum (coreutils)."
 
@@ -33,7 +33,7 @@ get() {
   else fail "the installer needs curl or wget."; fi
 }
 
-say "Looking for the latest Zazabor…"
+say "Looking for the latest Zazabor Home…"
 get "$latest/latest.json" "$tmp/latest.json" || fail "couldn't read the latest release from GitHub."
 get "$latest/latest.json.sig" "$tmp/latest.json.sig" || fail "the latest release has no signature."
 
@@ -49,10 +49,10 @@ KEY
 if command -v openssl >/dev/null && openssl version | grep -q '^OpenSSL [3-9]'; then
   python3 -c 'import base64,sys; sys.stdout.buffer.write(base64.b64decode(open(sys.argv[1]).read().strip()))' "$tmp/latest.json.sig" > "$tmp/sig.bin"
   openssl pkeyutl -verify -pubin -inkey "$tmp/key.pem" -rawin -in "$tmp/latest.json" -sigfile "$tmp/sig.bin" >/dev/null 2>&1 \
-    || fail "the release isn't signed by Zazabor's key, so nothing was installed."
+    || fail "the release isn't signed by Zazabor Home's key, so nothing was installed."
   say "Release signature checked."
 else
-  # 0: signed by Zazabor's key; 1: not; 2: no cryptography package to check with.
+  # 0: signed by Zazabor Home's key; 1: not; 2: no cryptography package to check with.
   if python3 - "$tmp/latest.json" "$tmp/latest.json.sig" <<'PY'; then status=0; else status=$?; fi
 import base64, sys
 try:
@@ -73,7 +73,7 @@ PY
        else
          fail "can't check the release's signature here: install OpenSSL 3 (or Python's cryptography package) and try again."
        fi ;;
-    *) fail "the release isn't signed by Zazabor's key, so nothing was installed." ;;
+    *) fail "the release isn't signed by Zazabor Home's key, so nothing was installed." ;;
   esac
 fi
 
@@ -88,7 +88,7 @@ PY
 version="$1" url="$2" sha="$3"
 case "$url" in "$downloads"*) ;; *) fail "the release points somewhere unexpected ($url)." ;; esac
 
-say "Downloading Zazabor $version…"
+say "Downloading Zazabor Home $version…"
 get "$url" "$tmp/zazabor.tar.gz" || fail "the download failed."
 [ "$(sha256sum "$tmp/zazabor.tar.gz" | cut -d' ' -f1)" = "$sha" ] || fail "the download didn't match the release's checksum."
 mkdir "$tmp/unpacked"
@@ -107,7 +107,7 @@ mkdir -p "$data_dir/applications"
 cat > "$data_dir/applications/zazabor.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Zazabor
+Name=Zazabor Home
 GenericName=Files, photos, video and office
 Comment=Files, photos, video, notes, time tracking, a wallet, Word and Excel files, and clipboard history in one app
 Exec=$bin_dir/zazabor %F
@@ -128,7 +128,7 @@ Name=Clipboard History
 Exec=$bin_dir/zazabor --clipboard
 
 [Desktop Action quit]
-Name=Quit Zazabor
+Name=Quit Zazabor Home
 Exec=$bin_dir/zazabor --quit
 EOF
 update-desktop-database -q "$data_dir/applications" 2>/dev/null || true
@@ -138,7 +138,7 @@ missing=""
 for lib in libwebkit2gtk-4.1.so.0 libgstreamer-1.0.so.0 libvlc.so.5; do
   ldconfig -p 2>/dev/null | grep -q "$lib" || missing="$missing $lib"
 done
-say "Zazabor $version is installed. Find it in your applications menu, or run: zazabor"
+say "Zazabor Home $version is installed. Find it in your applications menu, or run: zazabor"
 if [ -n "$missing" ]; then
   printf 'It needs a few system libraries that aren'"'"'t here:%s\nOn Ubuntu, Pop!_OS or Debian: sudo apt install libwebkit2gtk-4.1-0 gstreamer1.0-plugins-good gstreamer1.0-libav vlc\n' "$missing"
 fi

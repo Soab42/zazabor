@@ -12,7 +12,7 @@ export const phone: GuideArticle = {
     {
       title: "Link your phone",
       steps: [
-        "Open **Phone** on the rail. Press **Get Zazabor Link** and install the app on the phone (it comes with every Zazabor release).",
+        "Open **Phone** on the rail. Press **Get Zazabor Link** and install the app on the phone (it comes with every Zazabor Home release).",
         "Press **Turn On Phone Link**. This PC now shows up for phones on the same Wi-Fi.",
         "In Zazabor Link, tap **Phone Link** and pick this PC.",
         "Both screens show six digits. When they match, press **Pair** on both.",
@@ -50,7 +50,7 @@ export const phone: GuideArticle = {
         "During a call the bar at the top has mute, the keypad, hold, where you hear the call (**PC** or **Phone**) and End.",
       ],
       tips: [
-        "To talk through this PC, press **Set Up** on the \"Set up calls through this PC\" card. Zazabor then becomes the phone's Bluetooth hands-free, like a car kit. The phone must be paired with this PC in the system's Bluetooth settings first.",
+        "To talk through this PC, press **Set Up** on the \"Set up calls through this PC\" card. Zazabor Home then becomes the phone's Bluetooth hands-free, like a car kit. The phone must be paired with this PC in the system's Bluetooth settings first.",
         "Setting up calls restarts the sound server once, which cuts sound for a moment. Headsets keep working.",
         "Without Bluetooth calls, the phone places the call itself and the sound stays on the phone.",
       ],
@@ -78,7 +78,7 @@ export const phone: GuideArticle = {
         "**Mirror** shows the phone's screen on this PC: allow screen sharing on the phone, and it opens in Video.",
       ],
       tips: [
-        "Mirroring uses Cast to Zazabor; Mirror turns it on if it was off.",
+        "Mirroring uses Cast to Zazabor Home; Mirror turns it on if it was off.",
         "The ⋯ on the phone's card renames or forgets the phone, or switches to another paired phone.",
       ],
     },

@@ -211,7 +211,7 @@ export function callsView(ctx: PhoneCtx): PhoneView {
     setup.hidden = !!via;
     if (via) return setup.replaceChildren();
     if (!bt) {
-      setup.replaceChildren(h("div", { class: "pl-bt-text" }, h("strong", null, "Calls through this PC"), h("p", null, "This version of Zazabor can't talk to Bluetooth phones yet. Calls go through the phone.")));
+      setup.replaceChildren(h("div", { class: "pl-bt-text" }, h("strong", null, "Calls through this PC"), h("p", null, "This version of Zazabor Home can't talk to Bluetooth phones yet. Calls go through the phone.")));
       return;
     }
     if (!bt.enabled) {
@@ -251,7 +251,7 @@ export function callsView(ctx: PhoneCtx): PhoneView {
   async function enableCalls() {
     const ok = await confirmSheet({
       title: "Take calls through this PC?",
-      message: "Zazabor becomes your phone's Bluetooth hands-free, so calls play on this PC's speakers and use its microphone. To do that it asks the sound server (WirePlumber) to leave the hands-free role to Zazabor and restarts it, which cuts sound for a moment. Headsets keep working. You can turn this off in Settings → Phone.",
+      message: "Zazabor Home becomes your phone's Bluetooth hands-free, so calls play on this PC's speakers and use its microphone. To do that it asks the sound server (WirePlumber) to leave the hands-free role to Zazabor Home and restarts it, which cuts sound for a moment. Headsets keep working. You can turn this off in Settings → Phone.",
       confirmLabel: "Set Up Calls",
       icon: "bluetooth",
     });

@@ -63,7 +63,7 @@ export function phoneCategory(host: { readonly config: Config; configChanged(): 
   };
 
   // ---- notifications and the clipboard
-  const notify = toggle("Show new texts on the desktop", "A notification with who wrote, unless that conversation is open in Zazabor.", (on) => ((settings().notify = on), host.configChanged()));
+  const notify = toggle("Show new texts on the desktop", "A notification with who wrote, unless that conversation is open in Zazabor Home.", (on) => ((settings().notify = on), host.configChanged()));
   const mirrorNotifs = toggle("Show the phone's notifications on the desktop", "Notifications from apps on the phone show on this PC too.", (on) => ((settings().mirrorNotifs = on), host.configChanged()));
   const clip = toggle("Share the clipboard", "Text you copy on this PC can be pasted on the phone, and the other way round. Turn it on in Zazabor Link too.", (on, input) => {
     settings().clip = on;
@@ -78,7 +78,7 @@ export function phoneCategory(host: { readonly config: Config; configChanged(): 
 
   // ---- calls
   const btStatus = h("p", { class: "sf-hint pl-settings-bt" });
-  const calls = toggle("Calls through this PC", "Make and take calls with this PC's speakers and microphone over Bluetooth. Zazabor becomes the phone's hands-free: it asks the sound server (WirePlumber) to leave that role to it and restarts it, which cuts sound for a moment. Headsets keep working.", (on, input) => {
+  const calls = toggle("Calls through this PC", "Make and take calls with this PC's speakers and microphone over Bluetooth. Zazabor Home becomes the phone's hands-free: it asks the sound server (WirePlumber) to leave that role to it and restarts it, which cuts sound for a moment. Headsets keep working.", (on, input) => {
     input.disabled = true;
     void phoneApi.btEnable(on).then((bt) => {
       settings().calls = on;
@@ -95,7 +95,7 @@ export function phoneCategory(host: { readonly config: Config; configChanged(): 
   const btRow: SettingsRow = { label: "Pair a phone over Bluetooth", el: h("div", { class: "sf-row plain" }, h("div", { class: "st-text" }, h("span", { class: "sf-label" }, "Pair a phone over Bluetooth"), h("p", { class: "sf-hint" }, "The phone must be paired with this PC in the system's Bluetooth settings first.")), btSettings) };
   function drawBt(bt: BtState | null) {
     if (!bt) {
-      btStatus.textContent = "Not available in this version of Zazabor.";
+      btStatus.textContent = "Not available in this version of Zazabor Home.";
       calls.input.disabled = true;
       return;
     }
@@ -115,7 +115,7 @@ export function phoneCategory(host: { readonly config: Config; configChanged(): 
     }
     const phones = state?.phones ?? [];
     if (!phones.length) {
-      phonesBox.replaceChildren(h("p", { class: "sf-hint pl-settings-none" }, state ? "No phone is paired yet. Open Zazabor Link on the phone and pick this PC." : "Phone Link isn't available in this version of Zazabor."));
+      phonesBox.replaceChildren(h("p", { class: "sf-hint pl-settings-none" }, state ? "No phone is paired yet. Open Zazabor Link on the phone and pick this PC." : "Phone Link isn't available in this version of Zazabor Home."));
       return;
     }
     phonesBox.replaceChildren(...phones.map((p) => {

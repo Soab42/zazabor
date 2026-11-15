@@ -458,7 +458,7 @@ export function createRecorderPage(host: RecorderHost, compact = false) {
       const row = h("div", { class: `rec-row${item.recovered ? " recovered" : ""}`, role: "button", tabindex: "0", title: item.path },
         h("img", { class: "rec-row-thumb", alt: "", loading: "lazy", src: videoThumbUrl(item.path, item.mtime, 160) }),
         h("span", { class: "rec-row-text" }, h("span", { class: "rec-row-name" }, item.name),
-          h("span", { class: "rec-row-sub" }, item.recovered ? "Recovered after Zazabor stopped · " : "", when, " · ", size(item.bytes))),
+          h("span", { class: "rec-row-sub" }, item.recovered ? "Recovered after Zazabor Home stopped · " : "", when, " · ", size(item.bytes))),
         len,
         item.recovered ? h("button", { class: "btn small", type: "button", onclick: (e: Event) => (e.stopPropagation(), void recApi.keep(item.path).then(() => refreshList(), (err) => host.toast(errorText(err)))) }, "Keep") : null,
         h("button", { class: "icon-btn small", type: "button", title: "More", "aria-label": "More", onclick: (e: MouseEvent) => (e.stopPropagation(), menu(e, item)) }, icon("more", 15)));

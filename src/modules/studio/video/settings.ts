@@ -53,7 +53,7 @@ export function videoEditorCategory(): Category {
       h("ul", { class: "st-ve-list" }, ...list),
       e.missing.length
         ? button("Install codecs…", () => void offerCodecInstall(e.missing, (t) => showToast(t, undefined, 5000)).then((now) => now && drawCodecs(now)))
-        : h("p", { class: "sf-hint" }, "Everything Zazabor can use is installed."));
+        : h("p", { class: "sf-hint" }, "Everything Zazabor Home can use is installed."));
   };
   const refreshCodecs = async () => {
     const e = await editApi.encoders().catch(() => null);

@@ -20,4 +20,4 @@ loadConfig()
     if (windowStart?.module === "recorder-area") return (await import("./modules/studio/record/windows")).startAreaPicker(config, windowStart.path);
     return new Shell(config).start();
   })
-  .catch((err) => console.error("Zazabor failed to start:", err));
+  .catch((err) => console.error("Zazabor Home failed to start:", err));

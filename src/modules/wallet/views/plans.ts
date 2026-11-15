@@ -485,7 +485,7 @@ export function planSheet(ctx: Ctx, existing: Plan | null, kind: "dps" | "loan")
   const disburse = new DateTimeField({ value: existing ? parseDate(existing.disburseDate).getTime() : null, placeholder: "A month before the first installment", label: "Lent on", dateOnly: true, future: true, clearable: true, host: () => dialog.overlay,
     onChange: () => ((disburseTouched = true), schedule()) });
   const paidBefore = textInput({ class: "tt-input wl-every", inputmode: "numeric", value: String(existing?.paidBefore ?? 0), "aria-label": "Installments already paid" });
-  const auto = onOff("Pay it by itself", "Each installment moves from the account it's paid from on its date, catching up on days Zazabor was closed. Off: add each payment yourself, as you really paid it.", existing?.autoPost ?? !loan);
+  const auto = onOff("Pay it by itself", "Each installment moves from the account it's paid from on its date, catching up on days Zazabor Home was closed. Off: add each payment yourself, as you really paid it.", existing?.autoPost ?? !loan);
   const inTotal = onOff("Count in the total balance", loan
     ? "Off: what's owed stays out of your total balance and net worth (only its installments leave your bank). On: it's taken off them."
     : "On: what's saved in it counts in your total balance and net worth.", existing?.inTotal ?? !loan);

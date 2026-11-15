@@ -318,7 +318,7 @@ export class SettingsForm {
     this.renderMusic = () => {
       const current = this.settings.music;
       list.replaceChildren(row(null, "No music", ""));
-      list.append(h("div", { class: "ml-head" }, "Zazabor soundtracks"));
+      list.append(h("div", { class: "ml-head" }, "Zazabor Home soundtracks"));
       // Not downloaded yet: its size (it downloads when it's first played).
       for (const track of this.tracks) list.append(row(`${BUILTIN_MUSIC}${track.id}`, track.title, isLocal(track.file) ? track.vibe : `${track.vibe} · ${formatBytes(track.bytes)}`));
       const own = current && !current.startsWith(BUILTIN_MUSIC) && !this.songs.some((s) => s.path === current) ? [current] : [];

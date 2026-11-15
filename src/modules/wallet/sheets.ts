@@ -118,7 +118,7 @@ export function txSheet(ctx: Ctx, tx: Tx | null, preset: Partial<NewTx> = {}) {
   const repeatMore = h("div", { class: "wl-repeat-more" },
     h("div", { class: "wl-inline" }, h("span", { class: "tt-hint" }, "Every"), repeatEvery, repeatFreq, repeatNext),
     h("label", { class: "wl-toggle-row" }, h("div", null, h("strong", null, "Auto pay: post it by itself"),
-      h("p", { class: "tt-hint" }, "On the day, catching up on days Zazabor was closed. Off: Bills reminds you until you mark it as paid.")), repeatAuto));
+      h("p", { class: "tt-hint" }, "On the day, catching up on days Zazabor Home was closed. Off: Bills reminds you until you mark it as paid.")), repeatAuto));
   const repeatRow = h("div", { class: "wl-repeat" },
     h("label", { class: "wl-toggle-row" }, h("div", null, h("strong", null, "Repeat it"),
       h("p", { class: "tt-hint" }, "The same again on a schedule, from the next date (listed in Bills).")), repeatOn),

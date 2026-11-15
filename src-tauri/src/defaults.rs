@@ -96,7 +96,7 @@ pub async fn defaults_set(kinds: Vec<String>, app_id: String) -> Result<(), Stri
     tauri::async_runtime::spawn_blocking(move || {
         let dirs = Dirs::from_env();
         if apps::find_desktop(&dirs, &app_id).is_none() {
-            return Err(if app_id == ZAZABOR { "Install Zazabor first: a development build can't be a default app." } else { "That app isn't installed any more." }.to_string());
+            return Err(if app_id == ZAZABOR { "Install Zazabor Home first: a development build can't be a default app." } else { "That app isn't installed any more." }.to_string());
         }
         for id in &kinds {
             let kind = KINDS.iter().find(|k| k.id == id).ok_or_else(|| format!("There's no kind of file “{id}”."))?;
@@ -131,7 +131,7 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         let (data, cfg) = (root.join("data"), root.join("cfg"));
         fs::create_dir_all(&cfg).unwrap();
-        desktop(&data, "zazabor.desktop", &format!("Name=Zazabor\nMimeType={};", KINDS.iter().flat_map(|k| k.mimes).copied().collect::<Vec<_>>().join(";")));
+        desktop(&data, "zazabor.desktop", &format!("Name=Zazabor Home\nMimeType={};", KINDS.iter().flat_map(|k| k.mimes).copied().collect::<Vec<_>>().join(";")));
         desktop(&data, "eog.desktop", "Name=Image Viewer\nMimeType=image/jpeg;image/png;image/gif;");
         desktop(&data, "evince.desktop", "Name=Document Viewer\nMimeType=application/pdf;");
         (root, Dirs { data: vec![data], config: vec![cfg], desktops: vec!["pop".into(), "gnome".into()] })

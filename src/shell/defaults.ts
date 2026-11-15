@@ -51,11 +51,11 @@ const api = {
 
 export function defaultAppsGroup(): SettingsGroup {
   const allStatus = h("p", { class: "sf-hint" }, "Checking…");
-  const allButton = h("button", { type: "button", class: "btn small primary", disabled: true }, "Use Zazabor for All");
+  const allButton = h("button", { type: "button", class: "btn small primary", disabled: true }, "Use Zazabor Home for All");
   const allRow: SettingsRow = {
-    label: "Use Zazabor for all default apps open with photos videos pdf word excel",
+    label: "Use Zazabor Home for all default apps open with photos videos pdf word excel",
     el: h("div", { class: "sf-row plain" },
-      h("div", { class: "st-text" }, h("span", { class: "sf-label" }, "Open my files with Zazabor"), allStatus),
+      h("div", { class: "st-text" }, h("span", { class: "sf-label" }, "Open my files with Zazabor Home"), allStatus),
       allButton),
   };
 
@@ -96,16 +96,16 @@ export function defaultAppsGroup(): SettingsGroup {
     const everyday = s.kinds.filter((k) => EVERYDAY.includes(k.id));
     const done = everyday.every((k) => k.zazabor);
     allButton.disabled = !s.installed || done;
-    allButton.textContent = done ? "Zazabor Opens Them All" : "Use Zazabor for All";
+    allButton.textContent = done ? "Zazabor Home Opens Them All" : "Use Zazabor Home for All";
     allStatus.classList.remove("st-error");
     allStatus.textContent = !s.installed
-      ? "Zazabor isn't installed for your user, so it can't be a default app yet. Install it with the one-line installer on its website."
-      : done ? "Photos, videos, PDFs, Word documents and spreadsheets open in Zazabor." : "Photos, videos, PDFs, Word documents and spreadsheets (folders are below, on their own).";
+      ? "Zazabor Home isn't installed for your user, so it can't be a default app yet. Install it with the one-line installer on its website."
+      : done ? "Photos, videos, PDFs, Word documents and spreadsheets open in Zazabor Home." : "Photos, videos, PDFs, Word documents and spreadsheets (folders are below, on their own).";
     for (const r of kindRows) {
       const k = s.kinds.find((x) => x.id === r.id);
       if (!k) continue;
-      const name = k.current?.id === ZAZABOR ? "Zazabor" : k.current?.name;
-      r.status.textContent = k.zazabor ? "Opens in Zazabor." : k.mixed ? `Opens in ${name ?? "another app"} and other apps, by type.` : name ? `Opens in ${name}.` : "No app opens these yet.";
+      const name = k.current?.id === ZAZABOR ? "Zazabor Home" : k.current?.name;
+      r.status.textContent = k.zazabor ? "Opens in Zazabor Home." : k.mixed ? `Opens in ${name ?? "another app"} and other apps, by type.` : name ? `Opens in ${name}.` : "No app opens these yet.";
       r.pick.replaceChildren(...appFace(k.current, k.mixed ? "Several Apps" : name ?? "None"));
       r.pick.disabled = !k.apps.length;
       r.pick.onclick = () => {
@@ -113,7 +113,7 @@ export function defaultAppsGroup(): SettingsGroup {
         // Zazabor first, then the others the desktop knows for this kind.
         const apps = [...k.apps].sort((a, b) => Number(b.id === ZAZABOR) - Number(a.id === ZAZABOR));
         const items: MenuItem[] = apps.map((app) => ({
-          label: app.id === ZAZABOR ? "Zazabor" : app.name,
+          label: app.id === ZAZABOR ? "Zazabor Home" : app.name,
           icon: !k.mixed && k.current?.id === app.id ? "check" : undefined,
           disabled: app.id === ZAZABOR && !s.installed,
           action: () => void set([k.id], app.id),

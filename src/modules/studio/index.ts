@@ -272,7 +272,7 @@ export const createStudioModule: ModuleFactory = (shell) => {
 
   function retitle() {
     if (isMainWindow) return;
-    const title = current ? `${current.title()}${current.dirty() ? " •" : ""} — Studio` : "Studio — Zazabor";
+    const title = current ? `${current.title()}${current.dirty() ? " •" : ""} — Studio` : "Studio — Zazabor Home";
     void getCurrentWindow().setTitle(title).catch(() => undefined);
   }
 

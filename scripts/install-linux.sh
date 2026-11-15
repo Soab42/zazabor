@@ -73,7 +73,7 @@ if [[ "${1:-}" == "--uninstall" ]]; then
   for size in "${icon_sizes[@]}"; do rm -f "$data_dir/icons/hicolor/${size}x${size}/apps/zazabor.png"; done
   remove_sliderpro
   refresh_menus
-  echo "Zazabor removed. Settings and caches remain in ~/.config/dev.soab.zazabor and ~/.cache/dev.soab.zazabor."
+  echo "Zazabor Home removed. Settings and caches remain in ~/.config/dev.soab.zazabor and ~/.cache/dev.soab.zazabor."
   exit 0
 fi
 
@@ -115,7 +115,7 @@ mkdir -p "$(dirname "$desktop_file")"
 cat > "$desktop_file" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Zazabor
+Name=Zazabor Home
 GenericName=Files, photos, video and office
 Comment=Files, photos, video, notes, time tracking, a wallet, Word and Excel files, and clipboard history in one app
 Exec=$bin_dir/zazabor %F
@@ -136,7 +136,7 @@ Name=Clipboard History
 Exec=$bin_dir/zazabor --clipboard
 
 [Desktop Action quit]
-Name=Quit Zazabor
+Name=Quit Zazabor Home
 Exec=$bin_dir/zazabor --quit
 EOF
 
@@ -151,7 +151,7 @@ if [[ $background == 1 ]]; then
   cat > "$autostart_file" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Zazabor
+Name=Zazabor Home
 Comment=Keeps the clipboard history, quick notes and the time tracker ready
 Exec=$bin_dir/zazabor --background
 Icon=zazabor
@@ -163,7 +163,7 @@ fi
 
 remove_sliderpro
 refresh_menus
-echo "Zazabor installed. Find it in your applications menu, or run: zazabor"
+echo "Zazabor Home installed. Find it in your applications menu, or run: zazabor"
 if [[ $background == 1 ]]; then
   echo "It starts in the background at login (Settings → Clipboard → Run in the background turns that off)."
 else

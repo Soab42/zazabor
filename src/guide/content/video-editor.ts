@@ -49,7 +49,7 @@ export const videoEditor: GuideArticle = {
       steps: [
         "**Text**: pick a style, then type its words. To change them later, double-click the text on the preview (or on the timeline, or choose **Edit Text** from its right-click menu): a box opens on the video to type in, and {Esc} closes it. A template's texts open in the inspector's **Content** section. The inspector sets the font, colours, outline, box and an animation (fade, pop, slide, typewriter, bounce…).",
         "**Stickers**: arrows, callouts, badges, **Subscribe**, **SALE tag** and more, with their own animations.",
-        "**Audio**: **Import Music**, Zazabor's own soundtracks and sound effects, and **Mark beats** to line cuts up with the music. Press ▶ beside a soundtrack, a sound or your music to listen before adding it; one plays at a time, and it stops when the editor plays. In the Import Music window, select a sound and press **Listen** (or {Space}).",
+        "**Audio**: **Import Music**, Zazabor Home's own soundtracks and sound effects, and **Mark beats** to line cuts up with the music. Press ▶ beside a soundtrack, a sound or your music to listen before adding it; one plays at a time, and it stops when the editor plays. In the Import Music window, select a sound and press **Listen** (or {Space}).",
         "**Voice-over**: press {R} to record from the microphone at the playhead; press {R} again to stop. Music set to **Lower under voice-overs** dips while you speak.",
         "**Captions**: choose the language and press **Generate captions** for word-by-word captions you can style, or **Import .srt…** / **Export .srt…**.",
       ],
@@ -59,7 +59,7 @@ export const videoEditor: GuideArticle = {
       title: "Look and motion",
       steps: [
         "Select a clip; the inspector on the right shows its **Picture**, **Position**, **Filter and adjust**, **Effects**, **Mask**, **Chroma key**, **Speed** and **Sound** settings.",
-        "Press ◆ beside position, scale, rotation, opacity or volume to add a keyframe at the playhead; move the playhead and change the value for another. Zazabor animates between them.",
+        "Press ◆ beside position, scale, rotation, opacity or volume to add a keyframe at the playhead; move the playhead and change the value for another. Zazabor Home animates between them.",
         "**Chroma key** removes a green or blue background. **Colour table** loads a .cube LUT.",
         "**Speed** changes the pace (with presets like Montage and Hero), plays in **Reverse**, or adds a **Freeze frame** at the playhead.",
         "**Transitions**: pick one of the slideshow's 50 for a cut on the main track. Select an overlay, a text, a sticker or a template to give it an **In** and an **Out** (dissolve, wipe, iris, slide, push, zoom, spin, flip, glitch and more); when two clips on an overlay track touch, **Between** plays across the cut between them (click the mark at the cut). The inspector has the same choices. **Filters** apply a look to one clip or all.",
@@ -75,7 +75,7 @@ export const videoEditor: GuideArticle = {
       tips: [
         "Without the extra codec packages, MP4 sound is MP3; with them, MP4s get AAC sound and x264. **Install codecs…** explains what it adds before installing.",
         "Heavy reels can export slower than real time.",
-        "Moved a clip on disk? When you open the project, Zazabor looks for missing files and lets you **Search a Folder**.",
+        "Moved a clip on disk? When you open the project, Zazabor Home looks for missing files and lets you **Search a Folder**.",
       ],
     },
   ],

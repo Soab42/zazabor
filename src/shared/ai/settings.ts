@@ -27,7 +27,7 @@ export function aiCategory(): Category {
     status.textContent = text;
     status.classList.toggle("error", error);
   };
-  const fail = (err: unknown) => say(errorText(err) === "locked" ? "Unlock Zazabor to change the AI settings." : errorText(err), true);
+  const fail = (err: unknown) => say(errorText(err) === "locked" ? "Unlock Zazabor Home to change the AI settings." : errorText(err), true);
 
   const key = h("input", { type: "password", placeholder: "sk-ant-…", autocomplete: "off", spellcheck: "false", "aria-label": "Claude API key" });
   key.addEventListener("keydown", (e) => {
@@ -49,7 +49,7 @@ export function aiCategory(): Category {
     label: "Send statements to Claude",
     el: h("label", { class: "sf-row sf-toggle" },
       h("div", { class: "st-text" }, h("span", { class: "sf-label" }, "Send statements to Claude"),
-        h("p", { class: "sf-hint" }, "When Zazabor can't read a statement itself (a scan, a photo, an unusual layout), or you choose Read with Claude, the statement (or its text) is sent to Anthropic's API to be read, and Anthropic's API terms apply. Only the last four digits of the account number are kept. Nothing is sent while this is off.")),
+        h("p", { class: "sf-hint" }, "When Zazabor Home can't read a statement itself (a scan, a photo, an unusual layout), or you choose Read with Claude, the statement (or its text) is sent to Anthropic's API to be read, and Anthropic's API terms apply. Only the last four digits of the account number are kept. Nothing is sent while this is off.")),
       consent),
   };
 

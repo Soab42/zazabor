@@ -447,7 +447,7 @@ impl Hub {
             _ => {
                 // A request this PC doesn't know: say so, so the phone doesn't wait.
                 if let Some(rid) = msg.get("rid") {
-                    let _ = link.send(json!({"t": "re", "rid": rid, "ok": false, "error": format!("This PC doesn't know “{t}”. Update Zazabor.")}));
+                    let _ = link.send(json!({"t": "re", "rid": rid, "ok": false, "error": format!("This PC doesn't know “{t}”. Update Zazabor Home.")}));
                 }
             }
         }

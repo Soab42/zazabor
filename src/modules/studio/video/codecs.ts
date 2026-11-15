@@ -18,7 +18,7 @@ export async function offerCodecInstall(packages: string[], toast: (text: string
   const list = named.length > 1 ? `${named.slice(0, -1).join(", ")} and ${named[named.length - 1]}` : named[0];
   const answer = await ask({
     title: "Install codecs?",
-    text: `Zazabor will install ${list} from your system's software sources. Your password is asked for by the system, not by Zazabor. It takes a minute and needs the internet.`,
+    text: `Zazabor Home will install ${list} from your system's software sources. Your password is asked for by the system, not by Zazabor Home. It takes a minute and needs the internet.`,
     icon: "download",
     choices: [{ id: "no", label: "Not Now" }, { id: "yes", label: "Install", primary: true }],
     cancel: "no",
@@ -29,7 +29,7 @@ export async function offerCodecInstall(packages: string[], toast: (text: string
     const encoders = await editApi.installCodecs(packages);
     const still = packages.filter((p) => encoders.missing.includes(p));
     const added = [encoders.aac ? "AAC sound" : "", encoders.codecs.some((c) => c.id === "x264" && c.available) ? "x264" : "", encoders.hevc ? "HEVC" : ""].filter(Boolean);
-    if (still.length) toast("The installer finished, but the codecs don't show up yet. Restart Zazabor.");
+    if (still.length) toast("The installer finished, but the codecs don't show up yet. Restart Zazabor Home.");
     else toast(added.length ? `Codecs installed: ${added.join(", ")} ready.` : "Codecs installed.");
     return encoders;
   } catch (err) {

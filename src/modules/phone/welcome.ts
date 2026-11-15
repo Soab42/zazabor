@@ -7,7 +7,7 @@ import { showPairDialog } from "./pair";
 import { refreshState, setState } from "./store";
 
 /** Where Zazabor Link's APK is published (with every Zazabor release). */
-export const LINK_APP_URL = "https://github.com/Soab42/zazabor/releases/latest";
+export const LINK_APP_URL = "https://github.com/Soab42/zazabor-home/releases/latest";
 
 /**
  * The Phone section before a phone is paired: install Zazabor Link, turn Phone Link on, then pick
@@ -58,7 +58,7 @@ export function renderWelcome(el: HTMLElement, shell: ShellContext, state: Phone
 
   const failed = error
     ? h("div", { class: "pl-welcome-error" }, icon("stAlert", 15),
-      h("span", null, "Phone Link isn't available in this version of Zazabor yet."),
+      h("span", null, "Phone Link isn't available in this version of Zazabor Home yet."),
       h("button", { class: "btn small ghost", type: "button", onclick: () => void refreshState() }, "Try Again"))
     : null;
 
@@ -72,7 +72,7 @@ export function renderWelcome(el: HTMLElement, shell: ShellContext, state: Phone
       h("p", { class: "pl-welcome-lead" }, "Read and send texts, make and take calls, see your photos and notifications, move files both ways, and show your phone's screen, all from here."),
       failed,
       h("ol", { class: "pl-steps card" },
-        step(1, false, "Install Zazabor Link on your Android phone", "It comes with every Zazabor release. Open this page on the phone and install the APK.",
+        step(1, false, "Install Zazabor Link on your Android phone", "It comes with every Zazabor Home release. Open this page on the phone and install the APK.",
           h("div", { class: "pl-step-row" }, getApp, copy)),
         step(2, on, "Turn on Phone Link", on ? "On. Phones on the same Wi-Fi can find this PC." : "This PC then shows up for Zazabor Link on the same Wi-Fi.",
           on || error ? null : h("div", { class: "pl-step-row" }, turnOn)),

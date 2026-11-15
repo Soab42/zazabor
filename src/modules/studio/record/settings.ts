@@ -34,7 +34,7 @@ export function recorderCategory(host: Pick<SettingsHost, "config" | "configChan
     keys.value = s.binding;
     keys.hidden = set.hidden = !s.supported;
     remove.hidden = s.state === "none";
-    set.textContent = s.state === "installed" ? "Update" : s.state === "other" ? "Use This Zazabor" : "Add Shortcut";
+    set.textContent = s.state === "installed" ? "Update" : s.state === "other" ? "Use This Zazabor Home" : "Add Shortcut";
     state.textContent = !s.supported ? `Add a shortcut in your desktop's keyboard settings that runs: ${s.command}` : s.state === "installed" ? "On" : "";
     state.classList.remove("st-error");
   };

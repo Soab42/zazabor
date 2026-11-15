@@ -28,7 +28,7 @@ export const apps: GuideArticle = {
       title: "Uninstall an app",
       steps: [
         "Click **⋯** on its row (or right-click it) and choose **Uninstall…**.",
-        "Zazabor works out what will happen and shows it first: for a system package it asks apt, so you see any other packages that would go with it.",
+        "Zazabor Home works out what will happen and shows it first: for a system package it asks apt, so you see any other packages that would go with it.",
         "Tick **Also remove … packages that came with it** to take the extras apt installed for it and nothing else uses.",
         "Under **Its files in your home folder**, tick the settings, data and caches you want gone too. They go to the Trash.",
         "Press **Uninstall**. System packages, Snaps and Flatpaks installed for everyone ask for your password.",

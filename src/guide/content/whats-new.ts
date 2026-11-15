@@ -12,8 +12,8 @@ export const whatsNew: GuideArticle = {
       tips: ["All your email accounts in one inbox: add Gmail, iCloud, Yahoo, Fastmail or any IMAP address, read conversations, search offline, and answer from the account it came to. [[mail|Read more]]"],
     },
     {
-      title: "CorePro is now Zazabor",
-      tips: ["Same app, new name. Your settings, notes, wallet, time log and clipboard history came across on the first start, and your shortcuts now open Zazabor."],
+      title: "CorePro is now Zazabor Home",
+      tips: ["Same app, new name. Your settings, notes, wallet, time log and clipboard history came across on the first start, and your shortcuts now open Zazabor Home."],
     },
     {
       title: "This guide",
@@ -49,7 +49,7 @@ export const whatsNew: GuideArticle = {
     },
     {
       title: "Quit and background mode",
-      tips: ["**Quit Zazabor** stops it completely, asking about unsaved Office files first. [[background-quit|Read more]]"],
+      tips: ["**Quit Zazabor Home** stops it completely, asking about unsaved Office files first. [[background-quit|Read more]]"],
     },
   ],
   related: ["getting-started"],

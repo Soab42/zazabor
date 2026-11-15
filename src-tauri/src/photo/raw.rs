@@ -234,7 +234,7 @@ fn decode_source(path: &Path) -> Result<Source, String> {
     }
     let (_, width, height, colors, bits, data) = raw.take(false)?;
     if colors != 3 || bits != 16 || data.len() < (width * height * 6) as usize {
-        return Err("LibRaw returned a picture Zazabor can't use.".into());
+        return Err("LibRaw returned a picture Zazabor Home can't use.".into());
     }
     let cam: Vec<u16> = data.chunks_exact(2).take((width * height * 3) as usize).map(|b| u16::from_ne_bytes([b[0], b[1]])).collect();
     // With "unclip", the channel with the largest multiplier clips first, at 1/(max/its own).

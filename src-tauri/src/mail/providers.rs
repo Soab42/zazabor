@@ -45,7 +45,7 @@ const KNOWN: &[Known] = &[
         mx: &["google.com", "googlemail.com"],
         imap: ("imap.gmail.com", 993, "ssl"),
         smtp: ("smtp.gmail.com", 465, "ssl"),
-        note: "Sign in with Google above. With a password instead, Google wants an app password, not your usual one: turn on 2-Step Verification, then make one for Zazabor.",
+        note: "Sign in with Google above. With a password instead, Google wants an app password, not your usual one: turn on 2-Step Verification, then make one for Zazabor Home.",
         help_url: "https://myaccount.google.com/apppasswords",
     },
     Known {

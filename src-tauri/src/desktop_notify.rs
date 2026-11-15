@@ -54,7 +54,7 @@ fn notify_params(note: &Note, clickable: bool) -> Variant {
     hints.insert("category".into(), note.category.to_variant());
     hints.insert("urgency".into(), 1u8.to_variant());
     let actions: Vec<String> = if clickable { vec!["default".into(), "Open".into()] } else { Vec::new() };
-    ("Zazabor", note.replaces, note.icon, note.title, note.body, actions, hints, -1i32).to_variant()
+    ("Zazabor Home", note.replaces, note.icon, note.title, note.body, actions, hints, -1i32).to_variant()
 }
 
 /// Shows a notification; `on_click` runs when it's clicked. Returns its id (0 when there's no

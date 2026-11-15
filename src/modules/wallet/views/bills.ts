@@ -161,7 +161,7 @@ export function billsView(ctx: Ctx) {
       tile("Subscriptions a year", fmt(ctx, subs), `${live.filter((b) => b.subscription).length} running`));
     list.replaceChildren(
       h("header", { class: "wl-card-head" }, h("div", null, h("h3", null, show === "subscriptions" ? "Subscriptions" : show === "income" ? "Income that repeats" : show === "transfers" ? "Automatic transfers" : "Bills"),
-        h("p", { class: "wl-card-sub" }, "Soonest first. A bill that posts itself catches up on the days Zazabor was closed."))),
+        h("p", { class: "wl-card-sub" }, "Soonest first. A bill that posts itself catches up on the days Zazabor Home was closed."))),
       ...(shown.length ? shown.map(row) : [h("div", { class: "wl-empty small" },
         h("div", { class: "wl-empty-tile glass" }, icon("repeat", 26)),
         h("h2", null, show === "all" ? "No bills yet" : "Nothing here"),
@@ -277,7 +277,7 @@ export function billSheet(ctx: Ctx, existing: Bill | null, from?: Tx, preset?: {
       categoryField,
       h("div", { class: "tt-pair" }, field("Repeats every", h("div", { class: "wl-inline" }, every, freq)), dayField),
       h("div", { class: "tt-pair" }, field("First date", start.el), field("Ends", end.el, { optional: true })),
-      h("label", { class: "wl-toggle-row" }, h("div", null, autoTitle, h("p", { class: "tt-hint" }, "On the day, and for every date it missed while Zazabor was closed. Off: Wallet reminds you until you mark it as paid.")), auto),
+      h("label", { class: "wl-toggle-row" }, h("div", null, autoTitle, h("p", { class: "tt-hint" }, "On the day, and for every date it missed while Zazabor Home was closed. Off: Wallet reminds you until you mark it as paid.")), auto),
       remindField,
       subscriptionRow,
       field("Note", note, { optional: true }),

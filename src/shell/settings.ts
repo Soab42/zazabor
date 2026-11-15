@@ -111,7 +111,7 @@ const SHORTCUTS: { title: string; rows: [string, string[][]][] }[] = [
     rows: [
       ["Switch module", [["Ctrl", "1"], ["Ctrl", "2"], ["Ctrl", "3"]]],
       ["Open Settings", [["Ctrl", ","]]],
-      ["Lock Zazabor (with a privacy lock)", [["Ctrl", "L"]]],
+      ["Lock Zazabor Home (with a privacy lock)", [["Ctrl", "L"]]],
       ["Close Settings", [["Esc"]]],
     ],
   },
@@ -451,8 +451,8 @@ export class Settings {
       keys.hidden = shortcutButton.hidden = !s.supported;
       copyCommand.hidden = s.supported;
       removeShortcut.hidden = s.state === "none";
-      shortcutButton.textContent = s.state === "installed" ? "Update" : s.state === "other" ? "Use This Zazabor" : "Add Shortcut";
-      shortcutState.textContent = !s.supported ? "" : s.state === "installed" ? "On" : s.state === "other" ? "Opens another Zazabor" : "";
+      shortcutButton.textContent = s.state === "installed" ? "Update" : s.state === "other" ? "Use This Zazabor Home" : "Add Shortcut";
+      shortcutState.textContent = !s.supported ? "" : s.state === "installed" ? "On" : s.state === "other" ? "Opens another Zazabor Home" : "";
     };
     const setShortcut = async (binding: string | null) => {
       try {
@@ -480,14 +480,14 @@ export class Settings {
         {
           title: "Quick note",
           rows: [
-            wideRow("Keyboard shortcut", "Opens a new note from anywhere, even when Zazabor isn’t running. It runs “zazabor --new-note”, which you can also bind yourself.",
+            wideRow("Keyboard shortcut", "Opens a new note from anywhere, even when Zazabor Home isn’t running. It runs “zazabor --new-note”, which you can also bind yourself.",
               h("div", { class: "st-inline" }, shortcutState, keys, removeShortcut, shortcutButton, copyCommand)),
           ],
         },
         {
           title: "Notes",
           rows: [
-            toggleRow("Reopen notes at start", "Notes that were on the desktop when Zazabor closed come back when it starts.", () => config.notes.reopen, (on) => (config.notes.reopen = on, this.host.configChanged())).row,
+            toggleRow("Reopen notes at start", "Notes that were on the desktop when Zazabor Home closed come back when it starts.", () => config.notes.reopen, (on) => (config.notes.reopen = on, this.host.configChanged())).row,
           ],
         },
       ],
@@ -503,7 +503,7 @@ export class Settings {
       rows: [{
         label: "Help & Guide user guide how to F1",
         el: h("div", { class: "sf-row plain" },
-          h("div", { class: "st-text" }, h("span", { class: "sf-label" }, "Help & Guide"), h("p", { class: "sf-hint" }, "How to use every part of Zazabor, with steps and shortcuts. F1 opens it on the section you're in.")),
+          h("div", { class: "st-text" }, h("span", { class: "sf-label" }, "Help & Guide"), h("p", { class: "sf-hint" }, "How to use every part of Zazabor Home, with steps and shortcuts. F1 opens it on the section you're in.")),
           open),
       }],
     };
@@ -511,10 +511,10 @@ export class Settings {
 
   private aboutCategory(): Category {
     return {
-      id: "about", title: "Zazabor", icon: "info", section: "About",
+      id: "about", title: "Zazabor Home", icon: "info", section: "About",
       intro: h("div", { class: "st-about" },
         h("img", { src: "/logo.svg", alt: "", width: 64, height: 64 }),
-        h("h2", null, "Zazabor"),
+        h("h2", null, "Zazabor Home"),
         h("p", { class: "muted" }, "Files, photos and video in one calm place."),
         h("div", { class: "st-about-version" }, "Version ", this.version)),
       groups: [this.helpGroup(), feedbackGroup(), ...updateGroups(this.host.config, () => this.host.configChanged()), {

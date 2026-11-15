@@ -244,7 +244,7 @@ fn run(binary: &Path, video_id: &str) -> Result<Value, String> {
 /// Builds the result from yt-dlp's JSON.
 pub(crate) fn parse(json: &Value) -> Result<Resolved, String> {
     let formats = json.get("formats").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
-    let pick = pick(formats).ok_or("YouTube offered no stream Zazabor can play")?;
+    let pick = pick(formats).ok_or("YouTube offered no stream Zazabor Home can play")?;
     let text = |key: &str| json.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(String::from);
     let mut options = Vec::new();
     if let Some(audio) = &pick.audio {

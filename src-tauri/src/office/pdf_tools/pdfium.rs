@@ -81,7 +81,7 @@ fn library() -> Result<&'static Library, String> {
         return Ok(lib);
     }
     let path = candidates().into_iter().find(|p| p.is_file() && trusted(p)).ok_or_else(|| {
-        "PDFium isn't installed, so this tool can't run. Reinstall Zazabor with scripts/install-linux.sh (or run scripts/fetch-pdfium.sh in a dev checkout).".to_string()
+        "PDFium isn't installed, so this tool can't run. Reinstall Zazabor Home with scripts/install-linux.sh (or run scripts/fetch-pdfium.sh in a dev checkout).".to_string()
     })?;
     let raw = Pdfium::bind_to_library(&path).map_err(|e| format!("PDFium ({}) couldn't be loaded: {e}", path.display()))?;
     unsafe { raw.FPDF_InitLibrary() };

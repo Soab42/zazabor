@@ -34,16 +34,16 @@ export const clipboard: GuideArticle = {
       ],
       tips: [
         "What a password manager marks as secret is never kept.",
-        "In native Wayland apps Zazabor can't paste for you: the popup copies the item and asks you to press {Ctrl+V}.",
+        "In native Wayland apps Zazabor Home can't paste for you: the popup copies the item and asks you to press {Ctrl+V}.",
       ],
     },
     {
       title: "The Clipboard section",
       steps: [
         "Open Clipboard on the rail for the whole history, with search and the **All**, **Text**, **Images**, **Files** and **Pinned** filters.",
-        "In **Settings → Clipboard** you can turn the history off, clear it when Zazabor quits, and leave out apps (a banking app, say).",
+        "In **Settings → Clipboard** you can turn the history off, clear it when Zazabor Home quits, and leave out apps (a banking app, say).",
       ],
-      tips: ["The history pauses while Zazabor is locked."],
+      tips: ["The history pauses while Zazabor Home is locked."],
     },
   ],
   related: ["background-quit", "notes"],

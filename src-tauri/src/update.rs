@@ -14,9 +14,12 @@ use tauri::{Emitter, Manager};
 
 /// The latest release's files. `ZAZABOR_UPDATE_URL` points elsewhere for testing (the manifest
 /// must still be signed with the release key).
-const LATEST_URL: &str = "https://github.com/Soab42/zazabor/releases/latest/download";
-/// Where release downloads may come from.
-const DOWNLOADS_FROM: &str = "https://github.com/Soab42/zazabor/releases/download/";
+const LATEST_URL: &str = "https://github.com/Soab42/zazabor-home/releases/latest/download";
+/// Where release downloads may come from: the repository, and its name before it was renamed
+/// Zazabor Home (GitHub redirects it, and older copies only accept that one, so releases still
+/// name it in their manifests).
+const DOWNLOADS_FROM: [&str; 2] =
+    ["https://github.com/Soab42/zazabor-home/releases/download/", "https://github.com/Soab42/zazabor/releases/download/"];
 const KIND: &str = "zazabor-update";
 /// The build this copy updates to (its key in the manifest).
 const PLATFORM: &str = "linux-x86_64";
@@ -55,7 +58,7 @@ fn parse(bytes: &[u8], signature: &str) -> Result<Manifest, String> {
     crate::signing::verify(bytes, signature)?;
     let manifest: Manifest = serde_json::from_slice(bytes).map_err(|e| format!("The update's manifest isn't readable: {e}"))?;
     if manifest.kind != KIND {
-        return Err("That isn't a Zazabor update.".into());
+        return Err("That isn't a Zazabor Home update.".into());
     }
     semver::Version::parse(&manifest.version).map_err(|_| format!("“{}” isn't a version number.", manifest.version))?;
     Ok(manifest)
@@ -80,7 +83,7 @@ fn why_not(exe: &Path) -> Option<String> {
     let dir = exe.parent()?;
     let probe = dir.join(".zazabor-update-probe");
     if std::fs::write(&probe, b"").is_err() {
-        return Some(format!("Zazabor can't write to {}. Install the update the way Zazabor was installed.", dir.display()));
+        return Some(format!("Zazabor Home can't write to {}. Install the update the way Zazabor Home was installed.", dir.display()));
     }
     let _ = std::fs::remove_file(probe);
     None
@@ -147,7 +150,7 @@ pub async fn update_check(app: tauri::AppHandle) -> Result<Check, String> {
         let build = manifest.as_ref().and_then(|m| m.builds.get(PLATFORM));
         let available = manifest.as_ref().filter(|m| newer(&m.version, &current) && build.is_some()).map(|m| m.version.clone());
         Ok(Check {
-            why_not: available.as_ref().and_then(|_| own_exe().ok().map_or(Some("Zazabor couldn't find its own program file.".into()), |exe| why_not(&exe))),
+            why_not: available.as_ref().and_then(|_| own_exe().ok().map_or(Some("Zazabor Home couldn't find its own program file.".into()), |exe| why_not(&exe))),
             installed: lock(&state().installed).clone(),
             notes: available.as_ref().and(manifest.as_ref()).map(|m| m.notes.clone()).unwrap_or_default(),
             published: manifest.as_ref().map_or(0, |m| m.published),
@@ -225,8 +228,8 @@ fn install(app: &tauri::AppHandle, current: &str) -> Result<String, String> {
     }
     let build = manifest.builds.get(PLATFORM).cloned().ok_or("There's no Linux build of the latest version.")?;
     let from_test_server = std::env::var("ZAZABOR_UPDATE_URL").is_ok_and(|base| build.url.starts_with(base.trim_end_matches('/')));
-    if !build.url.starts_with(DOWNLOADS_FROM) && !from_test_server {
-        return Err("The update points somewhere other than Zazabor's releases, so it wasn't downloaded.".into());
+    if !DOWNLOADS_FROM.iter().any(|from| build.url.starts_with(from)) && !from_test_server {
+        return Err("The update points somewhere other than Zazabor Home's releases, so it wasn't downloaded.".into());
     }
     if build.bytes > MAX_BYTES || build.sha256.len() != 64 {
         return Err("The update's manifest isn't right.".into());

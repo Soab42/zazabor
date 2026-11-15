@@ -209,7 +209,7 @@ export function accountSheet(existing: Account | null, colors: string[], openUrl
         const panel = h("form", { class: "ml-account-form ml-client", novalidate: true },
           h("div", { class: "ml-note" }, icon("info", 15), h("div", null,
             h("strong", null, `Set up ${info.name} sign-in (once)`),
-            h("p", null, `${info.name} only signs people in to an app it knows. Register Zazabor with your own ${info.name} account and enter what it gives you:`))),
+            h("p", null, `${info.name} only signs people in to an app it knows. Register Zazabor Home with your own ${info.name} account and enter what it gives you:`))),
           h("ol", { class: "ml-steps" }, ...info.steps.map((step) => h("li", null, step))),
           open,
           field("Client ID", id),
@@ -261,7 +261,7 @@ export function accountSheet(existing: Account | null, colors: string[], openUrl
       body.replaceChildren(h("div", { class: "ml-waiting" },
         h("span", { class: "spinner large" }),
         h("h3", null, `Finish signing in with ${info.name} in your browser`),
-        h("p", null, `Your browser opened ${info.name}'s sign-in page. Zazabor never sees your password; it is only allowed to read and send your mail.`),
+        h("p", null, `Your browser opened ${info.name}'s sign-in page. Zazabor Home never sees your password; it is only allowed to read and send your mail.`),
         stop));
       stop.focus();
       try {

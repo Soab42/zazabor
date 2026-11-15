@@ -191,8 +191,8 @@ export class TemplateBrowser {
     }
     if (this.category !== "mine") {
       const later = templatesNeedingUpdate();
-      if (onlyStarterTemplates()) items.push(h("div", { class: "mo-wide vc-none" }, "More templates download from Zazabor's library when you're online."));
-      else if (later) items.push(h("div", { class: "mo-wide vc-none" }, `${later} more template${later === 1 ? " needs" : "s need"} a newer Zazabor. Update it in Settings → Zazabor.`));
+      if (onlyStarterTemplates()) items.push(h("div", { class: "mo-wide vc-none" }, "More templates download from Zazabor Home's library when you're online."));
+      else if (later) items.push(h("div", { class: "mo-wide vc-none" }, `${later} more template${later === 1 ? " needs" : "s need"} a newer Zazabor Home. Update it in Settings → Zazabor Home.`));
     }
     this.grid.replaceChildren(...items);
   }

@@ -143,7 +143,7 @@ export function fdrSheet(ctx: Ctx, existing: Fdr | null) {
       h("div", { class: "tt-pair" }, field("Opened on", start.el), field("Interest paid", payout)),
       h("div", { class: "tt-pair" }, field("Interest goes to", to), field("Source tax", h("div", { class: "wl-inline" }, tax, h("span", { class: "tt-hint" }, "% of the interest")))),
       h("label", { class: "wl-toggle-row" }, h("div", null, h("strong", null, "Post the interest by itself"),
-        h("p", { class: "tt-hint" }, "On its day: the interest as income and the tax as spending, catching up on days Zazabor was closed. Off: press Received.")), auto),
+        h("p", { class: "tt-hint" }, "On its day: the interest as income and the tax as spending, catching up on days Zazabor Home was closed. Off: press Received.")), auto),
       h("label", { class: "wl-toggle-row" }, h("div", null, h("strong", null, "Count in the total balance")), inTotal),
       details.el,
       field("Colour", color.el),

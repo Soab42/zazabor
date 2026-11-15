@@ -26,7 +26,7 @@ export class Rail {
   private drawerButton = h("button", { class: "rail-btn", title: "Terminal Drawer (Ctrl+`)", "aria-label": "Terminal drawer" }, icon("terminal", 20));
 
   constructor(private readonly handlers: RailHandlers) {
-    const mark = h("div", { class: "rail-mark", title: "Zazabor" }, h("img", { src: "/logo.svg", alt: "Zazabor", width: 30, height: 30, draggable: false }));
+    const mark = h("div", { class: "rail-mark", title: "Zazabor Home" }, h("img", { src: "/logo.svg", alt: "Zazabor Home", width: 30, height: 30, draggable: false }));
     this.settingsButton.append(h("span", { class: "rail-pill" }));
     this.settingsButton.addEventListener("click", () => handlers.settings());
     this.helpButton.addEventListener("click", () => handlers.help());
