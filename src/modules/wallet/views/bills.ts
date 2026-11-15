@@ -8,7 +8,7 @@ import { accountOf, categoryName, categoryOf, fmt, type Ctx } from "../ctx";
 import { dateKey, parseDate, plain, shortDate, symbolOf, todayKey } from "../format";
 import { categoryGlyph, chip } from "../sheets";
 
-type Show = "all" | "subscriptions" | "income";
+type Show = "all" | "subscriptions" | "income" | "transfers";
 
 const ORDINAL = (n: number) => `${n}${n % 10 === 1 && n !== 11 ? "st" : n % 10 === 2 && n !== 12 ? "nd" : n % 10 === 3 && n !== 13 ? "rd" : "th"}`;
 
@@ -40,6 +40,7 @@ export function dueText(b: Bill): string {
 
 /** The bill's name: its payee, else its category. */
 export function billName(ctx: Ctx, b: Bill): string {
+  if (b.kind === "transfer") return b.payee || `Transfer to ${accountOf(ctx, b.toAccountId)?.name ?? "an account"}`;
   return b.payee || categoryName(ctx, b.categoryId);
 }
 
@@ -47,7 +48,7 @@ export function billName(ctx: Ctx, b: Bill): string {
 export async function payBill(ctx: Ctx, b: Bill) {
   try {
     const tx = await walletApi.payBill(b.id, b.nextDate && b.nextDate > todayKey() ? todayKey() : null, todayKey());
-    ctx.toast(`Paid ${billName(ctx, b)}: ${fmt(ctx, tx.amountMinor, tx.currency, { signed: true })}`);
+    ctx.toast(b.kind === "transfer" ? `Moved ${fmt(ctx, b.amountMinor, b.currency)}: ${billName(ctx, b)}` : `Paid ${billName(ctx, b)}: ${fmt(ctx, tx.amountMinor, tx.currency, { signed: true })}`);
     ctx.changed();
   } catch (err) {
     ctx.toast(errorText(err));
@@ -62,10 +63,12 @@ export async function payBill(ctx: Ctx, b: Bill) {
 export function billsView(ctx: Ctx) {
   let bills: Bill[] = [];
   let show: Show = "all";
-  const shows: [Show, string][] = [["all", "All"], ["subscriptions", "Subscriptions"], ["income", "Income"]];
+  const shows: [Show, string][] = [["all", "All"], ["subscriptions", "Subscriptions"], ["income", "Income"], ["transfers", "Transfers"]];
   const showButtons = shows.map(([id, label]) => h("button", { type: "button", onclick: () => ((show = id), draw()) }, label));
   const actions = h("div", { class: "wl-view-actions" },
     h("div", { class: "segmented" }, ...showButtons), h("span", { class: "spacer" }),
+    h("button", { class: "btn small", type: "button", title: "Your salary each month, posted by itself on payday",
+      onclick: () => billSheet(ctx, null, undefined, { kind: "income", categoryName: "Salary", name: "Salary", autoPost: true }) }, icon("briefcase", 14), "New Salary"),
     h("button", { class: "btn small primary", type: "button", onclick: () => billSheet(ctx, null) }, icon("plus", 14), "New Bill"));
   const summary = h("div", { class: "wl-tiles" });
   const list = h("section", { class: "wl-card wl-bill-list" });
@@ -93,17 +96,19 @@ export function billsView(ctx: Ctx) {
       menu(b, r.left, r.bottom + 4);
     });
     const payButton = !b.autoPost && b.nextDate && !b.paused && (late || soon)
-      ? h("button", { class: `btn small${late ? " primary" : ""}`, type: "button", onclick: (e: Event) => (e.stopPropagation(), void payBill(ctx, b)) }, icon("check", 13), b.kind === "income" ? "Received" : "Mark Paid")
+      ? h("button", { class: `btn small${late ? " primary" : ""}`, type: "button", onclick: (e: Event) => (e.stopPropagation(), void payBill(ctx, b)) }, icon("check", 13), b.kind === "income" ? "Received" : b.kind === "transfer" ? "Move Now" : "Mark Paid")
       : null;
     const r = h("div", { class: `wl-bill${b.paused || !b.nextDate ? " dim" : ""}`, role: "button", tabindex: 0, onclick: () => billSheet(ctx, b) },
-      chip(categoryGlyph(cat?.icon ?? "repeat"), cat?.color ?? "gray", 30),
+      b.kind === "transfer" ? chip("transfer", "blue", 30) : chip(categoryGlyph(cat?.icon ?? "repeat"), cat?.color ?? "gray", 30),
       h("div", { class: "wl-bill-text" },
         h("span", { class: "wl-bill-name" }, billName(ctx, b), b.subscription ? h("span", { class: "wl-badge" }, "Subscription") : null),
-        h("span", { class: "wl-bill-sub" }, [scheduleText(b), acc?.name, b.autoPost ? "posts itself" : "reminds you"].filter(Boolean).join(" · "))),
+        h("span", { class: "wl-bill-sub" }, [scheduleText(b), b.kind === "transfer" ? `${acc?.name ?? "?"} → ${accountOf(ctx, b.toAccountId)?.name ?? "?"}` : acc?.name, b.autoPost ? (b.kind === "transfer" ? "moves by itself" : "posts itself") : "reminds you"].filter(Boolean).join(" · "))),
       h("div", { class: "wl-bill-due" },
         h("span", { class: `wl-bill-when${late ? " late" : soon ? " soon" : ""}` }, late ? icon("info", 12) : null, dueText(b)),
         b.yearlyBaseMinor != null ? h("span", { class: "wl-bill-year" }, `${fmt(ctx, b.yearlyBaseMinor)} a year`) : null),
-      h("span", { class: `wl-tx-amount ${b.kind === "income" ? "in" : "out"}` }, fmt(ctx, b.kind === "income" ? b.amountMinor : -b.amountMinor, b.currency, { signed: true })),
+      b.kind === "transfer"
+        ? h("span", { class: "wl-tx-amount" }, b.amountMode === "statement" ? "Statement" : fmt(ctx, b.amountMinor, b.currency))
+        : h("span", { class: `wl-tx-amount ${b.kind === "income" ? "in" : "out"}` }, fmt(ctx, b.kind === "income" ? b.amountMinor : -b.amountMinor, b.currency, { signed: true })),
       payButton, more);
     r.addEventListener("contextmenu", (e) => {
       e.preventDefault();
@@ -121,7 +126,7 @@ export function billsView(ctx: Ctx) {
   function menu(b: Bill, x: number, y: number) {
     openMenu(x, y, [
       { label: "Edit…", icon: "pencil", action: () => billSheet(ctx, b) },
-      { label: b.kind === "income" ? "Mark as received" : "Mark as paid", icon: "check", disabled: !b.nextDate, action: () => void payBill(ctx, b) },
+      { label: b.kind === "income" ? "Mark as received" : b.kind === "transfer" ? "Move it now" : "Mark as paid", icon: "check", disabled: !b.nextDate, action: () => void payBill(ctx, b) },
       { label: "Skip the next one", icon: "skipForward10", disabled: !b.nextDate, action: () => void walletApi.skipBill(b.id, todayKey()).then(() => (ctx.toast(`Skipped ${billName(ctx, b)} on ${shortDate(b.nextDate!)}`), ctx.changed()), (err) => ctx.toast(errorText(err))) },
       { label: b.paused ? "Resume" : "Pause", icon: b.paused ? "play" : "pause", action: () => void walletApi.pauseBill(b.id, !b.paused).then(() => ctx.changed(), (err) => ctx.toast(errorText(err))) },
       "separator",
@@ -143,7 +148,7 @@ export function billsView(ctx: Ctx) {
 
   function draw() {
     showButtons.forEach((b, i) => b.classList.toggle("active", shows[i][0] === show));
-    const shown = bills.filter((b) => show === "all" || (show === "subscriptions" ? b.subscription : b.kind === "income"));
+    const shown = bills.filter((b) => show === "all" || (show === "subscriptions" ? b.subscription : show === "transfers" ? b.kind === "transfer" : b.kind === "income"));
     const live = bills.filter((b) => b.nextDate && !b.paused);
     const soon = live.filter((b) => b.kind === "expense" && daysUntil(b.nextDate!) <= 14 && (b.overdue > 0 || daysUntil(b.nextDate!) >= 0));
     const dueSum = soon.reduce((s, b) => s + (b.yearlyBaseMinor != null ? Math.round(b.yearlyBaseMinor / Math.max(1, perYear(b))) : 0) * Math.max(1, b.overdue), 0);
@@ -155,7 +160,7 @@ export function billsView(ctx: Ctx) {
       tile("Bills a month", fmt(ctx, Math.round(monthly)), "on average, over a year"),
       tile("Subscriptions a year", fmt(ctx, subs), `${live.filter((b) => b.subscription).length} running`));
     list.replaceChildren(
-      h("header", { class: "wl-card-head" }, h("div", null, h("h3", null, show === "subscriptions" ? "Subscriptions" : show === "income" ? "Income that repeats" : "Bills"),
+      h("header", { class: "wl-card-head" }, h("div", null, h("h3", null, show === "subscriptions" ? "Subscriptions" : show === "income" ? "Income that repeats" : show === "transfers" ? "Automatic transfers" : "Bills"),
         h("p", { class: "wl-card-sub" }, "Soonest first. A bill that posts itself catches up on the days Zazabor was closed."))),
       ...(shown.length ? shown.map(row) : [h("div", { class: "wl-empty small" },
         h("div", { class: "wl-empty-tile glass" }, icon("repeat", 26)),
@@ -187,24 +192,42 @@ async function attempt<T>(dialog: Dialog, run: () => Promise<T>): Promise<T | nu
 }
 
 /** Add or edit a bill; `from` pre-fills a new one from a transaction ("Repeat…"). */
-export function billSheet(ctx: Ctx, existing: Bill | null, from?: Tx) {
+export function billSheet(ctx: Ctx, existing: Bill | null, from?: Tx, preset?: {
+  kind?: "expense" | "income" | "transfer"; accountId?: string; toAccountId?: string; amountMode?: "statement"; day?: number; startDate?: string; name?: string;
+  categoryName?: string; autoPost?: boolean;
+}) {
   const s = ctx.state();
-  let kind: "expense" | "income" = existing?.kind ?? (from && from.amountMinor > 0 ? "income" : "expense");
-  const modes: ["expense" | "income", string][] = [["expense", "Spending"], ["income", "Income"]];
+  type Kind = "expense" | "income" | "transfer";
+  let kind: Kind = existing?.kind ?? preset?.kind ?? (preset?.toAccountId || from?.kind === "transfer" ? "transfer" : from && from.amountMinor > 0 ? "income" : "expense");
+  // Repeating a transfer: its out side is the account it's paid from.
+  const fromOut = from?.kind === "transfer" && from.amountMinor > 0 ? from.counterAccountId : from?.accountId;
+  const fromIn = preset?.toAccountId ?? (from?.kind === "transfer" ? (from.amountMinor > 0 ? from.accountId : from.counterAccountId) : null);
+  const modes: [Kind, string][] = [["expense", "Spending"], ["income", "Income"], ["transfer", "Transfer"]];
   const modeButtons = modes.map(([id, label]) => h("button", { type: "button", onclick: () => ((kind = id), update()) }, label));
   const account = h("select", { class: "wl-select", "aria-label": "Account" },
-    ...s.accounts.filter((a) => !a.archived || a.id === existing?.accountId).map((a) => h("option", { value: a.id, selected: a.id === (existing?.accountId ?? from?.accountId) }, a.name)));
+    ...s.accounts.filter((a) => !a.archived || a.id === existing?.accountId).map((a) => h("option", { value: a.id, selected: a.id === (existing?.accountId ?? preset?.accountId ?? fromOut) }, a.name)));
+  if (preset?.toAccountId && !preset.accountId) account.value = s.accounts.find((a) => !a.archived && a.kind === "bank")?.id ?? account.value;
+  const toAccount = h("select", { class: "wl-select", "aria-label": "To account" },
+    ...s.accounts.filter((a) => !a.archived || a.id === existing?.toAccountId).map((a) => h("option", { value: a.id, selected: a.id === (existing?.toAccountId ?? fromIn) }, a.name)));
+  if (!existing?.toAccountId && !fromIn) toAccount.value = s.accounts.find((a) => !a.archived && a.id !== account.value)?.id ?? "";
   const symbol = h("span", { class: "wl-amount-symbol" });
   const amount = textInput({ class: "tt-input wl-amount-input", inputmode: "decimal", placeholder: "0", "aria-label": "Amount", "data-autofocus": "",
     value: existing ? plain(existing.amountMinor, existing.currency) : from ? plain(from.amountMinor, from.currency) : "" });
-  const payee = textInput({ placeholder: "e.g. Link3, House rent, Netflix", "aria-label": "Name", value: existing?.payee ?? from?.payee ?? "" });
+  const payee = textInput({ placeholder: "e.g. Link3, House rent, Netflix", "aria-label": "Name", value: existing?.payee ?? preset?.name ?? from?.payee ?? "" });
+  // Into a card with a statement day: a fixed amount, or what's due on the statement.
+  const amountMode = h("select", { class: "wl-select", "aria-label": "How much" },
+    h("option", { value: "fixed" }, "The amount above"),
+    h("option", { value: "statement" }, "What's due on the card's statement"));
+  amountMode.value = existing?.amountMode ?? preset?.amountMode ?? "fixed";
   const category = h("select", { class: "wl-select", "aria-label": "Category" });
-  let categoryValue = existing?.categoryId ?? from?.categoryId ?? null;
+  let categoryValue = existing?.categoryId ?? from?.categoryId
+    ?? (preset?.categoryName ? s.categories.find((c) => c.name.toLowerCase() === preset.categoryName!.toLowerCase() && c.kind === (preset.kind ?? "expense"))?.id ?? null : null);
   const every = textInput({ class: "tt-input wl-every", inputmode: "numeric", value: String(existing?.every ?? 1), "aria-label": "Every" });
   const freq = h("select", { class: "wl-select", "aria-label": "How often" },
     ...([["daily", "days"], ["weekly", "weeks"], ["monthly", "months"], ["yearly", "years"]] as const).map(([v, l]) => h("option", { value: v, selected: (existing?.freq ?? "monthly") === v }, l)));
   const startGuess = (() => {
     if (existing) return existing.startDate;
+    if (preset?.startDate) return preset.startDate;
     if (from) {
       const d = parseDate(from.date);
       return dateKey(new Date(d.getFullYear(), d.getMonth() + 1, Math.min(d.getDate(), 28)));
@@ -213,14 +236,14 @@ export function billSheet(ctx: Ctx, existing: Bill | null, from?: Tx) {
   })();
   const day = h("select", { class: "wl-select", "aria-label": "Day of the month" },
     ...Array.from({ length: 31 }, (_, i) => h("option", { value: String(i + 1) }, ORDINAL(i + 1))), h("option", { value: "0" }, "Last day"));
-  day.value = String(existing?.freq === "monthly" ? existing.day : parseDate(startGuess).getDate());
+  day.value = String(existing?.freq === "monthly" ? existing.day : preset?.day ?? parseDate(startGuess).getDate());
   const start = new DateTimeField({ value: parseDate(startGuess).getTime(), placeholder: "Pick a day", label: "First date", dateOnly: true, future: true, host: () => dialog.overlay,
     onChange: (v) => {
       if (v != null && !existing) day.value = String(new Date(v).getDate());
     } });
   const end = new DateTimeField({ value: existing?.endDate ? parseDate(existing.endDate).getTime() : null, placeholder: "Never", label: "Ends", dateOnly: true, future: true, clearable: true, host: () => dialog.overlay });
   const auto = h("input", { type: "checkbox", class: "switch", role: "switch", "aria-label": "Post it by itself" });
-  auto.checked = existing?.autoPost ?? false;
+  auto.checked = existing?.autoPost ?? preset?.autoPost ?? false;
   const subscription = h("input", { type: "checkbox", class: "switch", role: "switch", "aria-label": "A subscription" });
   subscription.checked = existing?.subscription ?? false;
   const remind = textInput({ class: "tt-input wl-every", inputmode: "numeric", value: String(existing?.remindDays ?? 3), "aria-label": "Days before" });
@@ -228,33 +251,43 @@ export function billSheet(ctx: Ctx, existing: Bill | null, from?: Tx) {
   note.value = existing?.note ?? "";
 
   const dayField = field("On", day);
+  const toField = field("To", toAccount);
+  const modeField = field("How much", amountMode);
+  const amountField = field("Amount", h("div", { class: "wl-amount" }, symbol, amount));
+  const categoryField = field("Category", category);
+  const nameField = field("Name", payee);
+  const accountField = field("Account", account);
+  const autoTitle = h("strong", null, "Post it by itself");
+  const subscriptionRow = h("label", { class: "wl-toggle-row" }, h("div", null, h("strong", null, "A subscription"), h("p", { class: "tt-hint" }, "Listed under Subscriptions, with what they cost a year.")), subscription);
   const remindField = field("Show it", h("div", { class: "wl-inline" }, remind, h("span", { class: "tt-hint" }, "days before it's due")));
   const save = h("button", { class: "btn primary", type: "button", onclick: () => void submit() }, existing ? "Save" : "Add Bill");
   const remove = existing ? h("button", { class: "btn tt-danger", type: "button", onclick: () => void del() }, icon("trash", 14), "Delete") : null;
   const dialog = openDialog({
     title: existing ? `Edit ${existing.payee || "bill"}` : "New bill",
-    subtitle: existing ? `${scheduleText(existing)} · ${dueText(existing)}` : "Rent, a bill, a subscription or a salary: anything that repeats.",
+    subtitle: existing ? `${scheduleText(existing)} · ${dueText(existing)}` : "Rent, a bill, a subscription, a salary, or money moved between your accounts: anything that repeats.",
     icon: "repeat",
     tone: "work",
     class: "wl-dialog",
     body: [
       h("div", { class: "segmented wl-modes" }, ...modeButtons),
-      h("div", { class: "tt-pair" }, field("Amount", h("div", { class: "wl-amount" }, symbol, amount)), field("Account", account)),
-      field("Name", payee),
-      field("Category", category),
+      h("div", { class: "tt-pair" }, amountField, accountField),
+      toField,
+      modeField,
+      nameField,
+      categoryField,
       h("div", { class: "tt-pair" }, field("Repeats every", h("div", { class: "wl-inline" }, every, freq)), dayField),
       h("div", { class: "tt-pair" }, field("First date", start.el), field("Ends", end.el, { optional: true })),
-      h("label", { class: "wl-toggle-row" }, h("div", null, h("strong", null, "Post it by itself"), h("p", { class: "tt-hint" }, "On the day, and for every date it missed while Zazabor was closed. Off: Wallet reminds you until you mark it as paid.")), auto),
+      h("label", { class: "wl-toggle-row" }, h("div", null, autoTitle, h("p", { class: "tt-hint" }, "On the day, and for every date it missed while Zazabor was closed. Off: Wallet reminds you until you mark it as paid.")), auto),
       remindField,
-      h("label", { class: "wl-toggle-row" }, h("div", null, h("strong", null, "A subscription"), h("p", { class: "tt-hint" }, "Listed under Subscriptions, with what they cost a year.")), subscription),
+      subscriptionRow,
       field("Note", note, { optional: true }),
     ],
     foot: [remove, h("span", { class: "spacer" }), h("button", { class: "btn", type: "button", onclick: () => dialog.close() }, "Cancel"), save],
     submit: () => void submit(),
   });
 
-  function fillCategories() {
-    const cats = s.categories.filter((c) => c.kind === kind && (!c.archived || c.id === categoryValue));
+  function fillCategories(of: "expense" | "income") {
+    const cats = s.categories.filter((c) => c.kind === of && (!c.archived || c.id === categoryValue));
     const options: HTMLOptionElement[] = [h("option", { value: "" }, "Uncategorised")];
     for (const top of cats.filter((c) => !c.parentId)) {
       options.push(h("option", { value: top.id }, top.name));
@@ -266,6 +299,8 @@ export function billSheet(ctx: Ctx, existing: Bill | null, from?: Tx) {
   category.addEventListener("change", () => (categoryValue = category.value || null));
   account.addEventListener("change", () => update());
   freq.addEventListener("change", () => update());
+  toAccount.addEventListener("change", () => update());
+  amountMode.addEventListener("change", () => update());
   auto.addEventListener("change", () => update());
 
   function update() {
@@ -273,24 +308,39 @@ export function billSheet(ctx: Ctx, existing: Bill | null, from?: Tx) {
     symbol.textContent = symbolOf(accountOf(ctx, account.value)?.currency ?? s.base).trim();
     dayField.hidden = freq.value !== "monthly";
     remindField.hidden = auto.checked;
-    fillCategories();
+    const transfer = kind === "transfer";
+    toField.hidden = !transfer;
+    const card = accountOf(ctx, toAccount.value);
+    const canStatement = transfer && card?.kind === "card" && card.statementDay > 0;
+    modeField.hidden = !canStatement;
+    if (!canStatement) amountMode.value = "fixed";
+    amountField.style.visibility = amountMode.value === "statement" ? "hidden" : "";
+    categoryField.hidden = transfer;
+    subscriptionRow.hidden = transfer;
+    accountField.querySelector(".tt-label")!.firstChild!.textContent = transfer ? "From" : "Account";
+    nameField.querySelector(".tt-label")!.firstChild!.textContent = transfer ? "Name (optional)" : "Name";
+    payee.placeholder = transfer ? "e.g. Monthly savings, Send home" : "e.g. Link3, House rent, Netflix";
+    autoTitle.textContent = transfer ? "Move it by itself" : "Post it by itself";
+    if (transfer) fillCategories("expense");
+    else fillCategories(kind as "expense" | "income");
   }
   update();
 
   async function submit() {
-    if (!amount.value.trim()) return dialog.error("Type the amount.");
+    if (!amount.value.trim() && amountMode.value !== "statement") return dialog.error("Type the amount.");
+    if (kind === "transfer" && toAccount.value === account.value) return dialog.error("Pick two different accounts.");
     const startMs = start.get();
     if (startMs == null) return dialog.error("Pick the first date.");
     const endMs = end.get();
     const saved = await attempt(dialog, () => walletApi.saveBill({
-      id: existing?.id ?? null, kind, accountId: account.value, amount: amount.value, categoryId: categoryValue, payee: payee.value, note: note.value,
+      id: existing?.id ?? null, kind, accountId: account.value, toAccountId: kind === "transfer" ? toAccount.value : null, amountMode: amountMode.value as "fixed" | "statement", amount: amount.value, categoryId: kind === "transfer" ? null : categoryValue, payee: payee.value, note: note.value,
       freq: freq.value as Freq, every: Math.max(1, Math.min(366, Number(every.value) || 1)), day: freq.value === "monthly" ? Number(day.value) : null,
       startDate: dateKey(new Date(startMs)), endDate: endMs != null ? dateKey(new Date(endMs)) : null,
       autoPost: auto.checked, subscription: subscription.checked, remindDays: Math.max(0, Math.min(60, Number(remind.value) || 0)),
     }, todayKey()));
     if (!saved) return;
     const when = dueText(saved);
-    ctx.toast(existing ? "Bill saved" : saved.nextDate ? `Added ${billName(ctx, saved)}: ${when.charAt(0).toLowerCase()}${when.slice(1)}` : `Added ${billName(ctx, saved)}`);
+    ctx.toast(existing ? (kind === "transfer" ? "Transfer saved" : "Bill saved") : saved.nextDate ? `Added ${billName(ctx, saved)}: ${when.charAt(0).toLowerCase()}${when.slice(1)}` : `Added ${billName(ctx, saved)}`);
     ctx.changed();
     dialog.close();
   }

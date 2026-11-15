@@ -185,11 +185,25 @@ export class Shell implements ShellContext {
     void onOthers<string>(CONFIG_SAVED, (json) => this.configFromElsewhere(json));
     void onOthers<null>(ACTIVITY, () => this.resetIdleTimer());
     // A note's "Notes List" brings the main window to the Notes section.
+    // Cast to Zazabor: phones on the Wi-Fi send videos here (the receiver runs only when turned on).
+    if (isMainWindow && this.config.features.video) {
+      void import("../modules/video/features/receiver/service").then((m) => m.startReceiverService(this)).catch((err) => console.warn("Cast receiver:", err));
+    }
+    // Phone Link: a phone asking to pair, and calls, show over any section.
+    if (isMainWindow && this.config.features.phone) {
+      void import("../modules/phone/global").then((m) => m.startPhoneService(this)).catch((err) => console.warn("Phone Link:", err));
+    }
     if (isMainWindow) void listen("notes-show-list", () => this.config.features.notes && this.showModule("notes"));
     // Zazabor launched again ("Open with" while it runs, or in the background): open what it was given.
     if (isMainWindow) void listen<string>("open-path", (e) => void this.openPath(e.payload, 1));
     // The clipboard popup's "Open Clipboard" brings the main window to the Clipboard section.
     if (isMainWindow) void listen("clipboard-show-section", () => this.config.features.clipboard && this.showModule("clipboard"));
+    // A new-mail notification was clicked: Mail, on the inbox (the module listens too).
+    if (isMainWindow) void listen("mail-show-inbox", () => {
+      if (!this.config.features.mail) return;
+      this.config.mail.view = "unified:inbox";
+      this.showModule("mail");
+    });
     void listen<boolean>("lock-changed", (e) => {
       if (e.payload) void this.lockApp(false);
       else dismissUnlockPrompt();

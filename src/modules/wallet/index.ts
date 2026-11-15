@@ -8,15 +8,18 @@ import { showToast } from "../files/ops/toast";
 import "../time/time-module.css";
 import { errorText, onWalletChanged, walletApi, type WalletState } from "./api";
 import { hideTip } from "./charts";
+import { createCalculator } from "./calculator";
 import { ACCOUNT_KIND_ICON, fmt, type Ctx, type ViewId } from "./ctx";
 import { addMonths, monthLabel, setCurrencies, thisMonth } from "./format";
 import { quickAdd } from "./quickadd";
-import { txSheet } from "./sheets";
+import { detailsLine, txSheet } from "./sheets";
 import { accountsView } from "./views/accounts";
 import { billsView } from "./views/bills";
 import { budgetsView } from "./views/budgets";
 import { importView } from "./views/importer";
 import { overviewView } from "./views/overview";
+import { plansView } from "./views/plans";
+import { peopleView } from "./views/people";
 import { reportsView } from "./views/reports";
 import { transactionsView } from "./views/transactions";
 import "./wallet.css";
@@ -25,7 +28,7 @@ const EMPTY: WalletState = { base: "BDT", currencies: [], accounts: [], categori
 
 /**
  * Wallet: one person's money. A slim sidebar of views (Overview, Transactions, Accounts,
- * Budgets, Reports) and the accounts with their balances; a bar with the month, Quick add,
+ * Budgets, Bills, Loans & DPS, Reports) and the accounts with their balances; a bar with the month, Quick add,
  * Hide amounts and New. The ledger lives in the backend (`src-tauri/src/wallet`); every window
  * hears `wallet-changed` and reloads.
  */
@@ -47,9 +50,18 @@ export const createWalletModule: ModuleFactory = (shell) => {
       drawBar();
       void views[current].load();
     },
-    openTx: (tx, preset) => txSheet(ctx, tx ?? null, preset),
+    openTx: (tx, preset) => {
+      // A DPS or loan payment is changed in Loans & DPS, which works its interest out again.
+      if (tx?.planId) {
+        ctx.go("plans", { accountId: tx.planId });
+        ctx.toast("Loan, DPS and FDR entries are changed here, in their table");
+        return;
+      }
+      txSheet(ctx, tx ?? null, preset);
+    },
     go(view, filter) {
       if (view === "transactions") views.transactions.setFilter(filter ?? {});
+      if (view === "plans" && filter?.accountId) views.plans.select(filter.accountId);
       show(view);
     },
     toast: (text, action) => showToast(text, action, action ? 6000 : 3200),
@@ -62,6 +74,8 @@ export const createWalletModule: ModuleFactory = (shell) => {
     accounts: accountsView(ctx),
     budgets: budgetsView(ctx),
     bills: billsView(ctx),
+    plans: plansView(ctx),
+    people: peopleView(ctx),
     reports: reportsView(ctx),
     import: importView(ctx),
   };
@@ -70,7 +84,7 @@ export const createWalletModule: ModuleFactory = (shell) => {
 
   const nav: [ViewId, string, IconName][] = [
     ["overview", "Overview", "pieChart"], ["transactions", "Transactions", "list"], ["accounts", "Accounts", "wallet"],
-    ["budgets", "Budgets", "target"], ["bills", "Bills", "repeat"], ["reports", "Reports", "barChart"], ["import", "Import & Export", "download"],
+    ["budgets", "Budgets", "target"], ["bills", "Bills", "repeat"], ["plans", "Loans, DPS & FDR", "bank"], ["people", "Lent & Borrowed", "users"], ["reports", "Reports", "barChart"], ["import", "Import & Export", "download"],
   ];
   const navButtons = nav.map(([id, label, glyph]) => h("button", { class: "wl-nav", type: "button", onclick: () => show(id) }, icon(glyph, 17), h("span", null, label)));
   const sideAccounts = h("div", { class: "wl-side-accounts" });
@@ -93,6 +107,9 @@ export const createWalletModule: ModuleFactory = (shell) => {
     h("button", { class: "icon-btn small wl-next-month", type: "button", title: "Next month", "aria-label": "Next month", onclick: () => ctx.setMonth(addMonths(month, 1)) }, icon("chevronRight", 14)));
   const quick = quickAdd(ctx);
   const hideButton = h("button", { class: "icon-btn", type: "button", onclick: () => toggleHidden() });
+  // A calculator floating over Wallet, for quick sums (Alt+C).
+  const calculator = createCalculator();
+  const calcButton = h("button", { class: "icon-btn", type: "button", title: "Calculator (Alt+C)", "aria-label": "Calculator", onclick: () => calculator.toggle() }, icon("calculator", 17));
   const newButton = h("button", { class: "btn primary", type: "button", onclick: () => ctx.openTx(null) }, icon("plus", 15), "New");
   const newMore = h("button", {
     class: "btn primary wl-new-more", type: "button", title: "Spending, income or a transfer", "aria-label": "More kinds of transaction",
@@ -105,7 +122,7 @@ export const createWalletModule: ModuleFactory = (shell) => {
       ]);
     },
   }, icon("chevronDown", 13));
-  const bar = h("header", { class: "wl-bar" }, h("div", { class: "wl-heading" }, title, stepper), quick.el, hideButton, h("div", { class: "wl-new" }, newButton, newMore));
+  const bar = h("header", { class: "wl-bar" }, h("div", { class: "wl-heading" }, title, stepper), quick.el, calcButton, hideButton, h("div", { class: "wl-new" }, newButton, newMore));
   const scroll = h("div", { class: "wl-scroll" });
   const main = h("div", { class: "wl-main" }, bar, scroll);
   const el = h("section", { class: "wallet-module" }, side, main);
@@ -130,15 +147,23 @@ export const createWalletModule: ModuleFactory = (shell) => {
     hideButton.setAttribute("aria-pressed", String(hidden));
   }
 
+  /** An account's balance in the sidebar: what's owed on a loan shows without a minus, quietly. */
+  function sideBalance(a: WalletState["accounts"][number]): HTMLElement {
+    const owed = a.kind === "loan";
+    const cls = owed ? " owed" : a.balanceMinor < 0 ? " negative" : "";
+    return h("span", { class: `wl-side-balance${cls}${a.inTotal ? "" : " out"}`, title: a.inTotal ? "" : "Not counted in the total balance" },
+      fmt(ctx, owed ? Math.abs(a.balanceMinor) : a.balanceMinor, a.currency));
+  }
+
   function drawSide() {
     navButtons.forEach((b, i) => b.classList.toggle("active", nav[i][0] === current));
     const live = state.accounts.filter((a) => !a.archived);
-    sideAccounts.replaceChildren(...live.map((a) => h("button", { class: "wl-side-account", type: "button", title: `${a.name}: show its transactions`, onclick: () => ctx.go("transactions", { accountId: a.id }) },
+    sideAccounts.replaceChildren(...live.map((a) => h("button", { class: "wl-side-account", type: "button", title: [`${a.name}: show its transactions`, detailsLine(a)].filter(Boolean).join("\n"), onclick: () => ctx.go("transactions", { accountId: a.id }) },
       h("span", { class: `wl-chip wl-c-${a.color}`, style: { width: "22px", height: "22px" } }, icon(ACCOUNT_KIND_ICON[a.kind], 12)),
       h("span", { class: "wl-side-name" }, a.name),
-      h("span", { class: `wl-side-balance${a.balanceMinor < 0 ? " negative" : ""}` }, fmt(ctx, a.balanceMinor, a.currency)))),
+      sideBalance(a))),
     h("button", { class: "wl-side-add", type: "button", onclick: () => show("accounts") }, icon("plus", 13), "Add Account"));
-    const total = live.reduce((t, a) => t + (a.balanceBaseMinor ?? 0), 0);
+    const total = live.filter((a) => a.inTotal).reduce((t, a) => t + (a.balanceBaseMinor ?? 0), 0);
     sideTotal.replaceChildren(h("span", { class: "wl-stat-label" }, "Total balance"), h("strong", null, fmt(ctx, total)));
   }
 
@@ -217,11 +242,13 @@ export const createWalletModule: ModuleFactory = (shell) => {
     el,
     activate() {
       visible = true;
+      calculator.setVisible(true);
       if (!scroll.firstChild) show(current);
       void refresh(true);
     },
     deactivate() {
       visible = false;
+      calculator.setVisible(false);
       hideTip();
     },
     handleKey(e) {
@@ -247,6 +274,7 @@ export const createWalletModule: ModuleFactory = (shell) => {
       return false;
     },
     onLock() {
+      calculator.close();
       // No amounts stay on screen behind the lock; the views reload after unlocking.
       for (const overlay of document.querySelectorAll(".tt-overlay")) overlay.remove();
       hideTip();
@@ -258,6 +286,7 @@ export const createWalletModule: ModuleFactory = (shell) => {
     dispose() {
       clearTimeout(soon);
       hideTip();
+      calculator.dispose();
       for (const u of unlisten) void u.then((fn) => fn());
       el.remove();
     },

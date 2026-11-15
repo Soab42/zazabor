@@ -57,6 +57,8 @@ CREATE VIRTUAL TABLE messages_fts USING fts5(subject, sender, recipients, body, 
 CREATE TRIGGER msg_fts_delete AFTER DELETE ON messages BEGIN DELETE FROM messages_fts WHERE rowid = old.id; END;
 CREATE TABLE drafts (id TEXT PRIMARY KEY, account_id TEXT NOT NULL DEFAULT '', json TEXT NOT NULL, updated INTEGER NOT NULL);
 CREATE TABLE contacts (addr TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', uses INTEGER NOT NULL DEFAULT 0, last INTEGER NOT NULL DEFAULT 0);
+"#, r#"
+ALTER TABLE accounts ADD COLUMN auth TEXT NOT NULL DEFAULT 'password';
 "#];
 
 pub fn migrate(conn: &mut Connection) -> Result<()> {
@@ -94,6 +96,9 @@ pub struct Account {
     pub imap: Server,
     pub smtp: Server,
     pub signature: String,
+    /// How it signs in: "password", or through "google" or "microsoft" (`oauth.rs`).
+    #[serde(default)]
+    pub auth: String,
     #[serde(default)]
     pub synced: i64,
     #[serde(default)]
@@ -112,10 +117,11 @@ fn account_row(r: &Row) -> rusqlite::Result<Account> {
         signature: r.get(11)?,
         synced: r.get(12)?,
         error: r.get(13)?,
+        auth: r.get(14)?,
     })
 }
 
-const ACCOUNT_COLUMNS: &str = "id, email, name, color, username, imap_host, imap_port, imap_security, smtp_host, smtp_port, smtp_security, signature, synced, error";
+const ACCOUNT_COLUMNS: &str = "id, email, name, color, username, imap_host, imap_port, imap_security, smtp_host, smtp_port, smtp_security, signature, synced, error, auth";
 
 pub fn accounts(conn: &Connection) -> Result<Vec<Account>> {
     let mut stmt = conn.prepare(&format!("SELECT {ACCOUNT_COLUMNS} FROM accounts ORDER BY position, created")).map_err(db_err)?;
@@ -132,11 +138,11 @@ pub fn account(conn: &Connection, id: &str) -> Result<Account> {
 
 pub fn save_account(conn: &Connection, a: &Account, now: i64) -> Result<()> {
     conn.execute(
-        "INSERT INTO accounts (id, email, name, color, username, imap_host, imap_port, imap_security, smtp_host, smtp_port, smtp_security, signature, position, created)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, (SELECT COALESCE(MAX(position), 0) + 1 FROM accounts), ?13)
+        "INSERT INTO accounts (id, email, name, color, username, imap_host, imap_port, imap_security, smtp_host, smtp_port, smtp_security, signature, position, created, auth)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, (SELECT COALESCE(MAX(position), 0) + 1 FROM accounts), ?13, ?14)
          ON CONFLICT(id) DO UPDATE SET email = ?2, name = ?3, color = ?4, username = ?5, imap_host = ?6, imap_port = ?7, imap_security = ?8,
-           smtp_host = ?9, smtp_port = ?10, smtp_security = ?11, signature = ?12",
-        params![a.id, a.email, a.name, a.color, a.username, a.imap.host, a.imap.port, a.imap.security, a.smtp.host, a.smtp.port, a.smtp.security, a.signature, now],
+           smtp_host = ?9, smtp_port = ?10, smtp_security = ?11, signature = ?12, auth = ?14",
+        params![a.id, a.email, a.name, a.color, a.username, a.imap.host, a.imap.port, a.imap.security, a.smtp.host, a.smtp.port, a.smtp.security, a.signature, now, if a.auth.is_empty() { "password" } else { a.auth.as_str() }],
     )
     .map_err(db_err)?;
     Ok(())
@@ -699,7 +705,7 @@ mod tests {
             id: "a".into(), email: "me@example.com".into(), name: "Me".into(), color: "blue".into(), username: "me@example.com".into(),
             imap: Server { host: "imap.example.com".into(), port: 993, security: "ssl".into() },
             smtp: Server { host: "smtp.example.com".into(), port: 465, security: "ssl".into() },
-            signature: String::new(), synced: 0, error: None,
+            signature: String::new(), auth: "password".into(), synced: 0, error: None,
         };
         save_account(&conn, &a, 1).unwrap();
         let listed = [

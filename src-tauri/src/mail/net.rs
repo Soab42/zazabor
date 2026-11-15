@@ -93,8 +93,28 @@ fn imap_err(e: imap::Error) -> String {
     }
 }
 
+/// What an account signs in with: its password, or an access token from the provider's own
+/// sign-in (`oauth.rs`).
+pub enum Cred {
+    Password(String),
+    Token(String),
+}
+
+/// The XOAUTH2 handshake: the address and the token, as Google and Microsoft take them.
+struct XOAuth2 {
+    user: String,
+    token: String,
+}
+
+impl imap::Authenticator for XOAuth2 {
+    type Response = String;
+    fn process(&self, _challenge: &[u8]) -> String {
+        format!("user={}\x01auth=Bearer {}\x01\x01", self.user, self.token)
+    }
+}
+
 /// Signs in to the account's IMAP server.
-pub fn connect(server: &Server, username: &str, password: &str) -> Result<Link, String> {
+pub fn connect(server: &Server, username: &str, cred: &Cred) -> Result<Link, String> {
     let tcp = open_tcp(server)?;
     let handle = tcp.try_clone().map_err(|e| e.to_string())?;
     let greeting = |e: imap::Error| format!("{} didn't answer like a mail server: {}", server.host, imap_err(e));
@@ -116,10 +136,16 @@ pub fn connect(server: &Server, username: &str, password: &str) -> Result<Link, 
             client
         }
     };
-    let mut session = client.login(username, password).map_err(|(e, _)| match e {
-        imap::Error::No(_) | imap::Error::Bad(_) => format!("{} didn't accept that user name and password. {}", server.host, imap_err(e)),
-        other => imap_err(other),
-    })?;
+    let mut session = match cred {
+        Cred::Password(password) => client.login(username, password).map_err(|(e, _)| match e {
+            imap::Error::No(_) | imap::Error::Bad(_) => format!("{} didn't accept that user name and password. {}", server.host, imap_err(e)),
+            other => imap_err(other),
+        })?,
+        Cred::Token(token) => client.authenticate("XOAUTH2", &XOAuth2 { user: username.to_string(), token: token.clone() }).map_err(|(e, _)| match e {
+            imap::Error::No(_) | imap::Error::Bad(_) => format!("{} didn't accept the sign-in. Check that IMAP is turned on for this account, or sign in again. {}", server.host, imap_err(e)),
+            other => imap_err(other),
+        })?,
+    };
     let caps = session.capabilities().map_err(imap_err)?;
     let (can_move, uidplus, idle) = (caps.has_str("MOVE"), caps.has_str("UIDPLUS"), caps.has_str("IDLE"));
     drop(caps);
@@ -185,8 +211,8 @@ pub fn decode_utf7(name: &str) -> String {
 }
 
 /// The SMTP side: sends `message` through the account's outgoing server.
-pub fn smtp(server: &Server, username: &str, password: &str) -> Result<lettre::SmtpTransport, String> {
-    use lettre::transport::smtp::authentication::Credentials;
+pub fn smtp(server: &Server, username: &str, cred: &Cred) -> Result<lettre::SmtpTransport, String> {
+    use lettre::transport::smtp::authentication::{Credentials, Mechanism};
     use lettre::transport::smtp::client::{Tls, TlsParameters};
     let params = || {
         TlsParameters::builder(server.host.clone())
@@ -200,12 +226,12 @@ pub fn smtp(server: &Server, username: &str, password: &str) -> Result<lettre::S
         "starttls" => Tls::Required(params()?),
         _ => Tls::None,
     };
-    Ok(lettre::SmtpTransport::builder_dangerous(server.host.clone())
-        .port(server.port)
-        .tls(tls)
-        .timeout(Some(Duration::from_secs(60)))
-        .credentials(Credentials::new(username.to_string(), password.to_string()))
-        .build())
+    let builder = lettre::SmtpTransport::builder_dangerous(server.host.clone()).port(server.port).tls(tls).timeout(Some(Duration::from_secs(60)));
+    Ok(match cred {
+        Cred::Password(password) => builder.credentials(Credentials::new(username.to_string(), password.clone())),
+        Cred::Token(token) => builder.credentials(Credentials::new(username.to_string(), token.clone())).authentication(vec![Mechanism::Xoauth2]),
+    }
+    .build())
 }
 
 pub fn smtp_err(server: &Server, e: lettre::transport::smtp::Error) -> String {

@@ -19,9 +19,15 @@ const MAX_CATCH_UP: usize = 400;
 #[serde(rename_all = "camelCase")]
 pub struct Bill {
     pub id: String,
-    /// "expense" or "income".
+    /// "expense", "income" or "transfer" (money moved to another of your accounts).
     pub kind: String,
+    /// The account it's paid from (or, for income, into).
     pub account_id: String,
+    /// A transfer: the account the money goes to.
+    pub to_account_id: Option<String>,
+    /// "fixed", or "statement": a transfer into a credit card that pays what's due on its
+    /// statement (`amount_minor` unused).
+    pub amount_mode: String,
     /// The account's currency.
     pub currency: String,
     /// Unsigned, in the account's currency.
@@ -59,6 +65,9 @@ pub struct BillInput {
     pub id: Option<String>,
     pub kind: String,
     pub account_id: String,
+    pub to_account_id: Option<String>,
+    #[serde(default)]
+    pub amount_mode: Option<String>,
     /// As typed.
     pub amount: String,
     pub category_id: Option<String>,
@@ -90,7 +99,7 @@ fn three() -> i64 {
 
 const SELECT: &str = "SELECT b.id, b.kind, b.account_id, a.currency, b.amount_minor, b.category_id, b.payee, b.note, b.freq, b.every, b.day,
        b.start_date, b.end_date, b.next_date, b.auto_post, b.subscription, b.remind_days, b.paused,
-       (SELECT MAX(t.date) FROM transactions t WHERE t.recurring_id = b.id)
+       (SELECT MAX(t.date) FROM transactions t WHERE t.recurring_id = b.id), b.to_account_id, b.amount_mode
   FROM recurring b JOIN accounts a ON a.id = b.account_id";
 
 fn row(r: &Row) -> rusqlite::Result<Bill> {
@@ -98,6 +107,8 @@ fn row(r: &Row) -> rusqlite::Result<Bill> {
         id: r.get(0)?,
         kind: r.get(1)?,
         account_id: r.get(2)?,
+        to_account_id: r.get(19)?,
+        amount_mode: r.get(20)?,
         currency: r.get(3)?,
         amount_minor: r.get(4)?,
         category_id: r.get(5)?,
@@ -180,7 +191,7 @@ fn count_due(b: &Bill, today: &str) -> i64 {
 
 fn finish(conn: &Connection, mut b: Bill, today: &str) -> Result<Bill> {
     let rate = db::rate_of(conn, &b.currency)?;
-    b.yearly_base_minor = rate.map(|r| (money::to_base(b.amount_minor, &b.currency, r) as f64 * per_year(&b)).round() as i64);
+    b.yearly_base_minor = rate.filter(|_| b.amount_mode != "statement").map(|r| (money::to_base(b.amount_minor, &b.currency, r) as f64 * per_year(&b)).round() as i64);
     b.overdue = if b.auto_post || b.paused { 0 } else { count_due(&b, today) };
     Ok(b)
 }
@@ -200,8 +211,9 @@ pub fn get(conn: &Connection, id: &str, today: &str) -> Result<Bill> {
 }
 
 pub fn save(conn: &Connection, input: BillInput, today: &str, now: i64) -> Result<Bill> {
-    if input.kind != "expense" && input.kind != "income" {
-        return Err("A bill is spending or income.".into());
+    let transfer = input.kind == "transfer";
+    if input.kind != "expense" && input.kind != "income" && !transfer {
+        return Err("A bill is spending, income or a transfer.".into());
     }
     if !FREQS.contains(&input.freq.as_str()) {
         return Err("Pick how often it repeats.".into());
@@ -220,15 +232,39 @@ pub fn save(conn: &Connection, input: BillInput, today: &str, now: i64) -> Resul
     let end_date = input.end_date.filter(|e| !e.is_empty());
     let accounts = db::accounts(conn)?;
     let account = accounts.iter().find(|a| a.id == input.account_id).ok_or("That account no longer exists.")?;
-    let amount = money::parse_amount(&input.amount, &account.currency).filter(|a| *a > 0).ok_or("Type the amount as a number, like 1,250.50.")?;
-    if let Some(cat) = &input.category_id {
+    // A card's statement, paid by itself: the amount is the statement's.
+    let statement = input.kind == "transfer"
+        && input.amount_mode.as_deref() == Some("statement")
+        && accounts.iter().any(|a| Some(&a.id) == input.to_account_id.as_ref() && a.kind == "card" && a.statement_day > 0);
+    if input.amount_mode.as_deref() == Some("statement") && !statement {
+        return Err("Paying the statement needs a card with its statement day set (Accounts → the card → Edit).".into());
+    }
+    let amount = if statement {
+        0
+    } else {
+        money::parse_amount(&input.amount, &account.currency).filter(|a| *a > 0).ok_or("Type the amount as a number, like 1,250.50.")?
+    };
+    let to_account = if transfer {
+        let to = accounts.iter().find(|a| Some(&a.id) == input.to_account_id.as_ref()).ok_or("Pick the account the money goes to.")?;
+        if to.id == account.id {
+            return Err("Pick two different accounts.".into());
+        }
+        if to.currency != account.currency {
+            return Err("An automatic transfer moves money between accounts in the same currency.".into());
+        }
+        Some(to.id.clone())
+    } else {
+        None
+    };
+    let category_id = if transfer { None } else { input.category_id.clone() };
+    if let Some(cat) = &category_id {
         if !db::categories(conn)?.iter().any(|c| &c.id == cat) {
             return Err("That category no longer exists.".into());
         }
     }
     let day = if input.freq == "monthly" { input.day.unwrap_or_else(|| dates::parts(&input.start_date).2 as i64).clamp(0, 31) } else { 0 };
     let payee: String = input.payee.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(120).collect();
-    if payee.is_empty() && input.category_id.is_none() {
+    if payee.is_empty() && category_id.is_none() && !transfer {
         return Err("Name the bill, or give it a category.".into());
     }
     let note: String = input.note.trim().chars().take(2000).collect();
@@ -237,9 +273,11 @@ pub fn save(conn: &Connection, input: BillInput, today: &str, now: i64) -> Resul
         id: input.id.clone().unwrap_or_else(new_id),
         kind: input.kind,
         account_id: account.id.clone(),
+        to_account_id: to_account,
+        amount_mode: if statement { "statement" } else { "fixed" }.into(),
         currency: account.currency.clone(),
         amount_minor: amount,
-        category_id: input.category_id,
+        category_id,
         payee,
         note,
         freq: input.freq,
@@ -282,18 +320,18 @@ pub fn save(conn: &Connection, input: BillInput, today: &str, now: i64) -> Resul
         Some(b) => {
             conn.execute(
                 "UPDATE recurring SET kind = ?2, account_id = ?3, amount_minor = ?4, category_id = ?5, payee = ?6, note = ?7, freq = ?8, every = ?9, day = ?10,
-                   start_date = ?11, end_date = ?12, next_date = ?13, auto_post = ?14, subscription = ?15, remind_days = ?16, updated = ?17 WHERE id = ?1",
+                   start_date = ?11, end_date = ?12, next_date = ?13, auto_post = ?14, subscription = ?15, remind_days = ?16, updated = ?17, to_account_id = ?18, amount_mode = ?19 WHERE id = ?1",
                 params![b.id, draft.kind, draft.account_id, draft.amount_minor, draft.category_id, draft.payee, draft.note, draft.freq, draft.every, draft.day,
-                    draft.start_date, draft.end_date, draft.next_date, draft.auto_post, draft.subscription, draft.remind_days, now],
+                    draft.start_date, draft.end_date, draft.next_date, draft.auto_post, draft.subscription, draft.remind_days, now, draft.to_account_id, draft.amount_mode],
             )
             .map_err(db_err)?;
         }
         None => {
             conn.execute(
                 "INSERT INTO recurring (id, kind, account_id, amount_minor, category_id, payee, note, freq, every, day, start_date, end_date, next_date,
-                   auto_post, subscription, remind_days, created, updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?17)",
+                   auto_post, subscription, remind_days, created, updated, to_account_id, amount_mode) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?17, ?18, ?19)",
                 params![draft.id, draft.kind, draft.account_id, draft.amount_minor, draft.category_id, draft.payee, draft.note, draft.freq, draft.every, draft.day,
-                    draft.start_date, draft.end_date, draft.next_date, draft.auto_post, draft.subscription, draft.remind_days, now],
+                    draft.start_date, draft.end_date, draft.next_date, draft.auto_post, draft.subscription, draft.remind_days, now, draft.to_account_id, draft.amount_mode],
             )
             .map_err(db_err)?;
         }
@@ -316,18 +354,50 @@ pub fn delete(conn: &Connection, id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Writes the rule's transaction for one due date.
-fn post_one(conn: &Connection, b: &Bill, date: &str, now: i64) -> Result<String> {
+/// Writes the rule's transaction for one due date; nothing when it pays a card's statement and
+/// nothing is due on it.
+/// Its rows' ids come from the rule and `due` (the date it was due, which `date` may differ from),
+/// so two devices posting the same due date before they sync write the same rows.
+fn post_one(conn: &Connection, b: &Bill, date: &str, due: &str, now: i64) -> Result<Option<String>> {
     let rate = db::rate_of(conn, &b.currency)?.ok_or_else(|| format!("Set the rate for {} in Accounts first.", b.currency))?;
+    if b.kind == "transfer" {
+        // Out of one account and into the other, as one transfer.
+        let to = b.to_account_id.as_deref().ok_or("This transfer has no account to go to.")?;
+        let exists: Option<i64> = conn.query_row("SELECT 1 FROM accounts WHERE id = ?1", [to], |r| r.get(0)).optional().map_err(db_err)?;
+        if exists.is_none() {
+            return Err(format!("The account {} goes to no longer exists.", if b.payee.is_empty() { "this transfer" } else { &b.payee }));
+        }
+        let amount = if b.amount_mode == "statement" {
+            let card = db::accounts(conn)?.into_iter().find(|a| a.id == to).ok_or("That card no longer exists.")?;
+            super::cards::statement(conn, &card, date)?.3
+        } else {
+            b.amount_minor
+        };
+        if amount == 0 {
+            return Ok(None);
+        }
+        let transfer = super::sync::derived_id(&["bill", &b.id, due]);
+        let out = super::sync::derived_id(&["bill-out", &b.id, due]);
+        let note = if b.note.is_empty() { b.payee.clone() } else { b.note.clone() };
+        for (id, account, amount) in [(out.clone(), b.account_id.as_str(), -amount), (super::sync::derived_id(&["bill-in", &b.id, due]), to, amount)] {
+            conn.execute(
+                "INSERT INTO transactions (id, account_id, date, amount_minor, rate_micro, base_minor, payee, note, transfer_id, recurring_id, created, updated)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', ?7, ?8, ?9, ?10, ?10) ON CONFLICT (id) DO NOTHING",
+                params![id, account, date, amount, rate, money::to_base(amount, &b.currency, rate), note, transfer, b.id, now],
+            )
+            .map_err(db_err)?;
+        }
+        return Ok(Some(out));
+    }
     let signed = if b.kind == "income" { b.amount_minor } else { -b.amount_minor };
-    let id = new_id();
+    let id = super::sync::derived_id(&["bill", &b.id, due]);
     conn.execute(
         "INSERT INTO transactions (id, account_id, date, amount_minor, rate_micro, base_minor, category_id, payee, note, recurring_id, created, updated)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)",
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11) ON CONFLICT (id) DO NOTHING",
         params![id, b.account_id, date, signed, rate, money::to_base(signed, &b.currency, rate), b.category_id, b.payee, b.note, b.id, now],
     )
     .map_err(db_err)?;
-    Ok(id)
+    Ok(Some(id))
 }
 
 /// Posts every due date of the rules that post by themselves, up to `today`, each in one SQLite
@@ -339,13 +409,15 @@ pub fn post_due(conn: &mut Connection, today: &str, now: i64) -> Result<usize> {
     for b in due {
         let tx = conn.transaction().map_err(db_err)?;
         let mut next = b.next_date.clone();
-        let mut n = 0;
+        let (mut n, mut steps) = (0, 0);
         while let Some(d) = next.clone() {
-            if d.as_str() > today || n >= MAX_CATCH_UP {
+            if d.as_str() > today || steps >= MAX_CATCH_UP {
                 break;
             }
-            post_one(&tx, &b, &d, now)?;
-            n += 1;
+            steps += 1;
+            if post_one(&tx, &b, &d, &d, now)?.is_some() {
+                n += 1;
+            }
             next = next_after(&b, &d);
         }
         tx.execute("UPDATE recurring SET next_date = ?2, updated = ?3 WHERE id = ?1", params![b.id, next, now]).map_err(db_err)?;
@@ -362,7 +434,7 @@ pub fn pay(conn: &mut Connection, id: &str, date: Option<&str>, today: &str, now
     let due = b.next_date.clone().ok_or("This bill has ended.")?;
     let on = date.filter(|d| valid_date(d)).unwrap_or(&due).to_string();
     let tx = conn.transaction().map_err(db_err)?;
-    let posted = post_one(&tx, &b, &on, now)?;
+    let posted = post_one(&tx, &b, &on, &due, now)?.ok_or("Nothing is due on the card's statement.")?;
     tx.execute("UPDATE recurring SET next_date = ?2, updated = ?3 WHERE id = ?1", params![b.id, next_after(&b, &due), now]).map_err(db_err)?;
     tx.commit().map_err(db_err)?;
     Ok(posted)
@@ -379,12 +451,53 @@ pub fn skip(conn: &Connection, id: &str, today: &str, now: i64) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wallet::db::tests::{cat, fresh};
+    use crate::wallet::db::tests::{add_account, cat, fresh};
+
+    #[test]
+    fn a_card_bill_pays_the_statement() {
+        let mut conn = fresh();
+        let bank = add_account(&conn, "Bank", "bank", "BDT", None);
+        let card = db::save_account(&conn, db::AccountInput { id: None, name: "Visa".into(), kind: "card".into(), currency: "BDT".into(), opening: "-4,000".into(), color: "indigo".into(), rate: None,
+            in_total: None, credit_limit: None, statement_day: Some(20), due_day: Some(10), details: None }, 1).unwrap();
+        let mut i = input(&conn, "monthly", "2026-11-10", true);
+        (i.kind, i.account_id, i.to_account_id, i.amount_mode, i.amount, i.day) = ("transfer".into(), bank.clone(), Some(card.id.clone()), Some("statement".into()), "".into(), Some(10));
+        let b = save(&conn, i, "2026-11-01", 1).unwrap();
+        assert_eq!((b.amount_mode.as_str(), b.yearly_base_minor), ("statement", None));
+        // 10 November pays October's statement (4,000); 10 December finds nothing more owed.
+        assert_eq!(post_due(&mut conn, "2026-12-15", 2).unwrap(), 1);
+        let card = db::accounts(&conn).unwrap().into_iter().find(|a| a.id == card.id).unwrap();
+        assert_eq!(card.balance_minor, 0);
+        assert_eq!(get(&conn, &b.id, "2026-12-15").unwrap().next_date.as_deref(), Some("2027-01-10"));
+    }
+
+    #[test]
+    fn a_transfer_repeats_between_two_accounts() {
+        let mut conn = fresh();
+        let savings = add_account(&conn, "Savings", "savings", "BDT", None);
+        let usd = add_account(&conn, "Payoneer", "bank", "USD", Some("120"));
+        let mut i = input(&conn, "monthly", "2026-08-05", true);
+        i.kind = "transfer".into();
+        i.payee = "".into();
+        i.to_account_id = Some(usd);
+        assert!(save(&conn, i, "2026-08-01", 1).unwrap_err().contains("same currency"));
+        let mut i = input(&conn, "monthly", "2026-08-05", true);
+        i.kind = "transfer".into();
+        i.to_account_id = Some(savings.clone());
+        let b = save(&conn, i, "2026-08-01", 1).unwrap();
+        assert_eq!((b.category_id.as_deref(), b.to_account_id.as_deref()), (None, Some(savings.as_str())));
+        assert_eq!(post_due(&mut conn, "2026-09-10", 2).unwrap(), 2);
+        let page = db::list(&conn, &db::Filter::default()).unwrap();
+        assert_eq!((page.total, page.income_minor, page.spending_minor), (4, 0, 0));
+        assert!(page.items.iter().all(|t| t.kind == "transfer" && t.recurring_id.as_deref() == Some(b.id.as_str())));
+        let accounts = db::accounts(&conn).unwrap();
+        assert_eq!(accounts.iter().find(|a| a.id == savings).unwrap().balance_minor, 240_000);
+        assert_eq!(accounts.iter().find(|a| a.id == b.account_id).unwrap().balance_minor, -240_000);
+    }
 
     fn input(conn: &Connection, freq: &str, start: &str, auto: bool) -> BillInput {
         let cash = db::accounts(conn).unwrap()[0].id.clone();
         BillInput {
-            id: None, kind: "expense".into(), account_id: cash, amount: "1,200".into(), category_id: Some(cat(conn, "Internet")),
+            id: None, kind: "expense".into(), account_id: cash, to_account_id: None, amount_mode: None, amount: "1,200".into(), category_id: Some(cat(conn, "Internet")),
             payee: "Link3".into(), note: "".into(), freq: freq.into(), every: 1, day: None, start_date: start.into(), end_date: None,
             auto_post: auto, subscription: false, remind_days: 3,
         }

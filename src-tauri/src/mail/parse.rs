@@ -226,6 +226,48 @@ fn clean(html: &str, cids: Arc<HashMap<String, String>>, remote: Remote) -> Stri
     builder.clean(html).to_string()
 }
 
+/// Whether an address is out on the internet: not this computer, the local network, or any
+/// other range that only means something from where the request is made.
+fn is_public(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            !(v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified() || v4.is_broadcast() || v4.is_multicast() || v4.is_documentation()
+                || a == 0
+                || (a == 100 && (64..128).contains(&b))
+                || (a == 192 && b == 0)
+                || (a == 198 && (b == 18 || b == 19))
+                || a >= 240)
+        }
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => is_public(IpAddr::V4(v4)),
+            None => {
+                let first = v6.segments()[0];
+                !(v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() || (first & 0xfe00) == 0xfc00 || (first & 0xffc0) == 0xfe80 || first == 0x0064 || first == 0x2002)
+            }
+        },
+    }
+}
+
+/// Looks names up like the default resolver, and refuses any that leads to this computer or the
+/// local network. A message chooses the addresses of its pictures, so fetching them must never
+/// reach something only this computer can (a router's page, a service on localhost). The check
+/// is on the very addresses the connection then uses, for every hop of a redirect.
+#[derive(Debug, Default)]
+struct PublicOnly(ureq::unversioned::resolver::DefaultResolver);
+
+impl ureq::unversioned::resolver::Resolver for PublicOnly {
+    fn resolve(&self, uri: &ureq::http::Uri, config: &ureq::config::Config, timeout: ureq::unversioned::transport::NextTimeout) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+        let addrs = self.0.resolve(uri, config, timeout)?;
+        if addrs.iter().all(|addr| is_public(addr.ip())) {
+            Ok(addrs)
+        } else {
+            Err(ureq::Error::HostNotFound)
+        }
+    }
+}
+
 /// Fetches the pictures a message links (a few at a time, each and all of them up to a size).
 fn fetch_images(urls: Vec<String>) -> HashMap<String, String> {
     const MAX_IMAGES: usize = 80;
@@ -236,12 +278,14 @@ fn fetch_images(urls: Vec<String>) -> HashMap<String, String> {
             unique.push(url);
         }
     }
-    let agent: ureq::Agent = ureq::Agent::config_builder()
+    let config = ureq::Agent::config_builder()
         .timeout_connect(Some(std::time::Duration::from_secs(8)))
         .timeout_global(Some(std::time::Duration::from_secs(20)))
+        .max_redirects(4)
+        .proxy(None)
         .http_status_as_error(false)
-        .build()
-        .into();
+        .build();
+    let agent = ureq::Agent::with_parts(config, ureq::unversioned::transport::DefaultConnector::default(), PublicOnly::default());
     let out = Mutex::new(HashMap::new());
     let next = std::sync::atomic::AtomicUsize::new(0);
     std::thread::scope(|scope| {
@@ -383,6 +427,23 @@ mod tests {
         assert_eq!((b.attachments[0].name.as_str(), b.attachments[0].mime.as_str(), b.attachments[0].size), ("_Report.pdf", "application/pdf", 5));
         let (name, _, bytes) = attachment(MESSAGE.as_bytes(), b.attachments[0].index).unwrap();
         assert_eq!((name.as_str(), bytes.as_slice()), ("_Report.pdf", &b"%PDF-"[..]));
+    }
+
+    #[test]
+    fn pictures_are_only_fetched_from_the_internet() {
+        for local in ["127.0.0.1", "10.1.2.3", "172.16.0.9", "192.168.1.1", "169.254.169.254", "0.0.0.0", "100.64.0.1", "::1", "fe80::1", "fd12::1", "::ffff:192.168.1.1", "::ffff:127.0.0.1"] {
+            assert!(!is_public(local.parse().unwrap()), "{local} is not out on the internet");
+        }
+        for public in ["8.8.8.8", "142.250.70.14", "2606:4700::1111"] {
+            assert!(is_public(public.parse().unwrap()), "{public} is");
+        }
+        // A picture on this computer (and one that names it another way) is never fetched.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        listener.set_nonblocking(true).unwrap();
+        let fetched = fetch_images(vec![format!("http://127.0.0.1:{port}/a.png"), format!("http://localhost:{port}/b.png"), format!("http://[::1]:{port}/c.png")]);
+        assert!(fetched.is_empty());
+        assert!(listener.accept().is_err(), "nothing connected");
     }
 
     #[test]

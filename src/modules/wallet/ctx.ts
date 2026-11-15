@@ -2,7 +2,7 @@ import type { ShellContext } from "../../shell/module";
 import type { Account, Category, Filter, Tx, WalletState } from "./api";
 import { money, type MoneyOptions } from "./format";
 
-export type ViewId = "overview" | "transactions" | "accounts" | "budgets" | "bills" | "reports" | "import";
+export type ViewId = "overview" | "transactions" | "accounts" | "budgets" | "bills" | "plans" | "people" | "reports" | "import";
 
 /** What the views and sheets share: the ledger's state, formatting, and navigation. */
 export interface Ctx {
@@ -16,7 +16,7 @@ export interface Ctx {
   setMonth(month: string): void;
   /** Opens the add/edit sheet: a transaction to edit, or a new one (optionally pre-filled). */
   openTx(tx?: Tx | null, preset?: Partial<NewTx>): void;
-  /** Shows a view; Transactions can start filtered. */
+  /** Shows a view; Transactions can start filtered, and Loans & DPS on an account's table. */
   go(view: ViewId, filter?: Filter): void;
   toast(text: string, action?: { label: string; run: () => void }): void;
   /** Reloads the state and the view now (after a change made here). */
@@ -57,11 +57,11 @@ export function fmt(ctx: Ctx, minor: number, code?: string, options: MoneyOption
 }
 
 export const ACCOUNT_KIND_LABEL: Record<string, string> = {
-  cash: "Cash", bank: "Bank account", mobile_wallet: "Mobile wallet", card: "Card", savings: "Savings",
+  cash: "Cash", bank: "Bank account", mobile_wallet: "Mobile wallet", card: "Credit card", savings: "Savings", dps: "DPS", loan: "Loan", person: "Person", fdr: "FDR",
 };
 
 export const ACCOUNT_KIND_ICON = {
-  cash: "wallet", bank: "bank", mobile_wallet: "phone", card: "card", savings: "piggy",
+  cash: "wallet", bank: "bank", mobile_wallet: "phone", card: "card", savings: "piggy", dps: "target", loan: "bank", person: "users", fdr: "lock",
 } as const;
 
 /** Category and account colours (the names the backend accepts). */

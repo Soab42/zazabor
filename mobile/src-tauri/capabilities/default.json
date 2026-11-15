@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "default",
+  "description": "The wallet's one window",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:default", "barcode-scanner:default"]
+}

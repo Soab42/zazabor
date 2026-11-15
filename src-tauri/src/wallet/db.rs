@@ -19,7 +19,13 @@ pub fn db_err(e: rusqlite::Error) -> String {
     format!("The wallet database: {e}")
 }
 
-pub const ACCOUNT_KINDS: [&str; 5] = ["cash", "bank", "mobile_wallet", "card", "savings"];
+/// A DPS or loan installment (or a loan's arrival) is changed in Loans & DPS, which works out its
+/// interest again.
+pub const PLAN_EDIT: &str = "This is a DPS, loan or FDR entry: change it in Loans, DPS & FDR.";
+
+/// "dps" and "loan" accounts carry a plan (`plans.rs`); a "person" is money lent to or
+/// borrowed from someone (positive: they owe you); an "fdr" is a fixed deposit (`fdr.rs`).
+pub const ACCOUNT_KINDS: [&str; 9] = ["cash", "bank", "mobile_wallet", "card", "savings", "dps", "loan", "person", "fdr"];
 /// Category colours, named like the page's palette (`wallet.css`).
 pub const COLORS: [&str; 11] = ["red", "orange", "amber", "green", "teal", "sky", "blue", "indigo", "purple", "pink", "gray"];
 
@@ -84,6 +90,50 @@ CREATE TABLE import_batches (
   skipped INTEGER NOT NULL, created INTEGER NOT NULL, undone INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE project_rates (
   project TEXT PRIMARY KEY, rate_minor INTEGER NOT NULL, currency TEXT NOT NULL, updated INTEGER NOT NULL);
+"#, r#"
+ALTER TABLE recurring ADD COLUMN to_account_id TEXT;
+ALTER TABLE transactions ADD COLUMN plan_id TEXT;
+ALTER TABLE transactions ADD COLUMN plan_no INTEGER;
+CREATE INDEX tx_plan ON transactions(plan_id);
+CREATE TABLE plans (
+  id TEXT PRIMARY KEY, kind TEXT NOT NULL, account_id TEXT NOT NULL UNIQUE REFERENCES accounts(id),
+  amount_minor INTEGER NOT NULL, rate_bp INTEGER NOT NULL DEFAULT 0, months INTEGER NOT NULL,
+  start_date TEXT NOT NULL, method TEXT NOT NULL DEFAULT 'reducing',
+  payment_minor INTEGER, maturity_minor INTEGER, paid_before INTEGER NOT NULL DEFAULT 0,
+  pay_from TEXT NOT NULL, auto_post INTEGER NOT NULL DEFAULT 0, next_no INTEGER NOT NULL DEFAULT 1,
+  created INTEGER NOT NULL, updated INTEGER NOT NULL);
+"#, r#"
+ALTER TABLE accounts ADD COLUMN in_total INTEGER NOT NULL DEFAULT 1;
+UPDATE accounts SET in_total = 0 WHERE kind = 'loan';
+ALTER TABLE plans ADD COLUMN disburse_date TEXT;
+ALTER TABLE plans ADD COLUMN disburse_to TEXT;
+ALTER TABLE plans ADD COLUMN disburse_transfer TEXT;
+ALTER TABLE transactions ADD COLUMN plan_payment TEXT;
+ALTER TABLE transactions ADD COLUMN plan_part TEXT;
+CREATE INDEX tx_plan_payment ON transactions(plan_payment);
+CREATE TABLE plan_payments (
+  id TEXT PRIMARY KEY, plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+  date TEXT NOT NULL, amount_minor INTEGER NOT NULL, no INTEGER, count INTEGER NOT NULL DEFAULT 1,
+  interest_minor INTEGER, from_account TEXT, note TEXT NOT NULL DEFAULT '', transfer_id TEXT NOT NULL,
+  created INTEGER NOT NULL, updated INTEGER NOT NULL);
+CREATE INDEX plan_payment_plan ON plan_payments(plan_id, date);
+ALTER TABLE accounts ADD COLUMN credit_limit_minor INTEGER;
+ALTER TABLE accounts ADD COLUMN statement_day INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE accounts ADD COLUMN due_day INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE recurring ADD COLUMN amount_mode TEXT NOT NULL DEFAULT 'fixed';
+"#, r#"
+ALTER TABLE plan_payments ADD COLUMN posted INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE accounts ADD COLUMN institution TEXT NOT NULL DEFAULT '';
+ALTER TABLE accounts ADD COLUMN branch TEXT NOT NULL DEFAULT '';
+ALTER TABLE accounts ADD COLUMN number TEXT NOT NULL DEFAULT '';
+ALTER TABLE accounts ADD COLUMN phone TEXT NOT NULL DEFAULT '';
+ALTER TABLE accounts ADD COLUMN details_note TEXT NOT NULL DEFAULT '';
+CREATE TABLE fdrs (
+  id TEXT PRIMARY KEY, account_id TEXT NOT NULL UNIQUE REFERENCES accounts(id),
+  principal_minor INTEGER NOT NULL, rate_bp INTEGER NOT NULL, months INTEGER NOT NULL, start_date TEXT NOT NULL,
+  payout TEXT NOT NULL DEFAULT 'maturity', tax_bp INTEGER NOT NULL DEFAULT 0, interest_to TEXT,
+  funded_from TEXT, funded_transfer TEXT, auto_post INTEGER NOT NULL DEFAULT 1, next_no INTEGER NOT NULL DEFAULT 1,
+  created INTEGER NOT NULL, updated INTEGER NOT NULL);
 "#];
 
 /// The categories a new wallet starts with: (name, icon, colour, children).
@@ -208,6 +258,16 @@ pub struct Account {
     pub color: String,
     pub archived: bool,
     pub position: f64,
+    /// Counts in the total balance and net worth (a loan doesn't, unless asked).
+    pub in_total: bool,
+    /// A card: its credit limit.
+    pub credit_limit_minor: Option<i64>,
+    /// A card: the day of the month its statement closes (0: not set).
+    pub statement_day: i64,
+    /// A card: the day of the month its payment is due (0: not set).
+    pub due_day: i64,
+    /// What identifies it: the bank, the number, a phone.
+    pub details: AccountDetails,
     /// Opening balance plus every transaction, in the account's currency.
     pub balance_minor: i64,
     /// The balance in the base currency, at the latest rate (`None` without one).
@@ -215,6 +275,39 @@ pub struct Account {
     pub tx_count: i64,
     /// The newest transaction's date.
     pub last_date: Option<String>,
+}
+
+/// Optional details of an account: its bank (or issuer, or provider) and branch, its number (a
+/// card: only its last four digits), a phone (a mobile wallet's, a person's) and a note.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AccountDetails {
+    pub institution: String,
+    pub branch: String,
+    pub number: String,
+    pub phone: String,
+    pub note: String,
+}
+
+impl AccountDetails {
+    /// Trimmed and bounded; a card keeps no more than its last four digits.
+    fn cleaned(&self, kind: &str) -> Result<AccountDetails> {
+        let one = |t: &str, max: usize| clean(t, max);
+        let mut number = one(&self.number, 40);
+        if kind == "card" {
+            let digits: String = number.chars().filter(|c| c.is_ascii_digit()).collect();
+            if digits.len() > 4 && digits.len() >= 12 {
+                // A whole card number typed: only its last four are kept.
+                number = digits[digits.len() - 4..].to_string();
+            } else if digits.len() > 4 {
+                return Err("Keep only the card's last four digits.".into());
+            } else {
+                number = digits;
+            }
+        }
+        let phone: String = self.phone.chars().filter(|c| c.is_ascii_digit() || matches!(c, '+' | ' ' | '-')).collect::<String>().trim().chars().take(24).collect();
+        Ok(AccountDetails { institution: one(&self.institution, 80), branch: one(&self.branch, 80), number, phone, note: self.note.trim().chars().take(500).collect() })
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -229,6 +322,20 @@ pub struct AccountInput {
     pub color: String,
     /// For an account not in the base currency: base units per unit, as typed.
     pub rate: Option<String>,
+    /// Counts in the total balance; without it, a loan doesn't and every other account does.
+    #[serde(default)]
+    pub in_total: Option<bool>,
+    /// A card: its credit limit, as typed.
+    #[serde(default)]
+    pub credit_limit: Option<String>,
+    /// A card: the statement's closing day (1–31, 0 for the last day of the month).
+    #[serde(default)]
+    pub statement_day: Option<i64>,
+    #[serde(default)]
+    pub due_day: Option<i64>,
+    /// Without it, the details stay as they were.
+    #[serde(default)]
+    pub details: Option<AccountDetails>,
 }
 
 /// The latest rate typed for a currency (1 for the base currency).
@@ -270,7 +377,8 @@ pub fn accounts(conn: &Connection) -> Result<Vec<Account>> {
     let mut stmt = conn
         .prepare(
             "SELECT a.id, a.name, a.kind, a.currency, a.opening_minor, a.color, a.archived, a.position,
-                    a.opening_minor + COALESCE(SUM(t.amount_minor), 0), COUNT(t.id), MAX(t.date)
+                    a.opening_minor + COALESCE(SUM(t.amount_minor), 0), COUNT(t.id), MAX(t.date), a.in_total, a.credit_limit_minor, a.statement_day, a.due_day,
+                    a.institution, a.branch, a.number, a.phone, a.details_note
              FROM accounts a LEFT JOIN transactions t ON t.account_id = a.id
              GROUP BY a.id ORDER BY a.archived, a.position, a.created",
         )
@@ -286,6 +394,11 @@ pub fn accounts(conn: &Connection) -> Result<Vec<Account>> {
                 color: r.get(5)?,
                 archived: r.get(6)?,
                 position: r.get(7)?,
+                in_total: r.get(11)?,
+                credit_limit_minor: r.get(12)?,
+                statement_day: r.get(13)?,
+                due_day: r.get(14)?,
+                details: AccountDetails { institution: r.get(15)?, branch: r.get(16)?, number: r.get(17)?, phone: r.get(18)?, note: r.get(19)? },
                 balance_minor: r.get(8)?,
                 balance_base_minor: None,
                 tx_count: r.get(9)?,
@@ -333,30 +446,50 @@ pub fn save_account(conn: &Connection, input: AccountInput, now: i64) -> Result<
     } else if rate_of(conn, &input.currency)?.is_none() {
         return Err(format!("Type how many {BASE} one {} is.", input.currency));
     }
+    // A card's terms.
+    let card = input.kind == "card";
+    let limit = match input.credit_limit.as_deref().map(str::trim).filter(|t| card && !t.is_empty()) {
+        Some(text) => Some(money::parse_amount(text, &input.currency).ok_or("Type the credit limit as a number, like 1,00,000.")?),
+        None => None,
+    };
+    let statement_day = if card { input.statement_day.unwrap_or(0).clamp(0, 31) } else { 0 };
+    let details = input.details.as_ref().map(|d| d.cleaned(&input.kind)).transpose()?;
+    let due_day = if card { input.due_day.unwrap_or(0).clamp(0, 31) } else { 0 };
     let id = match input.id {
         Some(id) => {
             let before = account(conn, &id)?;
             if before.currency != input.currency && before.tx_count > 0 {
                 return Err("An account with transactions keeps its currency.".into());
             }
+            let in_total = input.in_total.unwrap_or(before.in_total);
             conn.execute(
-                "UPDATE accounts SET name = ?2, kind = ?3, currency = ?4, opening_minor = ?5, color = ?6, updated = ?7 WHERE id = ?1",
-                params![id, name, input.kind, input.currency, opening, color, now],
+                "UPDATE accounts SET name = ?2, kind = ?3, currency = ?4, opening_minor = ?5, color = ?6, updated = ?7, in_total = ?8 WHERE id = ?1",
+                params![id, name, input.kind, input.currency, opening, color, now, in_total],
             )
             .map_err(db_err)?;
+            conn.execute("UPDATE accounts SET credit_limit_minor = ?2, statement_day = ?3, due_day = ?4 WHERE id = ?1", params![id, limit, statement_day, due_day]).map_err(db_err)?;
             id
         }
         None => {
             let id = new_id();
             let position: f64 = conn.query_row("SELECT COALESCE(MAX(position), 0) + 1 FROM accounts", [], |r| r.get(0)).map_err(db_err)?;
+            let in_total = input.in_total.unwrap_or(input.kind != "loan");
             conn.execute(
-                "INSERT INTO accounts (id, name, kind, currency, opening_minor, color, position, created, updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
-                params![id, name, input.kind, input.currency, opening, color, position, now],
+                "INSERT INTO accounts (id, name, kind, currency, opening_minor, color, position, created, updated, in_total) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?9)",
+                params![id, name, input.kind, input.currency, opening, color, position, now, in_total],
             )
             .map_err(db_err)?;
+            conn.execute("UPDATE accounts SET credit_limit_minor = ?2, statement_day = ?3, due_day = ?4 WHERE id = ?1", params![id, limit, statement_day, due_day]).map_err(db_err)?;
             id
         }
     };
+    if let Some(d) = details {
+        conn.execute(
+            "UPDATE accounts SET institution = ?2, branch = ?3, number = ?4, phone = ?5, details_note = ?6 WHERE id = ?1",
+            params![id, d.institution, d.branch, d.number, d.phone, d.note],
+        )
+        .map_err(db_err)?;
+    }
     account(conn, &id)
 }
 
@@ -374,6 +507,7 @@ pub fn delete_account(conn: &Connection, id: &str) -> Result<()> {
     if count > 0 {
         return Err("This account has transactions. Archive it instead, to keep its history.".into());
     }
+    conn.execute("DELETE FROM plans WHERE account_id = ?1", [id]).map_err(db_err)?;
     conn.execute("DELETE FROM accounts WHERE id = ?1", [id]).map_err(db_err)?;
     Ok(())
 }
@@ -551,13 +685,15 @@ pub struct Tx {
     pub recurring_id: Option<String>,
     /// The import that added it (Undo Import removes the batch).
     pub import_batch: Option<String>,
+    /// The DPS or loan it pays (changed in Loans & DPS, not here).
+    pub plan_id: Option<String>,
 }
 
 const TX_SELECT: &str = "SELECT t.id, t.account_id, a.currency, t.date, t.amount_minor, t.base_minor, t.rate_micro, t.category_id,
        t.payee, t.note, t.transfer_id,
        CASE WHEN t.transfer_id IS NOT NULL AND t.category_id IS NULL THEN 'transfer' WHEN t.amount_minor < 0 THEN 'expense' ELSE 'income' END,
        (SELECT o.account_id FROM transactions o WHERE t.transfer_id IS NOT NULL AND o.transfer_id = t.transfer_id AND o.id <> t.id AND o.category_id IS NULL LIMIT 1),
-       t.created, (SELECT COUNT(*) FROM receipts r WHERE r.transaction_id = t.id), t.recurring_id, t.import_batch
+       t.created, (SELECT COUNT(*) FROM receipts r WHERE r.transaction_id = t.id), t.recurring_id, t.import_batch, t.plan_id
   FROM transactions t JOIN accounts a ON a.id = t.account_id LEFT JOIN categories c ON c.id = t.category_id";
 
 /// The derived kind, for WHERE clauses.
@@ -582,6 +718,7 @@ fn tx_row(r: &Row) -> rusqlite::Result<Tx> {
         receipts: r.get(14)?,
         recurring_id: r.get(15)?,
         import_batch: r.get(16)?,
+        plan_id: r.get(17)?,
     })
 }
 
@@ -706,6 +843,9 @@ pub fn save_tx(conn: &Connection, input: TxInput, now: i64) -> Result<Tx> {
     let id = match input.id {
         Some(id) => {
             let before = tx(conn, &id)?;
+            if before.plan_id.is_some() {
+                return Err(PLAN_EDIT.into());
+            }
             if before.transfer_id.is_some() && before.kind == "transfer" {
                 return Err("Edit the transfer instead.".into());
             }
@@ -828,23 +968,42 @@ pub fn save_transfer(conn: &mut Connection, input: TransferInput, now: i64) -> R
     let fees = if fee > 0 { Some(fees_category(conn, now)?) } else { None };
     let note = input.note.trim().chars().take(2000).collect::<String>();
     let id = input.transfer_id.unwrap_or_else(new_id);
+    let planned: Option<i64> = conn.query_row("SELECT 1 FROM transactions WHERE transfer_id = ?1 AND plan_id IS NOT NULL LIMIT 1", [&id], |r| r.get(0)).optional().map_err(db_err)?;
+    if planned.is_some() {
+        return Err(PLAN_EDIT.into());
+    }
     let tx = conn.transaction().map_err(db_err)?;
     let created: i64 = tx
         .query_row("SELECT MIN(created) FROM transactions WHERE transfer_id = ?1", [&id], |r| r.get::<_, Option<i64>>(0))
         .map_err(db_err)?
         .unwrap_or(now);
+    // An edited transfer keeps what posted it (a bill, or a DPS or loan installment, whose
+    // interest stays in its own category).
+    let (recurring, plan, plan_no): (Option<String>, Option<String>, Option<i64>) = tx
+        .query_row("SELECT recurring_id, plan_id, plan_no FROM transactions WHERE transfer_id = ?1 LIMIT 1", [&id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .optional()
+        .map_err(db_err)?
+        .unwrap_or_default();
+    let fee_before: Option<(String, String)> = tx
+        .query_row("SELECT category_id, payee FROM transactions WHERE transfer_id = ?1 AND category_id IS NOT NULL LIMIT 1", [&id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .optional()
+        .map_err(db_err)?;
     tx.execute("DELETE FROM transactions WHERE transfer_id = ?1", [&id]).map_err(db_err)?;
-    let insert = |account: &str, amount: i64, currency: &str, rate: i64, category: Option<&str>| {
+    let insert = |account: &str, amount: i64, currency: &str, rate: i64, category: Option<&str>, payee: &str| {
         tx.execute(
-            "INSERT INTO transactions (id, account_id, date, amount_minor, rate_micro, base_minor, category_id, payee, note, transfer_id, created, updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            params![new_id(), account, input.date, amount, rate, money::to_base(amount, currency, rate), category, if category.is_some() { "Transfer fee" } else { "" }, note, id, created, now],
+            "INSERT INTO transactions (id, account_id, date, amount_minor, rate_micro, base_minor, category_id, payee, note, transfer_id, recurring_id, plan_id, plan_no, created, updated)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            params![new_id(), account, input.date, amount, rate, money::to_base(amount, currency, rate), category, payee, note, id, recurring, plan, plan_no, created, now],
         )
         .map_err(db_err)
     };
-    insert(&from.id, -amount, &from.currency, rate_from, None)?;
-    insert(&to.id, received, &to.currency, rate_to, None)?;
+    insert(&from.id, -amount, &from.currency, rate_from, None, "")?;
+    insert(&to.id, received, &to.currency, rate_to, None, "")?;
     if let Some(cat) = &fees {
-        insert(&from.id, -fee, &from.currency, rate_from, Some(cat))?;
+        match &fee_before {
+            Some((category, payee)) => insert(&from.id, -fee, &from.currency, rate_from, Some(category), payee)?,
+            None => insert(&from.id, -fee, &from.currency, rate_from, Some(cat), "Transfer fee")?,
+        };
     }
     tx.commit().map_err(db_err)?;
     transfer(conn, &id)
@@ -1082,21 +1241,22 @@ pub fn months(conn: &Connection, last: &str, count: i32) -> Result<Vec<MonthTota
     let count = count.clamp(1, 120);
     let first = add_months(last, -(count - 1));
     let mut opening = 0i64;
-    for a in accounts(conn)? {
+    for a in accounts(conn)?.into_iter().filter(|a| a.in_total) {
         if let Some(rate) = rate_of(conn, &a.currency)? {
             opening += money::to_base(a.opening_minor, &a.currency, rate);
         }
     }
     let before: i64 = conn
-        .query_row("SELECT COALESCE(SUM(base_minor), 0) FROM transactions WHERE date < ?1", [format!("{first}-01")], |r| r.get(0))
+        .query_row("SELECT COALESCE(SUM(t.base_minor), 0) FROM transactions t JOIN accounts a ON a.id = t.account_id WHERE t.date < ?1 AND a.in_total = 1", [format!("{first}-01")], |r| r.get(0))
         .map_err(db_err)?;
     let mut per_month: std::collections::HashMap<String, (i64, i64, i64)> = std::collections::HashMap::new();
     {
         let mut stmt = conn
             .prepare(&format!(
                 "SELECT substr(t.date, 1, 7), COALESCE(SUM(CASE WHEN {TX_KIND} = 'income' THEN t.base_minor END), 0),
-                        COALESCE(-SUM(CASE WHEN {TX_KIND} = 'expense' THEN t.base_minor END), 0), COALESCE(SUM(t.base_minor), 0)
-                   FROM transactions t WHERE t.date >= ?1 GROUP BY substr(t.date, 1, 7)"
+                        COALESCE(-SUM(CASE WHEN {TX_KIND} = 'expense' THEN t.base_minor END), 0),
+                        COALESCE(SUM(CASE WHEN a.in_total = 1 THEN t.base_minor END), 0)
+                   FROM transactions t JOIN accounts a ON a.id = t.account_id WHERE t.date >= ?1 GROUP BY substr(t.date, 1, 7)"
             ))
             .map_err(db_err)?;
         let rows = stmt.query_map([format!("{first}-01")], |r| Ok((r.get::<_, String>(0)?, (r.get::<_, i64>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?)))).map_err(db_err)?;
@@ -1140,13 +1300,31 @@ pub mod tests {
     }
 
     pub fn add_account(conn: &Connection, name: &str, kind: &str, currency: &str, rate: Option<&str>) -> String {
-        save_account(conn, AccountInput { id: None, name: name.into(), kind: kind.into(), currency: currency.into(), opening: "".into(), color: "blue".into(), rate: rate.map(Into::into) }, 2)
+        save_account(conn, AccountInput { id: None, name: name.into(), kind: kind.into(), currency: currency.into(), opening: "".into(), color: "blue".into(), rate: rate.map(Into::into), in_total: None, credit_limit: None, statement_day: None, due_day: None, details: None }, 2)
             .unwrap()
             .id
     }
 
     fn spend(conn: &Connection, account: &str, amount: &str, date: &str, category: &str) -> Tx {
         save_tx(conn, TxInput { id: None, kind: "expense".into(), account_id: account.into(), amount: amount.into(), date: date.into(), category_id: Some(cat(conn, category)), payee: "".into(), note: "".into() }, 3).unwrap()
+    }
+
+    #[test]
+    fn details_are_kept_and_a_card_keeps_only_its_last_four() {
+        let conn = fresh();
+        let input = |kind: &str, number: &str| AccountInput {
+            id: None, name: "X".into(), kind: kind.into(), currency: "BDT".into(), opening: "".into(), color: "blue".into(), rate: None, in_total: None,
+            credit_limit: None, statement_day: None, due_day: None,
+            details: Some(AccountDetails { institution: " City  Bank ".into(), branch: "Gulshan".into(), number: number.into(), phone: "+880 1711-000000x".into(), note: "salary".into() }),
+        };
+        let bank = save_account(&conn, input("bank", "1234 5678 9012"), 1).unwrap();
+        assert_eq!((bank.details.institution.as_str(), bank.details.number.as_str(), bank.details.phone.as_str()), ("City Bank", "1234 5678 9012", "+880 1711-000000"));
+        let card = save_account(&conn, input("card", "4111 1111 1111 1234"), 1).unwrap();
+        assert_eq!(card.details.number, "1234");
+        assert!(save_account(&conn, input("card", "12345"), 1).is_err());
+        // Saved without details, they stay.
+        let again = save_account(&conn, AccountInput { id: Some(bank.id.clone()), details: None, ..input("bank", "") }, 2).unwrap();
+        assert_eq!(again.details.number, "1234 5678 9012");
     }
 
     #[test]
@@ -1201,7 +1379,7 @@ pub mod tests {
     #[test]
     fn foreign_accounts_need_a_rate_and_keep_theirs() {
         let conn = fresh();
-        let input = |rate: Option<&str>| AccountInput { id: None, name: "Payoneer".into(), kind: "bank".into(), currency: "USD".into(), opening: "100".into(), color: "blue".into(), rate: rate.map(Into::into) };
+        let input = |rate: Option<&str>| AccountInput { id: None, name: "Payoneer".into(), kind: "bank".into(), currency: "USD".into(), opening: "100".into(), color: "blue".into(), rate: rate.map(Into::into), in_total: None, credit_limit: None, statement_day: None, due_day: None, details: None };
         assert!(save_account(&conn, input(None), 2).is_err());
         let usd = save_account(&conn, input(Some("120")), 2).unwrap();
         assert_eq!(usd.balance_base_minor, Some(1_200_000));
@@ -1237,7 +1415,7 @@ pub mod tests {
     fn months_add_up_to_net_worth() {
         let conn = fresh();
         let cash = accounts(&conn).unwrap()[0].id.clone();
-        save_account(&conn, AccountInput { id: Some(cash.clone()), name: "Cash".into(), kind: "cash".into(), currency: "BDT".into(), opening: "1000".into(), color: "green".into(), rate: None }, 2).unwrap();
+        save_account(&conn, AccountInput { id: Some(cash.clone()), name: "Cash".into(), kind: "cash".into(), currency: "BDT".into(), opening: "1000".into(), color: "green".into(), rate: None, in_total: None, credit_limit: None, statement_day: None, due_day: None, details: None }, 2).unwrap();
         spend(&conn, &cash, "100", "2026-08-10", "Rent");
         spend(&conn, &cash, "200", "2026-10-10", "Rent");
         let m = months(&conn, "2026-10", 3).unwrap();

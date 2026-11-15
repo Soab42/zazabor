@@ -38,6 +38,8 @@ export interface Account {
   smtp: Server;
   /** HTML put under a new message. */
   signature: string;
+  /** How it signs in: with a password, or through the provider's own sign-in. */
+  auth: "password" | SignInProvider;
   synced: number;
   error: string | null;
   syncing: boolean;
@@ -136,7 +138,20 @@ export interface Setup {
   username: string;
   note: string;
   helpUrl: string;
+  /** The provider has a sign-in of its own that Zazabor can use. */
+  signIn: SignInProvider | "";
   guessed: boolean;
+}
+
+export type SignInProvider = "google" | "microsoft";
+
+/** Which providers can be signed in with (a client ID is known); mirrors `OAuthState` in `mail/mod.rs`. */
+export interface OAuthState {
+  google: boolean;
+  microsoft: boolean;
+  googleId: string;
+  googleSecret: boolean;
+  microsoftId: string;
 }
 
 export interface AccountInput {
@@ -198,6 +213,11 @@ export const mailApi = {
   discover: (email: string) => invoke<Setup>("mail_discover", { email }),
   saveAccount: (input: AccountInput) => invoke<Account>("mail_account_save", { input }),
   removeAccount: (id: string) => invoke<void>("mail_account_remove", { id }),
+  oauthState: () => invoke<OAuthState>("mail_oauth_state"),
+  oauthClient: (provider: SignInProvider, id: string, secret: string) => invoke<OAuthState>("mail_oauth_client", { provider, id, secret }),
+  /** Opens the provider's sign-in in the browser and waits for it; `account` signs that one in again. */
+  oauthSignIn: (provider: SignInProvider, name: string, account?: string) => invoke<{ account: Account; warning: string | null }>("mail_oauth_signin", { provider, account, name }),
+  oauthCancel: () => invoke<void>("mail_oauth_cancel"),
   threads: (query: Query) => invoke<Thread[]>("mail_threads", { query }),
   thread: (account: string, thread: string, folder?: number) => invoke<Message[]>("mail_thread", { account, thread, folder }),
   body: (id: number, images: boolean) => invoke<Body>("mail_body", { id, images }),

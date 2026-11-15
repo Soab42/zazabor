@@ -1,10 +1,40 @@
 import { h } from "../../ui/dom";
 import { icon } from "../../ui/icons";
 import { confirmSheet } from "../files/ops/sheets";
-import { mailApi, type Account, type Server, type Setup } from "./api";
+import { mailApi, type Account, type OAuthState, type Server, type Setup, type SignInProvider } from "./api";
 
 type Security = Server["security"];
 const SECURITIES: [Security, string][] = [["ssl", "SSL/TLS"], ["starttls", "STARTTLS"], ["none", "None"]];
+
+/** What a provider's own sign-in is called, and how its client ID is made (once, by whoever sets Zazabor up). */
+const SIGN_IN: Record<SignInProvider, { name: string; mark: string; console: string; consoleLabel: string; steps: string[]; note: string }> = {
+  google: {
+    name: "Google",
+    mark: "G",
+    console: "https://console.cloud.google.com/apis/credentials",
+    consoleLabel: "Open Google Cloud Console",
+    steps: [
+      "Make a project, and under APIs & Services → Library turn on the Gmail API.",
+      "Under OAuth consent screen choose External, and add your own address as a test user.",
+      "Under Credentials choose Create credentials → OAuth client ID → Desktop app.",
+      "Copy its client ID and client secret here.",
+    ],
+    note: "While the project is in Testing, Google asks you to sign in again every 7 days. Publishing it stops that; Google reviews apps that read mail before it lets strangers use them.",
+  },
+  microsoft: {
+    name: "Microsoft",
+    mark: "M",
+    console: "https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
+    consoleLabel: "Open Azure App Registrations",
+    steps: [
+      "Choose New registration and give it a name (Zazabor).",
+      "For who can use it, pick accounts in any organisation and personal Microsoft accounts.",
+      "For the redirect URI pick Public client/native (mobile & desktop) and enter http://localhost.",
+      "Register, then copy the Application (client) ID here.",
+    ],
+    note: "A work or school account may also need its administrator to allow IMAP, and sending by mail apps (SMTP AUTH).",
+  },
+};
 
 /** A labelled field. */
 function field(label: string, control: HTMLElement, hint?: string): HTMLElement {
@@ -30,11 +60,13 @@ function serverRow(label: string, defaults: Server) {
 }
 
 /**
- * The account sheet. Adding one takes a name, an address and a password: the servers are worked
- * out from the address and only shown when they had to be guessed or signing in failed. Editing
- * one also has its colour, its signature and Remove. Resolves true when something changed.
+ * The account sheet. Adding one is a sign-in with Google or Microsoft (in the browser, on their
+ * own page), or a name, an address and a password: the servers are worked out from the address
+ * and only shown when they had to be guessed or signing in failed. Editing one also has its
+ * colour, its signature and Remove. Resolves true when something changed; `notify` says what
+ * the user should know afterwards.
  */
-export function accountSheet(existing: Account | null, colors: string[], openUrl: (url: string) => void): Promise<boolean> {
+export function accountSheet(existing: Account | null, colors: string[], openUrl: (url: string) => void, notify: (message: string) => void): Promise<boolean> {
   return new Promise((resolve) => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     let busy = false;
@@ -42,9 +74,12 @@ export function accountSheet(existing: Account | null, colors: string[], openUrl
     /** The address the servers were worked out for. */
     let setupFor = "";
     let color = existing?.color ?? "";
+    let oauth: OAuthState | null = null;
+    const signedInWith = existing && existing.auth !== "password" ? existing.auth : null;
+    void mailApi.oauthState().then((state) => (oauth = state), () => undefined);
 
     const name = h("input", { class: "ml-input", type: "text", placeholder: "Your name", autocomplete: "off", value: existing?.name ?? "" });
-    const email = h("input", { class: "ml-input", type: "email", placeholder: "you@example.com", autocomplete: "off", spellcheck: "false", value: existing?.email ?? "" });
+    const email = h("input", { class: "ml-input", type: "email", placeholder: "you@example.com", autocomplete: "off", spellcheck: "false", value: existing?.email ?? "", disabled: !!signedInWith });
     const password = h("input", { class: "ml-input", type: "password", autocomplete: "off", placeholder: existing ? "Unchanged" : "Password or app password" });
     const show = h("button", { class: "icon-btn small ml-reveal", type: "button", title: "Show the password", "aria-label": "Show the password" }, icon("eye", 15));
     show.addEventListener("click", () => {
@@ -55,7 +90,7 @@ export function accountSheet(existing: Account | null, colors: string[], openUrl
     const username = h("input", { class: "ml-input", type: "text", spellcheck: "false", autocomplete: "off", placeholder: "Usually the email address", value: existing?.username ?? "" });
     const imap = serverRow("Incoming (IMAP)", existing?.imap ?? { host: "", port: 993, security: "ssl" });
     const smtp = serverRow("Outgoing (SMTP)", existing?.smtp ?? { host: "", port: 465, security: "ssl" });
-    const servers = h("div", { class: "ml-servers", hidden: !existing }, imap.el, smtp.el, field("User name", username));
+    const servers = h("div", { class: "ml-servers", hidden: !existing || !!signedInWith }, imap.el, smtp.el, field("User name", username));
     const advanced = h("button", { class: "ml-link", type: "button", hidden: !!existing }, "Server settings");
     advanced.addEventListener("click", () => {
       servers.hidden = !servers.hidden;
@@ -79,6 +114,24 @@ export function accountSheet(existing: Account | null, colors: string[], openUrl
         return swatch;
       }));
 
+    // Signing in on the provider's own page.
+    const providerButton = (provider: SignInProvider, label: string) => {
+      const button = h("button", { class: `btn ml-signin ml-signin-${provider}`, type: "button" }, h("span", { class: "ml-signin-mark" }, SIGN_IN[provider].mark), label);
+      button.addEventListener("click", () => void signIn(provider));
+      return button;
+    };
+    const providers = existing ? null : h("div", { class: "ml-signins" },
+      h("div", { class: "ml-signin-row" }, providerButton("google", "Sign in with Google"), providerButton("microsoft", "Sign in with Microsoft")),
+      h("div", { class: "ml-or" }, h("span", null, "or with a password")));
+    const signedIn = signedInWith ? h("div", { class: "ml-signed" },
+      h("span", { class: "ml-signin-mark" }, SIGN_IN[signedInWith].mark),
+      h("span", { class: "ml-signed-text" }, `Signed in with ${SIGN_IN[signedInWith].name}`),
+      (() => {
+        const again = h("button", { class: "btn small", type: "button" }, "Sign In Again");
+        again.addEventListener("click", () => void signIn(signedInWith));
+        return again;
+      })()) : null;
+
     const cancel = h("button", { class: "btn ghost", type: "button", onclick: () => finish(false) }, "Cancel");
     const save = h("button", { class: "btn primary", type: "submit" }, existing ? "Save" : "Add Account");
     const remove = existing ? h("button", { class: "btn ghost ml-remove", type: "button" }, icon("trash", 14), "Remove Account…") : null;
@@ -98,17 +151,19 @@ export function accountSheet(existing: Account | null, colors: string[], openUrl
     });
 
     const form = h("form", { class: "ml-account-form", novalidate: true },
+      providers,
       field("Name", name, "Shown to the people you write to."),
       field("Email address", email),
-      field("Password", h("div", { class: "ml-password" }, password, show)),
+      signedIn ?? field("Password", h("div", { class: "ml-password" }, password, show)),
       note, advanced, servers,
       existing ? field("Colour", swatches) : null,
       existing ? field("Signature", signature) : null,
       error);
+    const foot = h("div", { class: "modal-foot" }, remove, h("span", { class: "ops-spacer" }), cancel, save);
+    const body = h("div", { class: "modal-body" }, form);
     const card = h("div", { class: "modal ml-account-sheet", role: "dialog", "aria-modal": "true", "aria-label": existing ? "Account settings" : "Add an email account" },
-      h("div", { class: "modal-head" }, h("div", null, h("h2", null, existing ? existing.email : "Add an email account"), h("p", { class: "setup-summary" }, existing ? "Account settings" : "Gmail, iCloud, Yahoo, Fastmail, or any address with IMAP."))),
-      h("div", { class: "modal-body" }, form),
-      h("div", { class: "modal-foot" }, remove, h("span", { class: "ops-spacer" }), cancel, save));
+      h("div", { class: "modal-head" }, h("div", null, h("h2", null, existing ? existing.email : "Add an email account"), h("p", { class: "setup-summary" }, existing ? "Account settings" : "Gmail, Outlook, iCloud, Yahoo, Fastmail, or any address with IMAP."))),
+      body, foot);
     save.setAttribute("form", "ml-account-form");
     form.id = "ml-account-form";
     const overlay = h("div", { class: "modal-overlay ml-overlay" }, card);
@@ -120,7 +175,7 @@ export function accountSheet(existing: Account | null, colors: string[], openUrl
       }
     });
     document.body.append(overlay);
-    (existing ? name : name.value ? email : name).focus();
+    name.focus();
 
     function finish(changed: boolean) {
       if (busy) return;
@@ -132,6 +187,98 @@ export function accountSheet(existing: Account | null, colors: string[], openUrl
     function fail(message: string) {
       error.hidden = false;
       error.textContent = message;
+    }
+
+    /** Back to the form from the sign-in's own panels. */
+    function showForm() {
+      body.replaceChildren(form);
+      foot.hidden = false;
+    }
+
+    /** The one-time setup of a provider's client ID; resolves true once one is kept. */
+    function clientSetup(provider: SignInProvider): Promise<boolean> {
+      return new Promise((done) => {
+        const info = SIGN_IN[provider];
+        const id = h("input", { class: "ml-input", type: "text", spellcheck: "false", autocomplete: "off", placeholder: provider === "google" ? "…apps.googleusercontent.com" : "00000000-0000-0000-0000-000000000000", value: provider === "google" ? oauth?.googleId ?? "" : oauth?.microsoftId ?? "" });
+        const secret = h("input", { class: "ml-input", type: "password", spellcheck: "false", autocomplete: "off", placeholder: oauth?.googleSecret ? "Unchanged" : "GOCSPX-…" });
+        const problem = h("p", { class: "ml-error", role: "alert", hidden: true });
+        const open = h("button", { class: "ml-link", type: "button" }, info.consoleLabel, icon("external", 12));
+        open.addEventListener("click", () => openUrl(info.console));
+        const back = h("button", { class: "btn ghost", type: "button" }, "Back");
+        const keep = h("button", { class: "btn primary", type: "submit" }, "Save and Sign In");
+        const panel = h("form", { class: "ml-account-form ml-client", novalidate: true },
+          h("div", { class: "ml-note" }, icon("info", 15), h("div", null,
+            h("strong", null, `Set up ${info.name} sign-in (once)`),
+            h("p", null, `${info.name} only signs people in to an app it knows. Register Zazabor with your own ${info.name} account and enter what it gives you:`))),
+          h("ol", { class: "ml-steps" }, ...info.steps.map((step) => h("li", null, step))),
+          open,
+          field("Client ID", id),
+          provider === "google" ? field("Client secret", secret, "For a desktop app this only names the app; it is kept on this computer.") : null,
+          h("p", { class: "ml-hint" }, info.note),
+          problem,
+          h("div", { class: "ml-client-foot" }, h("span", { class: "ops-spacer" }), back, keep));
+        back.addEventListener("click", () => {
+          showForm();
+          done(false);
+        });
+        panel.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          problem.hidden = true;
+          if (!id.value.trim()) {
+            problem.hidden = false;
+            problem.textContent = "Enter the client ID.";
+            return;
+          }
+          try {
+            oauth = await mailApi.oauthClient(provider, id.value.trim(), secret.value.trim());
+            done(true);
+          } catch (err) {
+            problem.hidden = false;
+            problem.textContent = String(err);
+          }
+        });
+        foot.hidden = true;
+        body.replaceChildren(panel);
+        id.focus();
+      });
+    }
+
+    /** Signs in on the provider's page, in the browser, and adds (or signs in again) the account. */
+    async function signIn(provider: SignInProvider) {
+      if (busy) return;
+      error.hidden = true;
+      const info = SIGN_IN[provider];
+      try {
+        oauth = oauth ?? (await mailApi.oauthState());
+      } catch (err) {
+        return fail(String(err));
+      }
+      if (!oauth[provider] && !(await clientSetup(provider))) return;
+      busy = true;
+      const stop = h("button", { class: "btn", type: "button" }, "Cancel");
+      stop.addEventListener("click", () => void mailApi.oauthCancel());
+      foot.hidden = true;
+      body.replaceChildren(h("div", { class: "ml-waiting" },
+        h("span", { class: "spinner large" }),
+        h("h3", null, `Finish signing in with ${info.name} in your browser`),
+        h("p", null, `Your browser opened ${info.name}'s sign-in page. Zazabor never sees your password; it is only allowed to read and send your mail.`),
+        stop));
+      stop.focus();
+      try {
+        const done = await mailApi.oauthSignIn(provider, name.value.trim(), existing?.id);
+        busy = false;
+        notify(done.warning ?? `${done.account.email} is signed in`);
+        finish(true);
+      } catch (err) {
+        busy = false;
+        showForm();
+        const message = String(err);
+        if (!/cancelled/i.test(message)) fail(message);
+        // A client ID the provider turned down can be corrected.
+        if (/client ID/i.test(message)) void clientSetup(provider).then((kept) => {
+          if (kept) void signIn(provider);
+        });
+      }
     }
 
     function showNote(s: Setup) {
@@ -172,7 +319,12 @@ export function accountSheet(existing: Account | null, colors: string[], openUrl
       error.hidden = true;
       const address = email.value.trim();
       if (!address.includes("@")) return fail("Enter your email address.");
-      if (!existing && !password.value) return fail("Enter the password.");
+      if (!existing && !password.value) {
+        // Microsoft takes no password at all: its sign-in is the way in.
+        const found = await discover();
+        if (found?.signIn === "microsoft") return void signIn("microsoft");
+        return fail(found?.signIn === "google" ? "Enter an app password, or use Sign in with Google above." : "Enter the password.");
+      }
       busy = true;
       overlay.classList.add("busy");
       save.disabled = true;
@@ -196,7 +348,7 @@ export function accountSheet(existing: Account | null, colors: string[], openUrl
         save.disabled = false;
         cancel.disabled = false;
         save.textContent = existing ? "Save" : "Add Account";
-        servers.hidden = false;
+        if (!signedInWith) servers.hidden = false;
         fail(String(err instanceof Error ? err.message : err));
       }
     });

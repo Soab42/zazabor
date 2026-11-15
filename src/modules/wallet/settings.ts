@@ -5,6 +5,7 @@ import { h } from "../../ui/dom";
 import { icon } from "../../ui/icons";
 import { errorText, walletApi, type Backup, type Earnings, type WalletState } from "./api";
 import { confirmDialog } from "../time/dialog";
+import { devicesRow } from "./devices";
 import { money, plain, setCurrencies, thisMonth } from "./format";
 
 /**
@@ -44,6 +45,8 @@ export function walletCategory(host: { readonly config: Config; configChanged():
   const backupList = h("div", { class: "st-wallet-backups" });
   const backupNow = h("button", { class: "btn small", type: "button", onclick: () => void walletApi.backupNow().then(load, fail) }, icon("download", 13), "Back Up Now");
   const backupRow = wide("Backups", "A copy of the ledger is kept each day (the last 14), and one before every restore.", h("div", { class: "st-inline st-wallet-backup-box" }, backupList, backupNow));
+
+  const devices = devicesRow((err) => fail(err));
 
   function fail(err: unknown) {
     note.textContent = errorText(err);
@@ -96,6 +99,7 @@ export function walletCategory(host: { readonly config: Config; configChanged():
     }
     drawRates();
     drawBackups();
+    void devices.load();
   }
 
   return {
@@ -104,6 +108,7 @@ export function walletCategory(host: { readonly config: Config; configChanged():
       { title: "Display", rows: [hideRow, baseRow] },
       { title: "Statements", rows: [autoRow] },
       { title: "Earnings", rows: [ratesRow] },
+      { title: "Devices", rows: [devices.row] },
       { title: "Data", rows: [backupRow, { label: "", el: note }] },
     ],
     refresh: () => {

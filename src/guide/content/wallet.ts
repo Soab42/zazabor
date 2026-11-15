@@ -28,6 +28,7 @@ export const wallet: GuideArticle = {
         ["Ctrl+E", "New transaction"],
         ["Ctrl+F", "Search transactions"],
         ["Ctrl+H", "Hide amounts (for sharing your screen)"],
+        ["Alt+C", "The calculator: floats over Wallet, drag it by its bar; Insert puts the answer in the amount you were typing"],
       ],
     },
     {
@@ -45,6 +46,37 @@ export const wallet: GuideArticle = {
         "Open **Bills** and press **New Bill**: rent, DESCO, Netflix, or income like a salary.",
         "Choose how often it repeats, and whether it posts by itself or only reminds you.",
         "A reminder shows as unpaid until you press **Mark Paid**. If Zazabor was closed for a while, missed periods catch up when it opens.",
+        "Or turn on **Repeat it** at the bottom of any new spending, income or transfer: pick how often, and with **Auto pay** on it posts by itself from the next date.",
+        "Choose **Transfer** to move money between your own accounts on a schedule, like savings each payday. Or right-click a transfer in Transactions and choose **Repeat…**.",
+      ],
+    },
+    {
+      title: "Loans and DPS",
+      steps: [
+        "Open **Loans & DPS** and press **New Loan** or **New DPS**. Type the amount, the yearly rate, the months, the first installment's date and the account it's paid from.",
+        "For a loan, set the day it was lent (interest runs from it) and how interest is charged. **By the day** works on what's still owed for the actual days, over 365, as banks do. **By the month** and **Flat** are also offered.",
+        "The table is worked out from what you really paid. Each payment covers the interest due first, then what's owed. A payment too small for the interest leaves the rest as **Unpaid interest**, which the next payment covers first.",
+        "Press **Add Payment**, or **Pay** on a row. A payment can pay one installment, several at once (set how many), or be a part payment of none. Two part payments can make up one installment.",
+        "Already paying a loan? Press **Paste Statement** and paste the statement's rows, from the bank's page or a spreadsheet. Each row becomes a payment already made, with the interest the bank charged. These are recorded only: no money moves in Wallet, and the loan account opens at what's still owed.",
+        "Pick any payment to change its day, amount or account, or type the interest the bank's statement shows. Every row after it is worked out again, and so are the transactions it posted.",
+        "With **Pay it by itself** on, each installment moves from your account on its date. A loan's interest is booked as spending in **Loan interest**.",
+        "A loan doesn't count in your total balance unless you turn on **Count in the total balance**. Every account has the same switch in its settings.",
+      ],
+    },
+    {
+      title: "Credit cards",
+      steps: [
+        "Edit a card account to set its credit limit, the day its statement closes and the day payment is due.",
+        "Its card in **Accounts** shows what's available, what's due on the last statement and by when. **Pay Bill** moves the amount due from your bank.",
+        "Right-click the card and choose **Pay it by itself each month…**: an automatic transfer on the due day of whatever the statement left owing (nothing when it's already paid).",
+      ],
+    },
+    {
+      title: "Lent and borrowed",
+      steps: [
+        "Open **Lent & Borrowed** and press **Add Person**, then **Lend** or **Borrow**: a transfer between them and your cash or bank.",
+        "Each person shows whether they owe you or you owe them, and how much. **Got Paid Back** and **Pay Back** fill in what's owed; change the amount for a part payment.",
+        "None of it is spending or income: your accounts move, and what's owed stays with the person until it's settled.",
       ],
     },
     {

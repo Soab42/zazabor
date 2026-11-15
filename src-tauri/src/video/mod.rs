@@ -351,6 +351,12 @@ fn open(path: String, max_width: u32, max_height: u32, start_at: i64) -> Result<
             let option = CString::new(format!(":start-time={:.3}", start_at as f64 / 1000.0)).expect("digits");
             vlc::libvlc_media_add_option(media, option.as_ptr());
         }
+        // A cast may carry options for its address (a separate audio stream, low network caching).
+        for option in crate::cast::media_options(&path) {
+            if let Ok(option) = CString::new(option) {
+                vlc::libvlc_media_add_option(media, option.as_ptr());
+            }
+        }
         let handle = vlc::libvlc_media_player_new_from_media(media);
         vlc::libvlc_media_release(media);
         if handle.is_null() {
@@ -415,6 +421,86 @@ pub async fn video_open(app: AppHandle, window: tauri::Window, path: String, max
     *lock_ignore_poison(&OWNER) = window.label().to_string();
     start_worker(app);
     blocking(move || open(path, max_width, max_height, start_at)).await
+}
+
+/// Playback control for the cast receiver (`crate::cast`): the same as the commands below, called
+/// from Rust when a phone pauses, seeks or changes the volume.
+pub(crate) mod control {
+    use super::*;
+
+    pub fn state() -> PlaybackState {
+        snapshot()
+    }
+
+    /// The address or path playing (or loading), if any.
+    pub fn path(state: &PlaybackState) -> Option<&str> {
+        state.path.as_deref()
+    }
+
+    pub fn is_playing(state: &PlaybackState) -> bool {
+        state.playing
+    }
+
+    pub fn ended(state: &PlaybackState) -> bool {
+        state.ended
+    }
+
+    pub fn error(state: &PlaybackState) -> Option<&str> {
+        state.error.as_deref()
+    }
+
+    /// (time, length) in milliseconds.
+    pub fn position(state: &PlaybackState) -> (i64, i64) {
+        (state.time, state.length)
+    }
+
+    /// (volume 0–2, muted).
+    pub fn volume(state: &PlaybackState) -> (f64, bool) {
+        (state.volume, state.muted)
+    }
+
+    pub fn set_paused(paused: bool) {
+        with_player(|p| {
+            // SAFETY: see with_player.
+            unsafe { vlc::libvlc_media_player_set_pause(p, paused as c_int) }
+        });
+        wake();
+    }
+
+    pub fn seek(time: i64) {
+        with_player(|p| {
+            // SAFETY: see with_player.
+            unsafe { vlc::libvlc_media_player_set_time(p, time.max(0)) }
+        });
+        wake();
+    }
+
+    pub fn set_volume(volume: f64) {
+        let value = (volume * 100.0).round().clamp(0.0, 200.0) as u32;
+        VOLUME.store(value, Ordering::Relaxed);
+        with_player(|p| {
+            // SAFETY: see with_player.
+            unsafe { vlc::libvlc_audio_set_volume(p, value as c_int) }
+        });
+        wake();
+    }
+
+    pub fn set_muted(muted: bool) {
+        MUTED.store(muted, Ordering::Relaxed);
+        with_player(|p| {
+            // SAFETY: see with_player.
+            unsafe { vlc::libvlc_audio_set_mute(p, muted as c_int) }
+        });
+        wake();
+    }
+
+    /// Stops and unloads only if `path` is still what plays (the user may have moved on).
+    pub fn stop_if(path: &str) {
+        let current = lock_ignore_poison(&PLAYER).as_ref().map(|p| p.path.clone());
+        if current.as_deref() == Some(path) {
+            stop_player();
+        }
+    }
 }
 
 #[tauri::command]

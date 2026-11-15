@@ -4,6 +4,7 @@ import { basename, h } from "../ui/dom";
 import { icon, type IconName } from "../ui/icons";
 import { CONVERT_PROFILES } from "../modules/video/media-api";
 import { openShortcuts } from "../modules/video/features/hotkeys";
+import { openReceiverDialog } from "../modules/video/features/receiver/dialog";
 import { profilesPanel } from "../modules/video/features/profiles/ui";
 import { mediaSettings, notifyMediaSettings, type MediaSettings } from "../modules/video/features/profiles/settings";
 import "../modules/video/features/open/media.css";
@@ -224,6 +225,7 @@ const PAGES: Page[] = [
       {
         title: "Casting",
         fields: [
+          { kind: "button", label: "Cast to this PC", info: "Lets phones on the same Wi-Fi play videos and music here, or show their screen, from VLC, YouTube and other apps, as on a smart TV.", text: "Set Up…", run: () => openReceiverDialog({ config: hostRef.config, saveConfig: () => hostRef.configChanged() }) },
           { kind: "toggle", key: "castMenu", label: "Show Stream to Device in menus", info: "Adds the option to send a video to a TV or speaker to the player's menus." },
         ],
       },

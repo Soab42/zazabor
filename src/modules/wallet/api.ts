@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 /** Mirrors `src-tauri/src/wallet/`. Amounts are integers in minor units (poisha, cents). */
-export type AccountKind = "cash" | "bank" | "mobile_wallet" | "card" | "savings";
+export type AccountKind = "cash" | "bank" | "mobile_wallet" | "card" | "savings" | "dps" | "loan" | "person" | "fdr";
 export type TxKind = "expense" | "income" | "transfer";
 
 export interface Currency {
@@ -21,12 +21,31 @@ export interface Account {
   color: string;
   archived: boolean;
   position: number;
+  /** Counts in the total balance and net worth (a loan doesn't by default). */
+  inTotal: boolean;
+  /** A card: its credit limit. */
+  creditLimitMinor: number | null;
+  /** A card: the day its statement closes (0: not set). */
+  statementDay: number;
+  /** A card: the day its payment is due (0: not set). */
+  dueDay: number;
+  details: AccountDetails;
   /** In the account's currency. */
   balanceMinor: number;
   /** In the base currency at the latest rate; null without a rate. */
   balanceBaseMinor: number | null;
   txCount: number;
   lastDate: string | null;
+}
+
+/** Optional details: the bank (or issuer, provider) and branch, the number (a card: its last
+ * four digits), a phone (a mobile wallet's, a person's) and a note. */
+export interface AccountDetails {
+  institution: string;
+  branch: string;
+  number: string;
+  phone: string;
+  note: string;
 }
 
 export interface Category {
@@ -79,6 +98,8 @@ export interface Tx {
   recurringId: string | null;
   /** The import that added it. */
   importBatch: string | null;
+  /** The DPS or loan it pays (changed in Loans & DPS). */
+  planId: string | null;
 }
 
 export interface Filter {
@@ -157,8 +178,12 @@ export type Freq = "daily" | "weekly" | "monthly" | "yearly";
 
 export interface Bill {
   id: string;
-  kind: "expense" | "income";
+  /** A transfer moves money to another of your accounts. */
+  kind: "expense" | "income" | "transfer";
   accountId: string;
+  toAccountId: string | null;
+  /** "statement": pays what's due on a card's statement. */
+  amountMode: "fixed" | "statement";
   currency: string;
   /** Unsigned, in the account's currency. */
   amountMinor: number;
@@ -184,8 +209,10 @@ export interface Bill {
 
 export interface BillInput {
   id?: string | null;
-  kind: "expense" | "income";
+  kind: "expense" | "income" | "transfer";
   accountId: string;
+  toAccountId?: string | null;
+  amountMode?: "fixed" | "statement";
   amount: string;
   categoryId: string | null;
   payee: string;
@@ -198,6 +225,202 @@ export interface BillInput {
   autoPost: boolean;
   subscription: boolean;
   remindDays: number;
+}
+
+/** A DPS or a loan: an account with terms and the payments made on it. */
+export interface Plan {
+  id: string;
+  kind: "dps" | "loan";
+  accountId: string;
+  name: string;
+  color: string;
+  currency: string;
+  /** A DPS: the deposit each month. A loan: the amount borrowed. */
+  amountMinor: number;
+  /** Yearly rate in hundredths of a percent. */
+  rateBp: number;
+  months: number;
+  startDate: string;
+  /** "daily": by the day on what's owed (as banks do); "reducing": by the month; "flat". */
+  method: "daily" | "reducing" | "flat";
+  paymentTyped: number | null;
+  maturityTyped: number | null;
+  paidBefore: number;
+  payFrom: string;
+  autoPost: boolean;
+  disburseDate: string;
+  disburseTo: string | null;
+  inTotal: boolean;
+  paymentMinor: number;
+  /** A loan: interest paid and still to pay. A DPS: the interest at maturity. */
+  interestMinor: number;
+  /** A loan: everything paid back. A DPS: the value at maturity. */
+  totalMinor: number;
+  installments: number;
+  paid: number;
+  nextNo: number | null;
+  nextDate: string | null;
+  overdue: number;
+  endDate: string;
+  /** A loan: still owed. A DPS: its value now. */
+  outstandingMinor: number;
+  unpaidInterestMinor: number;
+  paidMinor: number;
+  interestPaidMinor: number;
+  balanceMinor: number;
+}
+
+export interface PlanRow {
+  kind: "before" | "payment" | "missed" | "due" | "upcoming";
+  /** The first installment it pays (null: a part payment). */
+  no: number | null;
+  count: number;
+  date: string;
+  paymentMinor: number;
+  /** A loan: the principal part. A DPS: deposited so far. */
+  principalMinor: number;
+  /** A loan: the interest part. A DPS: interest earned so far. */
+  interestMinor: number;
+  /** A loan: still owed. A DPS: its value. */
+  balanceMinor: number;
+  unpaidInterestMinor: number;
+  paymentId: string | null;
+  fromAccount: string | null;
+  interestTyped: number | null;
+  note: string;
+  transferId: string | null;
+  /** The money moved in Wallet (false: recorded only, paid before). */
+  posted: boolean;
+}
+
+export interface PlanDetail {
+  plan: Plan;
+  rows: PlanRow[];
+}
+
+export interface PlanInput {
+  id?: string | null;
+  kind: "dps" | "loan";
+  name: string;
+  color: string;
+  amount: string;
+  rate: string;
+  months: number;
+  startDate: string;
+  method: Plan["method"];
+  payment?: string | null;
+  maturity?: string | null;
+  paidBefore: number;
+  payFrom: string;
+  autoPost: boolean;
+  disburseTo?: string | null;
+  disburseDate?: string | null;
+  inTotal?: boolean | null;
+  details?: AccountDetails | null;
+}
+
+export interface PaymentInput {
+  id?: string | null;
+  planId: string;
+  date: string;
+  amount: string;
+  /** The first installment it pays; null for a part payment. */
+  no: number | null;
+  count: number;
+  /** A loan: the interest the bank charged, as typed; empty to work it out. */
+  interest?: string | null;
+  fromAccount?: string | null;
+  note: string;
+  /** Moves the money in Wallet; off for one paid before, kept only for the table. */
+  posted: boolean;
+}
+
+/** A fixed deposit and its interest payments. */
+export interface Fdr {
+  id: string;
+  accountId: string;
+  name: string;
+  color: string;
+  currency: string;
+  principalMinor: number;
+  rateBp: number;
+  months: number;
+  startDate: string;
+  payout: "monthly" | "quarterly" | "halfyearly" | "yearly" | "maturity";
+  /** Source tax in hundredths of a percent. */
+  taxBp: number;
+  /** Where the interest goes; null: it stays in the FDR. */
+  interestTo: string | null;
+  fundedFrom: string | null;
+  autoPost: boolean;
+  inTotal: boolean;
+  maturityDate: string;
+  maturityValueMinor: number;
+  interestMinor: number;
+  taxMinor: number;
+  netMinor: number;
+  receivedMinor: number;
+  payments: number;
+  posted: number;
+  nextDate: string | null;
+  nextNetMinor: number | null;
+  overdue: number;
+  matured: boolean;
+  balanceMinor: number;
+}
+
+export interface FdrRow {
+  no: number;
+  date: string;
+  interestMinor: number;
+  taxMinor: number;
+  netMinor: number;
+  valueMinor: number;
+  kind: "posted" | "due" | "upcoming";
+  postedOn: string | null;
+  transferId: string | null;
+}
+
+export interface FdrDetail {
+  fdr: Fdr;
+  rows: FdrRow[];
+}
+
+export interface FdrInput {
+  id?: string | null;
+  name: string;
+  color: string;
+  currency?: string | null;
+  amount: string;
+  rate: string;
+  months: number;
+  startDate: string;
+  payout: Fdr["payout"];
+  tax: string;
+  interestTo: string | null;
+  fundedFrom: string | null;
+  autoPost: boolean;
+  inTotal?: boolean | null;
+  details?: AccountDetails | null;
+}
+
+/** What a pasted statement held. */
+export interface StatementImport {
+  found: number;
+  added: number;
+  disburseDate: string | null;
+  first: string | null;
+  last: string | null;
+  outstandingMinor: number | null;
+  detail: PlanDetail | null;
+}
+
+export interface PlanPreview {
+  paymentMinor: number;
+  interestMinor: number;
+  totalMinor: number;
+  installments: number;
+  endDate: string;
 }
 
 export interface Receipt {
@@ -330,6 +553,28 @@ export interface AccountInput {
   opening: string;
   color: string;
   rate?: string | null;
+  inTotal?: boolean | null;
+  creditLimit?: string | null;
+  statementDay?: number | null;
+  dueDay?: number | null;
+  /** Without it, the details stay as they were. */
+  details?: AccountDetails | null;
+}
+
+/** A credit card's limit and statement. */
+export interface CardStatus {
+  accountId: string;
+  limitMinor: number | null;
+  usedMinor: number;
+  availableMinor: number | null;
+  statementDate: string | null;
+  /** Owed when the last statement closed. */
+  statementMinor: number;
+  paidSinceMinor: number;
+  /** Still to pay on it. */
+  dueMinor: number;
+  dueDate: string | null;
+  nextStatement: string | null;
 }
 
 export interface CategoryInput {
@@ -340,6 +585,32 @@ export interface CategoryInput {
   icon: string;
   color: string;
 }
+
+/** Another device this ledger syncs with (`sync_net.rs`). */
+export interface SyncPeer {
+  id: string;
+  name: string;
+  /** "desktop": this side calls it (the phone); "phone": it calls this side (the desktop). */
+  kind: "desktop" | "phone";
+  address: string;
+  /** Milliseconds since the epoch; 0 when never. */
+  lastSync: number;
+}
+
+export interface SyncInfo {
+  device: string;
+  name: string;
+  peers: SyncPeer[];
+  /** The port the desktop listens on, once a phone is paired. */
+  listening: number | null;
+}
+
+export interface SyncOutcome {
+  sent: number;
+  received: number;
+  peer: string;
+}
+
 
 export const walletApi = {
   state: () => invoke<WalletState>("wallet_state"),
@@ -363,6 +634,13 @@ export const walletApi = {
   months: (last: string, count: number) => invoke<MonthTotals[]>("wallet_months", { last, count }),
   backups: () => invoke<Backup[]>("wallet_backups"),
   backupNow: () => invoke<void>("wallet_backup_now"),
+  syncInfo: () => invoke<SyncInfo>("wallet_sync_info"),
+  syncInvite: () => invoke<{ code: string; svg: string }>("wallet_sync_invite"),
+  syncCancelInvite: () => invoke<void>("wallet_sync_cancel_invite"),
+  syncJoin: (code: string) => invoke<SyncOutcome>("wallet_sync_join", { code }),
+  /** One result per paired computer: an outcome, or the problem as text. */
+  syncNow: () => invoke<({ Ok: SyncOutcome } | { Err: string })[]>("wallet_sync_now"),
+  syncForget: (id: string) => invoke<void>("wallet_sync_forget", { id }),
   restore: (name: string) => invoke<void>("wallet_backup_restore", { name }),
   archiveCategory: (id: string, archived: boolean) => invoke<void>("wallet_category_archive", { id, archived }),
   setRollover: (month: string, categoryId: string, on: boolean) => invoke<void>("wallet_budget_rollover", { month, categoryId, on }),
@@ -372,6 +650,20 @@ export const walletApi = {
   deleteBill: (id: string) => invoke<void>("wallet_bill_delete", { id }),
   payBill: (id: string, date: string | null, today: string) => invoke<Tx>("wallet_bill_pay", { id, date, today }),
   skipBill: (id: string, today: string) => invoke<void>("wallet_bill_skip", { id, today }),
+  cards: (today: string) => invoke<CardStatus[]>("wallet_cards", { today }),
+  plans: (today: string) => invoke<Plan[]>("wallet_plans", { today }),
+  plan: (id: string, today: string) => invoke<PlanDetail>("wallet_plan", { id, today }),
+  planPreview: (plan: PlanInput) => invoke<PlanPreview>("wallet_plan_preview", { plan }),
+  savePlan: (plan: PlanInput, today: string) => invoke<PlanDetail>("wallet_plan_save", { plan, today }),
+  payPlan: (id: string, no: number, date: string | null, today: string) => invoke<PlanDetail>("wallet_plan_pay", { id, no, date, today }),
+  deletePlan: (id: string) => invoke<void>("wallet_plan_delete", { id }),
+  savePayment: (payment: PaymentInput, today: string) => invoke<PlanDetail>("wallet_plan_payment_save", { payment, today }),
+  importStatement: (id: string, text: string, byDay: boolean, apply: boolean, today: string) => invoke<StatementImport>("wallet_plan_import", { id, text, byDay, apply, today }),
+  fdrs: (today: string) => invoke<FdrDetail[]>("wallet_fdrs", { today }),
+  saveFdr: (fdr: FdrInput, today: string) => invoke<FdrDetail>("wallet_fdr_save", { fdr, today }),
+  receiveFdr: (id: string, no: number, date: string | null, today: string) => invoke<FdrDetail>("wallet_fdr_receive", { id, no, date, today }),
+  deleteFdr: (id: string) => invoke<void>("wallet_fdr_delete", { id }),
+  deletePayment: (id: string, today: string) => invoke<PlanDetail>("wallet_plan_payment_delete", { id, today }),
   receipts: (transactionId: string) => invoke<Receipt[]>("wallet_receipts", { transactionId }),
   attach: (transactionId: string, paths: string[]) => invoke<Receipt[]>("wallet_receipt_attach", { transactionId, paths }),
   removeReceipt: (id: string) => invoke<void>("wallet_receipt_remove", { id }),

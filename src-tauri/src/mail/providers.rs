@@ -21,6 +21,8 @@ pub struct Setup {
     /// What to know before signing in (an app password is needed, and where to make one).
     pub note: String,
     pub help_url: String,
+    /// The provider has a sign-in of its own that Zazabor can use: "google", "microsoft" or "".
+    pub sign_in: String,
     /// The servers are a guess: show them to be checked.
     pub guessed: bool,
 }
@@ -43,7 +45,7 @@ const KNOWN: &[Known] = &[
         mx: &["google.com", "googlemail.com"],
         imap: ("imap.gmail.com", 993, "ssl"),
         smtp: ("smtp.gmail.com", 465, "ssl"),
-        note: "Google wants an app password here, not your usual one: turn on 2-Step Verification, then make an app password for Zazabor.",
+        note: "Sign in with Google above. With a password instead, Google wants an app password, not your usual one: turn on 2-Step Verification, then make one for Zazabor.",
         help_url: "https://myaccount.google.com/apppasswords",
     },
     Known {
@@ -52,8 +54,8 @@ const KNOWN: &[Known] = &[
         mx: &["outlook.com", "protection.outlook.com"],
         imap: ("outlook.office365.com", 993, "ssl"),
         smtp: ("smtp-mail.outlook.com", 587, "starttls"),
-        note: "Microsoft only lets mail apps in through its own sign-in page now, which Zazabor doesn't do yet. A work account may still take an app password, if your administrator allows it.",
-        help_url: "https://account.live.com/proofs/AppPassword",
+        note: "Sign in with Microsoft above: Microsoft no longer takes a password from mail apps.",
+        help_url: "",
     },
     Known {
         name: "Yahoo Mail",
@@ -141,6 +143,12 @@ fn of(known: &Known, email: &str) -> Setup {
         username: email.into(),
         note: known.note.into(),
         help_url: known.help_url.into(),
+        sign_in: match known.name {
+            "Gmail" => "google",
+            "Outlook" => "microsoft",
+            _ => "",
+        }
+        .into(),
         guessed: false,
     }
 }
@@ -210,6 +218,7 @@ fn parse_autoconfig(xml: &str, email: &str) -> Option<Setup> {
         username,
         note: String::new(),
         help_url: String::new(),
+        sign_in: String::new(),
         guessed: false,
     })
 }
@@ -287,6 +296,7 @@ pub fn discover(email: &str) -> Setup {
         username: email.into(),
         note: String::new(),
         help_url: String::new(),
+        sign_in: String::new(),
         guessed: true,
     }
 }
@@ -301,6 +311,7 @@ mod tests {
         assert_eq!((setup.provider.as_str(), setup.imap.host.as_str(), setup.imap.port), ("Gmail", "imap.gmail.com", 993));
         assert_eq!((setup.smtp.host.as_str(), setup.smtp.security.as_str()), ("smtp.gmail.com", "ssl"));
         assert!(!setup.guessed && setup.note.contains("app password"));
+        assert_eq!((setup.sign_in.as_str(), discover("x@hotmail.com").sign_in.as_str(), discover("x@icloud.com").sign_in.as_str()), ("google", "microsoft", ""));
         assert_eq!(discover("x@icloud.com").smtp, Server { host: "smtp.mail.me.com".into(), port: 587, security: "starttls".into() });
     }
 

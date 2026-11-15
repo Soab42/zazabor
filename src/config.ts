@@ -93,6 +93,7 @@ export interface Config {
   clipboard: ClipboardSettings;
   apps: AppsSettings;
   mail: MailSettings;
+  phone: PhoneSettings;
   studio: StudioSettings;
   guide: GuideSettings;
   updates: UpdateSettings;
@@ -122,6 +123,12 @@ export interface MailSettings {
   collapsed: string[];
   /** The list pane's width in pixels. */
   listWidth: number;
+  /** New mail shows a desktop notification. */
+  notify: boolean;
+  /** The sidebar of mailboxes is folded away. */
+  sideFolded: boolean;
+  /** The list folds away while a conversation is open (it reads full width). */
+  listFolded: boolean;
 }
 
 function normalizeMail(raw: Partial<MailSettings> | undefined): MailSettings {
@@ -131,6 +138,39 @@ function normalizeMail(raw: Partial<MailSettings> | undefined): MailSettings {
     images: raw?.images === "always" ? "always" : "ask",
     collapsed: Array.isArray(raw?.collapsed) ? raw.collapsed.filter((id) => typeof id === "string").slice(0, 50) : [],
     listWidth: Number.isFinite(width) ? Math.min(620, Math.max(280, Math.round(width))) : 380,
+    notify: raw?.notify !== false,
+    sideFolded: raw?.sideFolded === true,
+    listFolded: raw?.listFolded === true,
+  };
+}
+
+/** The Phone section (src/modules/phone); the pairings and the phones' data live in the backend (phonelink/). */
+export interface PhoneSettings {
+  /** The Wi-Fi link listens and advertises this PC to Zazabor Link. */
+  enabled: boolean;
+  /** Calls go through this PC over Bluetooth (Zazabor is the phone's hands-free). */
+  calls: boolean;
+  /** Where files from the phone go; empty means ~/Downloads/Zazabor Link. */
+  downloadDir: string;
+  /** New texts show a desktop notification. */
+  notify: boolean;
+  /** The phone's notifications show on the desktop too. */
+  mirrorNotifs: boolean;
+  /** The clipboard is shared with the phone. */
+  clip: boolean;
+  /** The phone the section shows (its phoneId); empty: the first one. */
+  active: string;
+}
+
+function normalizePhone(raw: Partial<PhoneSettings> | undefined): PhoneSettings {
+  return {
+    enabled: raw?.enabled === true,
+    calls: raw?.calls === true,
+    downloadDir: typeof raw?.downloadDir === "string" ? raw.downloadDir.slice(0, 4096) : "",
+    notify: raw?.notify !== false,
+    mirrorNotifs: raw?.mirrorNotifs !== false,
+    clip: raw?.clip === true,
+    active: typeof raw?.active === "string" && /^[0-9a-f]{0,64}$/i.test(raw.active) ? raw.active : "",
   };
 }
 
@@ -366,6 +406,7 @@ const DEFAULTS: Config = {
   clipboard: structuredClone(DEFAULT_CLIPBOARD),
   apps: normalizeApps(undefined),
   mail: normalizeMail(undefined),
+  phone: normalizePhone(undefined),
   studio: structuredClone(DEFAULT_STUDIO),
   guide: { last: null },
   updates: { auto: true, skipped: null },
@@ -407,6 +448,7 @@ export function parseConfig(raw: string): Config {
     clipboard: normalizeClipboard(parsed.clipboard),
     apps: normalizeApps(parsed.apps),
     mail: normalizeMail(parsed.mail),
+    phone: normalizePhone(parsed.phone),
     studio: normalizeStudio(parsed.studio),
     guide: normalizeGuide(parsed.guide),
     updates: normalizeUpdates(parsed.updates),

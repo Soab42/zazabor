@@ -38,6 +38,7 @@ const paths = {
   eyeOff: `<path d="M4 4l16 16M9.9 5.8A9.8 9.8 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.6 3.4M6.6 6.9C4.1 8.6 2.5 12 2.5 12s3.5 6.5 9.5 6.5a9.6 9.6 0 0 0 4.6-1.2"/><path d="M10 10.1a2.75 2.75 0 0 0 3.9 3.9"/>`,
   grid: `<rect x="4" y="4" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1"/>`,
   home: `<path d="M4 10.5L12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5H15v-6h-6v6H5.5A1.5 1.5 0 0 1 4 19z"/>`,
+  cast: `<path d="M3.5 9V6.3a1.8 1.8 0 0 1 1.8-1.8h13.4a1.8 1.8 0 0 1 1.8 1.8v11.4a1.8 1.8 0 0 1-1.8 1.8H13"/><path d="M3.5 12.5a7 7 0 0 1 7 7M3.5 16a3.5 3.5 0 0 1 3.5 3.5"/><circle cx="4" cy="19.2" r="0.6"/>`,
   desktop: `<rect x="3.5" y="4.5" width="17" height="11.5" rx="1.8"/><path d="M9 20h6M12 16v4"/>`,
   document: `<path d="M7 3.5h7l4.5 4.5v11a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5z"/><path d="M13.5 3.5V8.5h5M8.5 12.5h7M8.5 16h5"/>`,
   file: `<path d="M7 3.5h7l4.5 4.5v11a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5z"/><path d="M13.5 3.5V8.5h5"/>`,
@@ -175,6 +176,7 @@ const paths = {
   alignTop: `<path d="M4.5 4.5h15M12 8v11.5M8.5 11.5L12 8l3.5 3.5"/>`,
   alignMiddle: `<path d="M4.5 12h15M12 3.5v5M12 15.5v5M9.5 6.5L12 9l2.5-2.5M9.5 17.5L12 15l2.5 2.5"/>`,
   alignBottom: `<path d="M4.5 19.5h15M12 4.5V16M8.5 12.5L12 16l3.5-3.5"/>`,
+  calculator: `<rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M8.5 7h7v3h-7zM8.5 13.5h.01M12 13.5h.01M15.5 13.5h.01M8.5 17h.01M12 17h.01M15.5 17h.01"/>`,
   numbers: `<path d="M10 6.5h10M10 12h10M10 17.5h10M4.5 5l1.5-1v5M4.2 12.3c.3-.7 1-1.1 1.7-.9.9.3 1.1 1.4.4 2L4.3 15.5h2.4M4.3 17h2.2l-1.2 1.3c.9 0 1.5.5 1.4 1.2-.2.9-1.5 1.2-2.4.6"/>`,
   indent: `<path d="M10 6h10M10 10h10M10 14h10M10 18h10M4 9l3 3-3 3"/>`,
   outdent: `<path d="M10 6h10M10 10h10M10 14h10M10 18h10M7 9l-3 3 3 3"/>`,
@@ -310,6 +312,21 @@ const paths = {
   recMicOff: `<path d="M9 9v2a3 3 0 0 0 5.1 2.1M15 10.5V6.5a3 3 0 0 0-5.7-1.3M5.5 11.5a6.5 6.5 0 0 0 10.6 5M18.3 13a6.5 6.5 0 0 0 .2-1.5M12 18v2.5M8.5 20.5h7M4 4l16 16"/>`,
   recCamera: `<rect x="3.5" y="6.5" width="12" height="11" rx="2"/><path d="M15.5 10.5l5-3v9l-5-3"/>`,
   recSystem: `<path d="M4.5 9.5h3l4-3.5v12l-4-3.5h-3z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>`,
+  // ---- Phone (add its icons below this line)
+  call: `<path d="M6.6 4h2.6l1.4 4-1.9 1.3a10.5 10.5 0 0 0 5.9 5.9l1.3-1.9 4 1.4v2.6a2 2 0 0 1-2.2 2A16 16 0 0 1 4.6 6.2 2 2 0 0 1 6.6 4z"/>`,
+  callEnd: `<g transform="rotate(135 12 12)"><path d="M6.6 4h2.6l1.4 4-1.9 1.3a10.5 10.5 0 0 0 5.9 5.9l1.3-1.9 4 1.4v2.6a2 2 0 0 1-2.2 2A16 16 0 0 1 4.6 6.2 2 2 0 0 1 6.6 4z"/></g>`,
+  callIn: `<path d="M6.6 4h2.6l1.4 4-1.9 1.3a10.5 10.5 0 0 0 5.9 5.9l1.3-1.9 4 1.4v2.6a2 2 0 0 1-2.2 2A16 16 0 0 1 4.6 6.2 2 2 0 0 1 6.6 4z"/><path d="M20.5 3.5l-5 5M15.5 4.5v4h4"/>`,
+  callOut: `<path d="M6.6 4h2.6l1.4 4-1.9 1.3a10.5 10.5 0 0 0 5.9 5.9l1.3-1.9 4 1.4v2.6a2 2 0 0 1-2.2 2A16 16 0 0 1 4.6 6.2 2 2 0 0 1 6.6 4z"/><path d="M15.5 8.5l5-5M16.5 3.5h4v4"/>`,
+  callMissed: `<path d="M6.6 4h2.6l1.4 4-1.9 1.3a10.5 10.5 0 0 0 5.9 5.9l1.3-1.9 4 1.4v2.6a2 2 0 0 1-2.2 2A16 16 0 0 1 4.6 6.2 2 2 0 0 1 6.6 4z"/><path d="M15.5 3.5l5 5M20.5 3.5l-5 5"/>`,
+  message: `<path d="M5 5h14a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 19 17h-8.5L6 20.5V17H5a1.5 1.5 0 0 1-1.5-1.5v-9A1.5 1.5 0 0 1 5 5z"/><path d="M8 10h8M8 13h5"/>`,
+  dialpad: `<circle cx="7" cy="5" r="1.3" fill="currentColor" stroke="none"/><circle cx="12" cy="5" r="1.3" fill="currentColor" stroke="none"/><circle cx="17" cy="5" r="1.3" fill="currentColor" stroke="none"/><circle cx="7" cy="10" r="1.3" fill="currentColor" stroke="none"/><circle cx="12" cy="10" r="1.3" fill="currentColor" stroke="none"/><circle cx="17" cy="10" r="1.3" fill="currentColor" stroke="none"/><circle cx="7" cy="15" r="1.3" fill="currentColor" stroke="none"/><circle cx="12" cy="15" r="1.3" fill="currentColor" stroke="none"/><circle cx="17" cy="15" r="1.3" fill="currentColor" stroke="none"/><circle cx="12" cy="20" r="1.3" fill="currentColor" stroke="none"/>`,
+  bluetooth: `<path d="M7 7.5l10 9-5 4.5v-18l5 4.5-10 9"/>`,
+  wifi: `<path d="M3.5 9.5a12 12 0 0 1 17 0M6.5 12.8a7.5 7.5 0 0 1 11 0M9.5 16a3 3 0 0 1 5 0"/><circle cx="12" cy="19" r=".9" fill="currentColor"/>`,
+  bell: `<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>`,
+  bellRing: `<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/><path d="M3.5 8.5A8 8 0 0 1 6 4M20.5 8.5A8 8 0 0 0 18 4"/>`,
+  upload: `<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M5 19.5h14"/>`,
+  user: `<circle cx="12" cy="8.5" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/>`,
+  backspace: `<path d="M9 5.5h10a1.5 1.5 0 0 1 1.5 1.5v10a1.5 1.5 0 0 1-1.5 1.5H9L3.5 12z"/><path d="M11.5 9.5l5 5M16.5 9.5l-5 5"/>`,
 } as const;
 
 export type IconName = keyof typeof paths;

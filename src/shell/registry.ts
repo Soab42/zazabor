@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { watchMailStatus } from "../modules/mail/status";
+import { watchPhoneStatus } from "../modules/phone/status";
 import { watchTimeStatus } from "../modules/time/status";
 import { notesApi } from "../notes/api";
 import type { IconName } from "../ui/icons";
@@ -95,6 +96,13 @@ export const MODULES: Record<ModuleId, ModuleMeta> = {
     blurb: "All your email accounts in one inbox: read, search and answer, with each account's folders beside it.",
     load: async () => (await import("../modules/mail")).createMailModule,
     status: watchMailStatus,
+  },
+  phone: {
+    title: "Phone",
+    icon: "phone",
+    blurb: "Your Android phone on this PC, like Phone Link: texts, calls, photos, files and notifications, and its screen.",
+    load: async () => (await import("../modules/phone")).createPhoneModule,
+    status: watchPhoneStatus,
   },
   apps: {
     title: "Apps",
