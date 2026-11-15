@@ -69,3 +69,62 @@ html.phone .wl-overview-top, html.phone .wl-overview-grid, html.phone .wl-report
 html.phone .wl-tiles-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 html.phone .wl-bill { grid-template-columns: auto minmax(0, 1fr) auto auto auto; }
 html.phone .wl-bill-year { display: none; }
+
+/* ---- cards that ran out of room on a phone (checked on a 393 px wide phone with a real ledger) */
+
+/* Nothing on a page scrolls sideways; anything too wide is fixed below rather than scrolled to. */
+html.phone .wl-scroll { overflow-x: clip; }
+
+/* Three tiles side by side (Overview's income, spending and kept; Bills; Lent & Borrowed) leave
+   about 100 px for a figure like ৳2,25,980.67. On a phone each is a row: label and notes on the
+   left, the figure on the right. The four-tile sets keep two columns, which fit. */
+html.phone .wl-tiles:not(.wl-tiles-4) { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+html.phone .wl-tiles:not(.wl-tiles-4) > .wl-tile {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 14px; row-gap: 2px;
+}
+html.phone .wl-tiles:not(.wl-tiles-4) > .wl-tile > * { grid-column: 1; min-width: 0; }
+html.phone .wl-tiles:not(.wl-tiles-4) > .wl-tile > .wl-stat-value {
+  grid-column: 2; grid-row: 1 / span 4; text-align: right; font-size: var(--text-xl, 22px);
+}
+html.phone .wl-stat-value { white-space: nowrap; }
+html.phone .wl-tiles-4 .wl-stat-value { font-size: var(--text-xl, 22px); }
+
+/* Budgets: the month's spending on its own line, budgeted and left side by side under it. */
+html.phone .wl-budget-total { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+html.phone .wl-budget-total > :first-child { grid-column: 1 / -1; }
+
+/* A view's buttons (Bills: the filter, New Salary, New Bill) wrap instead of running off the
+   edge; the filter takes its own line and scrolls if it must. */
+html.phone .wl-view-actions { flex-wrap: wrap; }
+html.phone .wl-view-actions .segmented { flex: 1 1 100%; }
+html.phone .segmented { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+html.phone .segmented::-webkit-scrollbar { display: none; }
+html.phone .segmented button { flex: none; white-space: nowrap; }
+
+/* Bills: name and schedule on the left with the room they need; amount and next date on the
+   right; Mark Paid (when it shows) on a line of its own. */
+html.phone .wl-bill { grid-template-columns: auto minmax(0, 1fr) auto auto; column-gap: 10px; row-gap: 2px; }
+html.phone .wl-bill > :first-child { grid-column: 1; grid-row: 1 / span 2; }
+html.phone .wl-bill > .wl-bill-text { grid-column: 2; grid-row: 1 / span 2; }
+html.phone .wl-bill > .wl-tx-amount { grid-column: 3; grid-row: 1; justify-self: end; }
+html.phone .wl-bill > .wl-bill-due { grid-column: 3; grid-row: 2; }
+html.phone .wl-bill > .btn { grid-column: 2 / span 2; grid-row: 3; justify-self: end; margin-top: 4px; }
+html.phone .wl-bill > .icon-btn { grid-column: 4; grid-row: 1 / span 2; }
+
+/* Lent & Borrowed: name, what's owed and the menu on the first line; the buttons under them. */
+html.phone .wl-person { grid-template-columns: auto minmax(0, 1fr) auto auto; column-gap: 10px; row-gap: 8px; }
+html.phone .wl-person > :first-child { grid-column: 1; grid-row: 1; }
+html.phone .wl-person > .wl-bill-text { grid-column: 2; grid-row: 1; }
+html.phone .wl-person > .wl-bill-due { grid-column: 3; grid-row: 1; }
+html.phone .wl-person > .icon-btn { grid-column: 4; grid-row: 1; }
+html.phone .wl-person > .wl-person-actions { grid-column: 2 / -1; grid-row: 2; }
+
+/* Transactions: the account is already in the line under the payee, so its pill goes. */
+html.phone .wl-tx .wl-acc-pill { display: none; }
+
+/* ---- the calculator: a bar a finger can hold, and keys a finger can hit */
+html.phone .wl-calc-bar { height: 46px; }
+html.phone .wl-calc-key { height: 44px; font-size: 17px; }
+
+/* Bills: a long name pushes the Subscription badge onto its own line instead of clipping it. */
+html.phone .wl-bill-name { flex-wrap: wrap; row-gap: 2px; white-space: normal; }
