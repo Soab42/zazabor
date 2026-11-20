@@ -687,6 +687,10 @@ pub struct Tx {
     pub import_batch: Option<String>,
     /// The DPS or loan it pays (changed in Loans & DPS, not here).
     pub plan_id: Option<String>,
+    /// In a list, the balance just after it, as on a bank statement: the account's (its
+    /// currency) when the list is one account's, else everything counted in the total (base
+    /// currency). None for a row that changes no balance shown.
+    pub balance_minor: Option<i64>,
 }
 
 const TX_SELECT: &str = "SELECT t.id, t.account_id, a.currency, t.date, t.amount_minor, t.base_minor, t.rate_micro, t.category_id,
@@ -719,6 +723,7 @@ fn tx_row(r: &Row) -> rusqlite::Result<Tx> {
         recurring_id: r.get(15)?,
         import_batch: r.get(16)?,
         plan_id: r.get(17)?,
+        balance_minor: None,
     })
 }
 
@@ -748,6 +753,9 @@ pub struct TxPage {
     /// between your own accounts count as neither).
     pub income_minor: i64,
     pub spending_minor: i64,
+    /// The balance before the span starts and at its end (see `Tx::balance_minor`).
+    pub opening_balance_minor: i64,
+    pub closing_balance_minor: i64,
 }
 
 fn filter_sql(f: &Filter) -> (String, Vec<Value>) {
@@ -784,16 +792,88 @@ pub fn list(conn: &Connection, f: &Filter) -> Result<TxPage> {
     let (clause, values) = filter_sql(f);
     let limit = f.limit.unwrap_or(100).clamp(1, 1000);
     let offset = f.offset.unwrap_or(0).max(0);
-    let sql = format!("{TX_SELECT} WHERE {clause} ORDER BY t.date DESC, t.created DESC LIMIT {limit} OFFSET {offset}");
+    let sql = format!("{TX_SELECT} WHERE {clause} ORDER BY {STATEMENT_ORDER_DESC} LIMIT {limit} OFFSET {offset}");
     let mut stmt = conn.prepare(&sql).map_err(db_err)?;
-    let items = stmt.query_map(params_from_iter(values.iter()), tx_row).map_err(db_err)?.collect::<std::result::Result<Vec<_>, _>>().map_err(db_err)?;
+    let mut items = stmt.query_map(params_from_iter(values.iter()), tx_row).map_err(db_err)?.collect::<std::result::Result<Vec<_>, _>>().map_err(db_err)?;
+    let (opening_balance_minor, closing_balance_minor) = running_balances(conn, f, &mut items)?;
     let sums = format!(
         "SELECT COUNT(*), COALESCE(SUM(CASE WHEN {TX_KIND} = 'income' THEN t.base_minor END), 0), COALESCE(-SUM(CASE WHEN {TX_KIND} = 'expense' THEN t.base_minor END), 0)
            FROM transactions t JOIN accounts a ON a.id = t.account_id LEFT JOIN categories c ON c.id = t.category_id WHERE {clause}"
     );
     let (total, income_minor, spending_minor) =
         conn.query_row(&sums, params_from_iter(values.iter()), |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).map_err(db_err)?;
-    Ok(TxPage { items, total, income_minor, spending_minor })
+    Ok(TxPage { items, total, income_minor, spending_minor, opening_balance_minor, closing_balance_minor })
+}
+
+/// The order a statement reads in, oldest first. A transfer's rows (both sides and its fee) sit
+/// together, so across all accounts they move the total as one.
+const STATEMENT_ORDER: &str = "t.date, t.created, COALESCE(t.transfer_id, t.id), t.id";
+const STATEMENT_ORDER_DESC: &str = "t.date DESC, t.created DESC, COALESCE(t.transfer_id, t.id) DESC, t.id DESC";
+
+/// Fills in each row's balance after it, and returns the balance before the filter's span and
+/// at its end. One account's list uses that account's balance; any other list, the total of the
+/// accounts counted in it (in the base currency, opening balances at the latest rate, as on
+/// Overview). The balances are the real ones: a search or a category narrows the rows, not
+/// what they add up to.
+fn running_balances(conn: &Connection, f: &Filter, items: &mut [Tx]) -> Result<(i64, i64)> {
+    let (scope, amount, opening, value) = match &f.account_id {
+        Some(id) => ("t.account_id = ?1", "t.amount_minor", account(conn, id)?.opening_minor, Value::Text(id.clone())),
+        None => {
+            let mut opening = 0i64;
+            for a in accounts(conn)?.into_iter().filter(|a| a.in_total) {
+                if let Some(rate) = rate_of(conn, &a.currency)? {
+                    opening += money::to_base(a.opening_minor, &a.currency, rate);
+                }
+            }
+            ("a.in_total = 1 AND ?1 IS NULL", "t.base_minor", opening, Value::Null)
+        }
+    };
+    // The balance after every row before `date` ("<") or up to it ("<="); no date, all of them.
+    let sum_until = |op: &str, date: Option<&String>| -> Result<i64> {
+        let (cut, date) = match date.filter(|d| valid_date(d)) {
+            Some(d) => (format!("t.date {op} ?2"), Value::Text(d.clone())),
+            None if op == "<" => return Ok(opening),
+            None => ("?2 IS NULL".to_string(), Value::Null),
+        };
+        conn.query_row(
+            &format!("SELECT COALESCE(SUM({amount}), 0) FROM transactions t JOIN accounts a ON a.id = t.account_id WHERE {scope} AND {cut}"),
+            params![value, date],
+            |r| r.get::<_, i64>(0),
+        )
+        .map(|sum| opening + sum)
+        .map_err(db_err)
+    };
+    let before = sum_until("<", f.from.as_ref())?;
+    let after = sum_until("<=", f.to.as_ref())?;
+    if items.is_empty() {
+        return Ok((before, after));
+    }
+    // Only the rows from the page's oldest day on need a running sum; what came before is one SUM.
+    let oldest = items.iter().map(|t| t.date.as_str()).min().unwrap_or_default().to_string();
+    let start = sum_until("<", Some(&oldest))?;
+    // One account: row by row. All accounts: a transfer's rows are peers (RANGE), so each shows
+    // the total after the whole transfer, and the row shown for it (its outgoing side) finds it
+    // by the transfer's id even when that side's account isn't counted.
+    let (frame, key) = if f.account_id.is_some() {
+        (format!("ORDER BY {STATEMENT_ORDER} ROWS UNBOUNDED PRECEDING"), "t.id")
+    } else {
+        ("ORDER BY t.date, t.created, COALESCE(t.transfer_id, t.id) RANGE UNBOUNDED PRECEDING".to_string(), "COALESCE(t.transfer_id, t.id)")
+    };
+    let sql = format!(
+        "SELECT {key}, SUM({amount}) OVER ({frame}) FROM transactions t JOIN accounts a ON a.id = t.account_id
+          WHERE {scope} AND t.date >= ?2 ORDER BY {STATEMENT_ORDER}"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(db_err)?;
+    let mut after_row: HashMap<String, i64> = HashMap::new();
+    for row in stmt.query_map(params![value, oldest], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))).map_err(db_err)? {
+        let (k, run) = row.map_err(db_err)?;
+        after_row.insert(k, start + run);
+    }
+    for t in items.iter_mut() {
+        let k = if f.account_id.is_some() { &t.id } else { t.transfer_id.as_ref().unwrap_or(&t.id) };
+        t.balance_minor = after_row.get(k).copied();
+    }
+    Ok((before, after))
 }
 
 pub fn tx(conn: &Connection, id: &str) -> Result<Tx> {
@@ -1374,6 +1454,39 @@ pub mod tests {
         assert_eq!(delete_txs(&mut conn, &[one]).unwrap(), 2);
         assert_eq!(account(&conn, &cash).unwrap().balance_minor, 0);
         assert!(save_tx(&conn, TxInput { id: None, kind: "expense".into(), account_id: cash.clone(), amount: "0".into(), date: "2026-10-02".into(), category_id: None, payee: "".into(), note: "".into() }, 7).is_err());
+    }
+
+    #[test]
+    fn a_list_reads_like_a_statement() {
+        let mut conn = fresh();
+        let cash = accounts(&conn).unwrap()[0].id.clone();
+        let bkash = add_account(&conn, "bKash", "mobile_wallet", "BDT", None);
+        let income = |account: &str, amount: &str, date: &str| {
+            save_tx(&conn, TxInput { id: None, kind: "income".into(), account_id: account.into(), amount: amount.into(), date: date.into(), category_id: Some(cat(&conn, "Salary")), payee: "".into(), note: "".into() }, 4).unwrap()
+        };
+        income(&bkash, "5000", "2026-09-30");
+        save_transfer(&mut conn, TransferInput { transfer_id: None, from: bkash.clone(), to: cash.clone(), amount: "1000".into(), received: None, fee: Some("20".into()), date: "2026-10-02".into(), note: "".into() }, 5).unwrap();
+        spend(&conn, &cash, "250", "2026-10-03", "Eating out");
+        spend(&conn, &cash, "100", "2026-10-04", "Groceries");
+
+        // One account: its balance after each row, newest first.
+        let page = list(&conn, &Filter { account_id: Some(cash.clone()), from: Some("2026-10-01".into()), ..Default::default() }).unwrap();
+        let balances: Vec<Option<i64>> = page.items.iter().map(|t| t.balance_minor).collect();
+        assert_eq!(balances, vec![Some(65_000), Some(75_000), Some(100_000)]);
+        assert_eq!((page.opening_balance_minor, page.closing_balance_minor), (0, 65_000));
+        // A narrower list still shows the real balances.
+        let groceries = list(&conn, &Filter { account_id: Some(cash.clone()), category_id: Some(cat(&conn, "Groceries")), ..Default::default() }).unwrap();
+        assert_eq!(groceries.items[0].balance_minor, page.items.iter().find(|t| t.id == groceries.items[0].id).unwrap().balance_minor);
+
+        // Every account: the total, where a transfer moves only its fee.
+        let all = list(&conn, &Filter::default()).unwrap();
+        let by_kind = |kind: &str| all.items.iter().find(|t| t.kind == kind && t.amount_minor < 0).unwrap().balance_minor;
+        assert_eq!(by_kind("transfer"), Some(500_000 - 2_000));
+        assert_eq!(all.items.last().unwrap().balance_minor, Some(500_000));
+        assert_eq!(all.items[0].balance_minor, Some(500_000 - 2_000 - 35_000));
+        assert_eq!((all.opening_balance_minor, all.closing_balance_minor), (0, 463_000));
+        let october = list(&conn, &Filter { from: Some("2026-10-01".into()), to: Some("2026-10-02".into()), ..Default::default() }).unwrap();
+        assert_eq!((october.opening_balance_minor, october.closing_balance_minor), (500_000, 498_000));
     }
 
     #[test]

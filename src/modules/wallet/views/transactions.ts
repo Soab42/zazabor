@@ -5,7 +5,7 @@ import { confirmDialog } from "../../time/dialog";
 import { DateTimeField, popover } from "../../time/pickers";
 import { errorText, walletApi, type Filter, type Tx, type TxKind } from "../api";
 import { accountOf, categoryName, categoryOf, fmt, type Ctx } from "../ctx";
-import { addMonths, dateKey, dayLabel, monthEnd, monthStart, parseDate, plain, thisMonth, todayKey } from "../format";
+import { addMonths, dateKey, monthEnd, monthStart, parseDate, plain, shortDate, thisMonth, todayKey } from "../format";
 import { categoryGlyph, chip } from "../sheets";
 import { dropTarget } from "../drops";
 import { attachReceipts, pickReceipts } from "../receipts";
@@ -18,8 +18,10 @@ type Period = "month" | "last-month" | "3-months" | "year" | "all" | "custom";
 const PERIODS: [Period, string][] = [["month", "This month"], ["last-month", "Last month"], ["3-months", "Last 3 months"], ["year", "This year"], ["all", "All time"], ["custom", "Custom…"]];
 
 /**
- * Every transaction, newest first, grouped by day with each day's total. Filters for the span,
- * account, category and kind, and a search; click to select (Ctrl and Shift for more), and the
+ * Every transaction, newest first, laid out like a bank statement: date, what it was, money out,
+ * money in and the balance after it, between the span's closing and opening balances. One
+ * account's list shows that account's balance; any other, the total of the accounts counted in
+ * it. Filters for the span, account, category and kind, and a search; click to select (Ctrl and Shift for more), and the
  * selection's sum shows at the bottom. Double-click or Enter edits; right-click for more.
  */
 export function transactionsView(ctx: Ctx) {
@@ -30,6 +32,7 @@ export function transactionsView(ctx: Ctx) {
   let items: Tx[] = [];
   let total = 0;
   let sums = { income: 0, spending: 0 };
+  let balances = { opening: 0, closing: 0 };
   const selected = new Set<string>();
   let anchor: string | null = null;
   let loading = 0;
@@ -114,6 +117,7 @@ export function transactionsView(ctx: Ctx) {
       items = append ? [...items, ...page.items] : page.items;
       total = page.total;
       sums = { income: page.incomeMinor, spending: page.spendingMinor };
+      balances = { opening: page.openingBalanceMinor, closing: page.closingBalanceMinor };
       if (!append) for (const id of [...selected]) if (!items.some((t) => t.id === id)) selected.delete(id);
     } catch (err) {
       ctx.toast(errorText(err));
@@ -137,6 +141,15 @@ export function transactionsView(ctx: Ctx) {
     return t.payee || categoryName(ctx, t.categoryId);
   }
 
+  /** The currency the balances are in: the account's, or the base. */
+  function balanceCurrency(): string | undefined {
+    return accountId ? accountOf(ctx, accountId)?.currency : undefined;
+  }
+
+  function balanceCell(minor: number | null | undefined): HTMLElement {
+    return h("span", { class: `wl-st-bal${minor != null && minor < 0 ? " negative" : ""}` }, minor == null ? "" : fmt(ctx, minor, balanceCurrency()));
+  }
+
   function row(t: Tx): HTMLElement {
     const cat = categoryOf(ctx, t.categoryId);
     const acc = accountOf(ctx, t.accountId);
@@ -144,19 +157,25 @@ export function transactionsView(ctx: Ctx) {
     const sub = t.kind === "transfer"
       ? [t.note].filter(Boolean)
       : [t.payee ? categoryName(ctx, t.categoryId, true) : null, acc?.name, t.note].filter(Boolean);
-    const amount = transferWithoutSide ? fmt(ctx, -t.amountMinor, t.currency) : fmt(ctx, t.amountMinor, t.currency, { signed: true });
+    // Across all accounts a transfer is neither in nor out; it shows as leaving its account.
+    const out = transferWithoutSide || t.amountMinor < 0;
+    const amount = fmt(ctx, Math.abs(t.amountMinor), t.currency);
+    const tone = t.kind === "transfer" ? "move" : out ? "out" : "in";
     const el = h("div", {
       class: `wl-tx${selected.has(t.id) ? " selected" : ""} ${t.kind}`, role: "option", "aria-selected": String(selected.has(t.id)), tabindex: -1, "data-id": t.id,
     },
+    h("span", { class: "wl-st-date" }, shortDate(t.date)),
     t.kind === "transfer" ? chip("transfer", "gray") : chip(categoryGlyph(cat?.icon), cat?.color ?? "gray"),
     h("div", { class: "wl-tx-text" },
       h("span", { class: "wl-tx-title", title: title(t) }, title(t)),
-      sub.length ? h("span", { class: "wl-tx-sub", title: sub.join(" · ") }, sub.join(" · ")) : null),
+      h("span", { class: "wl-tx-sub", title: sub.join(" · ") }, h("span", { class: "wl-tx-when" }, shortDate(t.date), sub.length ? " · " : ""), sub.join(" · "))),
     h("span", { class: "wl-tx-marks" },
       t.recurringId ? h("span", { class: "wl-tx-mark", title: "Posted by a bill" }, icon("repeat", 13)) : null,
       t.receipts ? h("span", { class: "wl-tx-mark", title: `${t.receipts} receipt${t.receipts === 1 ? "" : "s"}` }, icon("paperclip", 13), t.receipts > 1 ? String(t.receipts) : null) : null),
-    acc && !accountId && t.kind !== "transfer" ? h("span", { class: `wl-acc-pill wl-c-${acc.color}` }, acc.name) : null,
-    h("span", { class: `wl-tx-amount ${t.kind === "income" ? "in" : t.kind === "transfer" ? "move" : "out"}` }, amount));
+    acc && !accountId && t.kind !== "transfer" ? h("span", { class: `wl-acc-pill wl-c-${acc.color}` }, acc.name) : h("span"),
+    h("span", { class: `wl-tx-amount wl-st-money ${tone}` }, out ? amount : ""),
+    h("span", { class: `wl-tx-amount wl-st-money ${tone}` }, out ? "" : amount),
+    balanceCell(t.balanceMinor));
     el.addEventListener("click", (e) => select(t.id, e.ctrlKey || e.metaKey, e.shiftKey));
     el.addEventListener("dblclick", () => ctx.openTx(t));
     el.addEventListener("contextmenu", (e) => {
@@ -181,28 +200,27 @@ export function transactionsView(ctx: Ctx) {
     if (!txs.length) {
       list.replaceChildren(empty());
     } else {
-      const groups: HTMLElement[] = [];
-      let day = "";
-      let dayTotal = 0;
-      let head: HTMLElement | null = null;
-      const closeDay = () => head?.append(h("span", { class: "wl-day-total" }, fmt(ctx, dayTotal, undefined, { signed: true })));
-      for (const t of txs) {
-        if (t.date !== day) {
-          closeDay();
-          day = t.date;
-          dayTotal = 0;
-          head = h("div", { class: "wl-day" }, h("span", null, dayLabel(day)));
-          groups.push(head);
-        }
-        if (t.kind !== "transfer") dayTotal += t.baseMinor;
-        groups.push(row(t));
-      }
-      closeDay();
-      list.replaceChildren(...groups);
+      const { from: start, to: end } = span();
+      const head = h("div", { class: "wl-tx wl-st-head", "aria-hidden": "true" },
+        h("span", { class: "wl-st-date" }, "Date"), h("span"), h("span", null, "Description"), h("span"), h("span"),
+        h("span", { class: "wl-st-money" }, "Money out"), h("span", { class: "wl-st-money" }, "Money in"), h("span", { class: "wl-st-bal" }, "Balance"));
+      const rows = [head, edge("Closing balance", end ?? todayKey(), balances.closing), ...txs.map(row)];
+      // The opening balance closes the statement once its oldest row is in.
+      if (items.length >= total) rows.push(edge("Opening balance", start, balances.opening));
+      list.replaceChildren(...rows);
     }
     moreRow.hidden = items.length >= total;
     more.textContent = `Load more (${total - items.length} more)`;
     drawSelection();
+  }
+
+  /** The statement's first and last line: a balance on a date. */
+  function edge(label: string, date: string | null, minor: number): HTMLElement {
+    return h("div", { class: "wl-tx wl-st-edge" },
+      h("span", { class: "wl-st-date" }, date ? shortDate(date) : ""), h("span", { class: "wl-st-edge-icon" }, icon("wallet", 15)),
+      h("div", { class: "wl-tx-text" }, h("span", { class: "wl-tx-title" }, label),
+        h("span", { class: "wl-tx-sub" }, accountId ? accountOf(ctx, accountId)?.name ?? "" : "All accounts in the total")),
+      h("span"), h("span"), h("span"), h("span"), balanceCell(minor));
   }
 
   function empty(): HTMLElement {

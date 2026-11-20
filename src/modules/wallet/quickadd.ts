@@ -8,17 +8,25 @@ import { categoryGlyph, chip } from "./sheets";
 /**
  * The quick-add field: "250 lunch bkash" or "+45000 salary city bank 25 oct". While typing, the
  * guess shows as chips (amount, category, account, day, payee); Enter adds it (with Undo), Tab
- * opens the full form with the guess filled in, Esc clears.
+ * opens the full form with the guess filled in, Esc clears. On a phone, whose keyboard has no
+ * Tab and whose Enter may not arrive as a key, the panel has Add and Full Form buttons, and the
+ * keyboard's action key submits the field's form.
  */
 export function quickAdd(ctx: Ctx) {
   let guess: Guess | null = null;
   let ticket = 0;
   let timer = 0;
-  const input = h("input", { class: "search-input", type: "text", placeholder: "Quick add: 250 lunch bkash", "aria-label": "Quick add a transaction", spellcheck: "false", autocomplete: "off" });
+  const input = h("input", { class: "search-input", type: "text", placeholder: "Quick add: 250 lunch bkash", "aria-label": "Quick add a transaction", spellcheck: "false", autocomplete: "off", autocapitalize: "off", enterkeyhint: "done" });
   const chips = h("div", { class: "wl-quick-chips", "aria-live": "polite" });
+  // Tapping these mustn't take the focus from the field (its blur hides the panel).
+  const keepFocus = (e: Event) => e.preventDefault();
+  const addButton = h("button", { class: "btn small primary", type: "button", onpointerdown: keepFocus, onclick: () => void add() }, icon("plus", 14), "Add");
+  const fullButton = h("button", { class: "btn small", type: "button", onpointerdown: keepFocus, onclick: () => void parse().then(openFull) }, "Full Form…");
   const panel = h("div", { class: "wl-quick-panel glass-strong", hidden: true }, chips,
-    h("div", { class: "wl-quick-hint" }, h("kbd", null, "Enter"), " to add · ", h("kbd", null, "Tab"), " for the full form · ", h("kbd", null, "Esc"), " to clear"));
-  const el = h("div", { class: "wl-quick" }, h("label", { class: "search wl-quick-field" }, icon("plus", 15), input), panel);
+    h("div", { class: "wl-quick-hint" }, h("kbd", null, "Enter"), " to add · ", h("kbd", null, "Tab"), " for the full form · ", h("kbd", null, "Esc"), " to clear"),
+    h("div", { class: "wl-quick-actions" }, fullButton, addButton));
+  const el = h("form", { class: "wl-quick", onsubmit: (e: Event) => (e.preventDefault(), clearTimeout(timer), void add()) },
+    h("label", { class: "search wl-quick-field" }, icon("plus", 15), input), panel);
 
   async function parse() {
     const text = input.value.trim();

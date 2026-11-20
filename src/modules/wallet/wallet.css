@@ -108,6 +108,7 @@
 .wl-qchip.amount { font-size: var(--text-md); font-variant-numeric: tabular-nums; }
 .wl-qchip.amount.in { color: var(--wl-in); }
 .wl-quick-hint { color: var(--faint); font-size: var(--text-xs); }
+.wl-quick-actions { display: none; justify-content: flex-end; gap: 8px; }
 .wl-quick-hint kbd { padding: 1px 5px; border-radius: 4px; background: var(--control-hover); color: var(--text-2); font: inherit; font-weight: 650; }
 .wl-new { display: flex; flex: none; }
 .wl-new > .btn:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); }
@@ -171,13 +172,6 @@
 .wl-summary strong { color: var(--text); font-weight: 650; }
 .wl-tx-list { display: flex; flex-direction: column; border-radius: var(--radius-lg); outline: none; }
 .wl-tx-list:focus-visible { box-shadow: 0 0 0 3px var(--focus); }
-.wl-day {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
-  margin-top: 12px; padding: 8px 12px 6px; color: var(--muted); font-size: var(--text-sm); font-weight: 650;
-  box-shadow: inset 0 -0.5px 0 var(--line);
-}
-.wl-day:first-child { margin-top: 0; }
-.wl-day-total { color: var(--text-2); font-variant-numeric: tabular-nums; }
 .wl-tx {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; align-items: center; gap: 12px;
   min-height: 48px; padding: 6px 12px; border-radius: var(--radius-md); cursor: default; user-select: none;
@@ -195,6 +189,27 @@
 .wl-tx-amount { min-width: 92px; text-align: right; font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .wl-tx-amount.in { color: var(--wl-in); }
 .wl-tx-amount.move { color: var(--text-2); }
+
+/* Transactions as a statement: date, what, money out, money in, the balance after. The money
+   columns have fixed widths so they line up from row to row. */
+.wl-transactions .wl-tx {
+  grid-template-columns: 64px auto minmax(0, 1fr) auto auto 112px 112px 128px;
+  border-radius: 0; box-shadow: inset 0 -0.5px 0 var(--line);
+}
+.wl-transactions .wl-tx:not(.wl-st-head, .wl-st-edge) { border-radius: var(--radius-md); }
+.wl-st-date { color: var(--text-2); font-size: var(--text-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wl-st-money, .wl-st-bal { text-align: right; }
+.wl-st-bal { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text-2); }
+.wl-st-bal.negative { color: var(--danger); }
+.wl-tx-when { display: none; }
+.wl-transactions .wl-tx.wl-st-head {
+  min-height: 32px; padding-top: 0; padding-bottom: 0; color: var(--muted); font-size: var(--text-sm); font-weight: 650;
+}
+.wl-st-head .wl-st-bal, .wl-st-head .wl-st-date { color: inherit; font-weight: inherit; }
+.wl-transactions .wl-tx.wl-st-head:hover, .wl-transactions .wl-tx.wl-st-edge:hover { background: none; }
+.wl-transactions .wl-tx.wl-st-edge { min-height: 44px; background: color-mix(in srgb, var(--text) 3.5%, transparent); }
+.wl-st-edge .wl-st-bal { color: var(--text); font-weight: 700; }
+.wl-st-edge-icon { display: inline-flex; align-items: center; justify-content: center; width: 28px; color: var(--muted); }
 .wl-more { display: flex; justify-content: center; }
 .wl-more[hidden] { display: none; }
 .wl-selection {

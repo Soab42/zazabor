@@ -39,6 +39,10 @@ html.phone .wl-bar > .phone-menu { order: 0; margin-left: -4px; }
 html.phone .phone-break { order: 3; flex-basis: 100%; height: 0; }
 html.phone .wl-month { order: 4; flex: none; }
 html.phone .wl-quick { order: 5; flex: 1 1 0; max-width: none; min-width: 0; margin: 0; }
+/* No Enter, Tab or Esc keys to point at: buttons instead. */
+html.phone .wl-quick-hint { display: none; }
+html.phone .wl-quick-actions { display: flex; }
+html.phone .wl-quick-actions .btn { height: 36px; }
 html.phone .wl-new-more { display: none; }
 html.phone .wl-new > .btn:first-child { border-radius: var(--radius-md); }
 html.phone .wl-new .btn { height: 36px; }
@@ -122,6 +126,20 @@ html.phone .wl-person > .wl-person-actions { grid-column: 2 / -1; grid-row: 2; }
 
 /* Transactions: the account is already in the line under the payee, so its pill goes. */
 html.phone .wl-tx .wl-acc-pill { display: none; }
+
+/* The statement on a phone: no column headings or date column (the date leads the line under
+   the payee); the amount on the right with the balance after it beneath. */
+html.phone .wl-transactions .wl-tx { grid-template-columns: auto minmax(0, 1fr) auto auto; column-gap: 10px; row-gap: 1px; }
+html.phone .wl-transactions .wl-tx.wl-st-head,
+html.phone .wl-transactions .wl-tx > :is(:nth-child(1), :nth-child(5)),
+html.phone .wl-transactions .wl-tx > .wl-st-money:empty { display: none; }
+html.phone .wl-transactions .wl-tx > :nth-child(2) { grid-column: 1; grid-row: 1 / span 2; }
+html.phone .wl-transactions .wl-tx > :nth-child(3) { grid-column: 2; grid-row: 1 / span 2; }
+html.phone .wl-transactions .wl-tx > :nth-child(4) { grid-column: 3; grid-row: 1 / span 2; }
+html.phone .wl-transactions .wl-tx > .wl-st-money { grid-column: 4; grid-row: 1; min-width: 0; align-self: end; }
+html.phone .wl-transactions .wl-tx > .wl-st-bal { grid-column: 4; grid-row: 2; align-self: start; font-size: 11.5px; font-weight: 550; }
+html.phone .wl-transactions .wl-st-edge > .wl-st-bal { grid-row: 1 / span 2; align-self: center; font-size: inherit; font-weight: 700; }
+html.phone .wl-tx-when { display: inline; }
 
 /* ---- the calculator: a bar a finger can hold, and keys a finger can hit */
 html.phone .wl-calc-bar { height: 46px; }

@@ -100,6 +100,9 @@ export interface Tx {
   importBatch: string | null;
   /** The DPS or loan it pays (changed in Loans & DPS). */
   planId: string | null;
+  /** In a list, the balance just after it: the account's when the list is one account's,
+   * else the total (base currency). Null when it moves no balance shown. */
+  balanceMinor?: number | null;
 }
 
 export interface Filter {
@@ -118,6 +121,9 @@ export interface TxPage {
   total: number;
   incomeMinor: number;
   spendingMinor: number;
+  /** The balance before the span starts and at its end. */
+  openingBalanceMinor: number;
+  closingBalanceMinor: number;
 }
 
 export interface TxInput {
