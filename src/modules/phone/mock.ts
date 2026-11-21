@@ -101,6 +101,10 @@ export function createMock(mode: string): PhoneMock {
       { name: "Invoice-2026-11.xlsx", path: "/storage/emulated/0/Download/Invoice-2026-11.xlsx", dir: false, size: 48_120, at: now - 3 * day, mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
       { name: "song.mp3", path: "/storage/emulated/0/Download/song.mp3", dir: false, size: 6_120_330, at: now - 9 * day, mime: "audio/mpeg" },
       { name: "wallpaper.png", path: "/storage/emulated/0/Download/wallpaper.png", dir: false, size: 3_400_100, at: now - 12 * day, mime: "image/png" },
+      { name: "Holiday clip.mp4", path: "/storage/emulated/0/Download/Holiday clip.mp4", dir: false, size: 48_300_000, at: now - 4 * day, mime: "video/mp4" },
+      { name: "Receipt scan with a very long file name that wraps onto lines.jpg", path: "/storage/emulated/0/Download/Receipt scan with a very long file name that wraps onto lines.jpg", dir: false, size: 920_000, at: now - 5 * day, mime: "image/jpeg" },
+      { name: "notes.txt", path: "/storage/emulated/0/Download/notes.txt", dir: false, size: 2_100, at: now - 6 * day, mime: "text/plain" },
+      { name: "backup.zip", path: "/storage/emulated/0/Download/backup.zip", dir: false, size: 12_400_000, at: now - 7 * day, mime: "application/zip" },
       { name: "app-release.apk", path: "/storage/emulated/0/Download/app-release.apk", dir: false, size: 24_800_000, at: now - 20 * day, mime: "application/vnd.android.package-archive" },
     ],
     "/storage/emulated/0/Download/Zazabor": [],
@@ -206,6 +210,7 @@ export function createMock(mode: string): PhoneMock {
     },
     phone_notif_action: () => undefined,
     phone_photos: (a) => photos.slice(Number(a.offset), Number(a.offset) + Number(a.limit)),
+    phone_photo_view: (a) => photos.find((p) => p.uri === a.uri)?.thumb ?? null,
     phone_files: (a) => {
       const list = tree[String(a.path)];
       if (!list) {

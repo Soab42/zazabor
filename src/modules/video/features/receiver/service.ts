@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Config } from "../../../../config";
 import type { ShellContext } from "../../../../shell/module";
+import { openPhoneScreenWindow } from "../../../../shell/windows";
 import { h } from "../../../../ui/dom";
 import { icon } from "../../../../ui/icons";
 import { libraryService } from "../../library-api";
@@ -207,7 +208,9 @@ async function incoming(request: PlayRequest) {
 function play(shell: ShellContext, request: PlayRequest) {
   setCasting({ request });
   libraryService()?.remember([{ path: request.url, name: castTitle(request), group: request.sender }]);
-  shell.open({ kind: "video", path: request.url, siblings: [request.url] });
+  // A phone's screen gets a window of its own (portrait, resizable); anything else plays in Video.
+  if (request.source === "mirror") openPhoneScreenWindow(request.url, castTitle(request));
+  else shell.open({ kind: "video", path: request.url, siblings: [request.url] });
   // The library service exists once the Video module is built (it may have just been).
   setTimeout(() => libraryService()?.remember([{ path: request.url, name: castTitle(request), group: request.sender }]), 400);
 }

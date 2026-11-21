@@ -4,7 +4,9 @@ import { open as openDialog } from "../shared/dialog";
 import { clipboardCategory } from "../clipboard/settings";
 import { walletCategory } from "../modules/wallet/settings";
 import { mailCategory } from "../modules/mail/settings";
+import { meetCategory } from "../modules/meet/settings";
 import { phoneCategory } from "../modules/phone/settings";
+import { tvCategory } from "../modules/tv/settings";
 import { photoCategory } from "../modules/studio/photo/settings-page";
 import { pdfCategory } from "../modules/office/pdf/settings";
 import { aiCategory } from "../shared/ai/settings";
@@ -343,6 +345,8 @@ export class Settings {
       walletCategory(this.host),
       mailCategory(this.host),
       phoneCategory(this.host),
+      meetCategory(this.host),
+      tvCategory(this.host),
       pdfCategory(),
       photoCategory(this.host),
       videoEditorCategory(),

@@ -33,8 +33,16 @@ const MAX_PACKET: usize = 8 << 20;
 const MAX_BUFFER: usize = 24 << 20;
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// libVLC options for the stream: as little buffering as the network allows.
-const PLAYER_OPTIONS: [&str; 3] = [":network-caching=150", ":demux=ts", ":clock-jitter=0"];
+/// How long a new reader waits for the key frame it asked the phone for, before it starts from
+/// the one the buffer already has (which can be up to a key frame interval old, and libVLC plays
+/// at 1x, so that age would stay as delay).
+const FRESH_KEY_WAIT: Duration = Duration::from_millis(500);
+
+/// libVLC options for the stream: as little buffering as the network allows. `live-caching` and
+/// `network-caching` both set the input's buffer (the stream is a live http one); `clock-synchro=0`
+/// stops libVLC from re-deriving the clock from the first packets, which is where a late start's
+/// delay would otherwise be kept.
+const PLAYER_OPTIONS: [&str; 5] = [":network-caching=100", ":live-caching=100", ":demux=ts", ":clock-jitter=0", ":clock-synchro=0"];
 
 /// Listens for phones; returns the TCP port.
 pub fn start(generation: u64) -> Result<u16, String> {
@@ -416,6 +424,33 @@ impl Feed {
         self.changed.notify_all();
     }
 
+    /// Moves `reader` to the first key frame that arrived after `since` (a `Feed::end` from when it
+    /// joined), waiting up to `wait` for one. Without one the reader keeps its old start. True if
+    /// it moved.
+    fn restart_at_fresh_key(&self, reader: u64, since: u64, wait: Duration) -> bool {
+        let deadline = Instant::now() + wait;
+        let mut inner = lock(&self.inner);
+        loop {
+            if let Some(key) = inner.key.filter(|&k| k >= since && k >= inner.first) {
+                match inner.readers.iter_mut().find(|r| r.0 == reader) {
+                    Some(slot) => slot.1 = key,
+                    None => return false,
+                }
+                return true;
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if inner.closed || left.is_zero() {
+                return false;
+            }
+            inner = self.changed.wait_timeout(inner, left).unwrap_or_else(|e| e.into_inner()).0;
+        }
+    }
+
+    /// The sequence number the next chunk gets.
+    fn next_seq(&self) -> u64 {
+        lock(&self.inner).end()
+    }
+
     /// A new reader, starting at the latest key frame (or live, if it's gone).
     fn join(&self) -> u64 {
         let mut inner = lock(&self.inner);
@@ -488,8 +523,11 @@ fn serve_player(mut stream: TcpStream, generation: u64) {
         return;
     }
     let _ = stream.set_nodelay(true);
+    let since = feed.next_seq();
     let reader = feed.join();
     feed.want_key.store(true, Ordering::SeqCst);
+    // The picture should be what the phone shows now, not up to a key frame interval ago.
+    feed.restart_at_fresh_key(reader, since, FRESH_KEY_WAIT);
     while super::alive(generation) {
         match feed.next(reader, Duration::from_secs(1)) {
             Ok(chunks) => {
@@ -1159,6 +1197,34 @@ mod tests {
         assert!(feed.next(reader, Duration::ZERO).is_err());
     }
 
+    #[test]
+    fn a_new_reader_waits_for_the_key_frame_it_asked_for() {
+        let feed = Arc::new(Feed::new(1000));
+        feed.push(vec![1; 10], true);
+        feed.push(vec![2; 10], false);
+        let since = feed.next_seq();
+        let reader = feed.join();
+        // No fresh key frame in time: the old one stays the start.
+        assert!(!feed.restart_at_fresh_key(reader, since, Duration::from_millis(30)));
+        // A delta frame is no help; the key frame that follows is the start.
+        let pusher = {
+            let feed = feed.clone();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_millis(50));
+                feed.push(vec![3; 10], false);
+                feed.push(vec![4; 10], true);
+                feed.push(vec![5; 10], false);
+            })
+        };
+        assert!(feed.restart_at_fresh_key(reader, since, Duration::from_secs(5)));
+        pusher.join().unwrap();
+        let got: Vec<u8> = feed.next(reader, Duration::ZERO).unwrap().iter().map(|c| c[0]).collect();
+        assert_eq!(got, [4, 5]);
+        // A reader that already has a key frame newer than `since` moves at once.
+        let late = feed.join();
+        assert!(feed.restart_at_fresh_key(late, since, Duration::ZERO));
+    }
+
     // ---- the protocol, end to end ----
 
     struct Phone {
@@ -1226,7 +1292,7 @@ mod tests {
         let (session, url) = wait_for_session(from, Duration::from_secs(5)).unwrap();
         assert!(url.starts_with("http://127.0.0.1:") && url.ends_with(".ts"));
         let options = super::super::media_options(&url);
-        assert!(options.iter().any(|o| o == ":network-caching=150"));
+        assert_eq!(options, PLAYER_OPTIONS.map(String::from).to_vec(), "the stream plays with the low-latency options");
         {
             let slot = lock(&super::super::SESSION);
             let s = slot.as_ref().unwrap();

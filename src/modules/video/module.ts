@@ -1,4 +1,5 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
+import { closeThisWindow, windowStart } from "../../shell/windows";
 import { open } from "../../shared/dialog";
 import type { AppModule, OpenRequest, ShellContext } from "../../shell/module";
 import { basename, dirname, h, isTypingTarget, stripExtension } from "../../ui/dom";
@@ -74,6 +75,8 @@ export class VideoModule implements AppModule {
   private alone = false;
   private alonePath = "";
   private aloneSidebar = false;
+  /** A phone's screen in its own window (see `showPhoneScreen`). */
+  private phoneScreen = false;
   private readonly aloneCard = h("div", { class: "vp-alone-card", hidden: true });
   private readonly sidebarToggle = h("button", { class: "icon-btn", type: "button", title: "Sidebar", "aria-label": "Sidebar" }, icon("sidebar", 18));
   private readonly stage = h("div", { class: "vp-stage" });
@@ -309,7 +312,7 @@ export class VideoModule implements AppModule {
       openPlayerMenu(e.clientX, e.clientY, this.playerMenu("stage"));
     });
     this.stage.addEventListener("click", (e) => {
-      if (this.view !== "player" || onStageControl(e)) return;
+      if (this.view !== "player" || this.phoneScreen || onStageControl(e)) return;
       // Wait out a possible double click before treating it as play/pause.
       clearTimeout(this.clickTimer);
       this.clickTimer = window.setTimeout(() => this.player.togglePlay(), 220);
@@ -424,6 +427,9 @@ export class VideoModule implements AppModule {
         this.view = "player";
         this.aloneCard.hidden = true;
         if (dirname(current) !== this.sidebar.browsing) void this.sidebar.browse(dirname(current));
+      } else if (this.phoneScreen) {
+        // The phone stopped mirroring, or its screen went to another window: nothing left to show.
+        closeThisWindow();
       } else if (this.alone) {
         // A window for one video stays a player: the video stopped or moved to another window.
         this.uiHidden = false;
@@ -438,7 +444,7 @@ export class VideoModule implements AppModule {
       this.renderRail();
       this.applyView();
       // A window for one video is called after the video playing in it.
-      if (this.alone && current) void getCurrentWindow().setTitle(this.titleEl.textContent || basename(current)).catch(() => undefined);
+      if (this.alone && !this.phoneScreen && current) void getCurrentWindow().setTitle(this.titleEl.textContent || basename(current)).catch(() => undefined);
     }
     this.bar.update();
     // Playing or pausing starts the idle timer or brings the floating controls back.
@@ -727,6 +733,7 @@ export class VideoModule implements AppModule {
   open(request: OpenRequest) {
     if (request.kind !== "video") return;
     if (request.alone) this.showAlone(request.path);
+    if (request.alone && windowStart && "shape" in windowStart && windowStart.shape === "phone") this.showPhoneScreen();
     void this.play(request.path, request.siblings);
   }
 
@@ -740,6 +747,59 @@ export class VideoModule implements AppModule {
       h("div", { class: "vp-alone-title" }, stripExtension(basename(path))),
       h("p", null, "Not playing here. Playback stopped, or this video went to another window."),
       h("button", { class: "btn primary", type: "button", onclick: () => void this.play(this.alonePath) }, icon("play", 15), "Play Here"));
+  }
+
+  /**
+   * This window shows a phone's screen: nothing but the picture, a window that keeps the phone's
+   * shape when resized, and a few controls (pin on top, close) while the pointer is over it.
+   * Closing the window ends the mirror (the player stops with its window).
+   */
+  private showPhoneScreen() {
+    if (this.phoneScreen) return;
+    this.phoneScreen = true;
+    this.el.classList.add("phone-screen");
+    const win = getCurrentWindow();
+    const pin = h("button", { class: "icon-btn", type: "button", title: "Keep on top", "aria-label": "Keep on top" }, icon("pin", 16));
+    let pinned = false;
+    pin.addEventListener("click", () => {
+      pinned = !pinned;
+      pin.classList.toggle("active", pinned);
+      void win.setAlwaysOnTop(pinned).catch(() => undefined);
+    });
+    const close = h("button", { class: "icon-btn", type: "button", title: "Stop mirroring", "aria-label": "Stop mirroring" }, icon("close", 16));
+    close.addEventListener("click", () => closeThisWindow());
+    this.stage.append(h("div", { class: "vp-phone-tools" }, pin, close));
+    // The window follows the picture's shape: once a resize settles, the height is set from the
+    // width (the picture is never stretched; the window is the picture).
+    let settle = 0;
+    let fitted = 0;
+    const fit = async () => {
+      const { videoWidth, videoHeight } = this.player.state;
+      if (!videoWidth || !videoHeight) return;
+      const aspect = videoWidth / videoHeight;
+      const size = await win.innerSize();
+      const scale = window.devicePixelRatio || 1;
+      const width = size.width / scale;
+      const height = size.height / scale;
+      if (Math.abs(width / height - aspect) < 0.01) return;
+      fitted = Date.now();
+      await win.setSize(new LogicalSize(Math.round(width), Math.round(width / aspect)));
+    };
+    window.addEventListener("resize", () => {
+      // The resize our own `setSize` causes is not a new one.
+      if (Date.now() - fitted < 400) return;
+      clearTimeout(settle);
+      settle = window.setTimeout(() => void fit().catch(() => undefined), 350);
+    });
+    // The first picture sets the shape (a phone turned sideways does too).
+    let shape = "";
+    this.player.subscribe(() => {
+      const { videoWidth, videoHeight } = this.player.state;
+      const now = `${videoWidth}x${videoHeight}`;
+      if (!videoWidth || now === shape) return;
+      shape = now;
+      void fit().catch(() => undefined);
+    });
   }
 
   async onLock() {

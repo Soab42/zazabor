@@ -259,6 +259,8 @@ export const phoneApi = {
   notifDismiss: (phoneId: string, key: string) => call<void>("phone_notif_dismiss", { phoneId, key }),
   notifAction: (phoneId: string, key: string, action: number, text?: string) => call<void>("phone_notif_action", { phoneId, key, action, text: text ?? null }),
   photos: (phoneId: string, offset: number, limit: number) => call<Photo[]>("phone_photos", { phoneId, offset, limit }),
+  /** One photo (or a video's frame) at up to `max` px, as a data: URL; null when the phone can't. */
+  photoView: (phoneId: string, uri: string, max: number) => call<string | null>("phone_photo_view", { phoneId, uri, max }),
   files: (phoneId: string, path: string) => call<Entry[]>("phone_files", { phoneId, path }),
   download: (phoneId: string, paths: string[], dest?: string) => call<number[]>("phone_download", { phoneId, paths, dest: dest || null }),
   upload: (phoneId: string, paths: string[], dir?: string) => call<number[]>("phone_upload", { phoneId, paths, dir: dir || null }),

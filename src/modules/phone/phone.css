@@ -6,7 +6,9 @@
 :root { --pl-green: #30c85e; --pl-red: #ff453a; }
 :root[data-theme="light"] { --pl-green: #28b553; --pl-red: #f2382e; }
 
-.phone-module { position: relative; isolation: isolate; display: flex; flex-direction: column; min-width: 0; }
+/* No `position` here: the shell's `.module` (absolute, inset 0) gives the section its height. A
+   `position: relative` let it grow to its content, and then no list inside could scroll. */
+.phone-module { isolation: isolate; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
 
 /* The linked phone's wallpaper: blurred and faint behind the section, so the glass picks up its
    colours; sharp on the phone's card, under a shade that keeps the card's text readable. */
@@ -23,6 +25,17 @@
 
 /* ---- sidebar */
 
+.pl-side-head { flex: none; display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 2px 0 6px; }
+.pl-side-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-lg); font-weight: 700; letter-spacing: var(--text-lg-ls); }
+.pl-side.has-wallpaper .pl-side-head { margin-top: 4px; }
+.pl-side.has-wallpaper .pl-side-fold { color: #fff; background: rgba(0, 0, 0, 0.22); }
+:is(.phone-module.compact, .phone-module.folded) .pl-side-head { justify-content: center; padding: 0; }
+:is(.phone-module.compact, .phone-module.folded) .pl-side-title { display: none; }
+:is(.phone-module.compact, .phone-module.folded) .pl-card.has-wallpaper { min-height: 0; }
+/* In a narrow window the sidebar is folded anyway: the button would do nothing. */
+.phone-module.compact .pl-side-fold { display: none; }
+.pl-side { transition: width var(--dur-fast, 0.18s) var(--ease-out, ease-out); }
+
 .pl-side {
   flex: none; display: flex; flex-direction: column; gap: 14px; width: 248px; padding: 14px 10px 10px; overflow-y: auto;
   background: var(--glass-surface, var(--glass)); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
@@ -33,12 +46,32 @@
   background: rgba(var(--fg), 0.05); box-shadow: inset 0 1px 0 var(--spec), inset 0 0 0 0.5px var(--line-strong);
 }
 .pl-card:empty { display: none; }
-.pl-card.has-wallpaper {
+/* With a wallpaper the sidebar is the phone itself: a rounded screen in a thin bezel, the picture
+   filling it top to bottom, and the card and tabs on it like a lock screen's widgets. */
+.pl-side.has-wallpaper {
   --text: #fff; --text-2: rgba(255, 255, 255, 0.9); --muted: rgba(255, 255, 255, 0.76); --line: rgba(255, 255, 255, 0.16); --line-strong: rgba(255, 255, 255, 0.24);
-  min-height: 176px; color: #fff;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.12) 0%, rgba(0, 0, 0, 0.28) 45%, rgba(0, 0, 0, 0.66) 100%), var(--pl-wallpaper) center 28% / cover no-repeat;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 0 0 0.5px rgba(255, 255, 255, 0.18), 0 10px 28px -12px rgba(0, 0, 0, 0.55);
+  --hover: rgba(255, 255, 255, 0.14); --selection: rgba(255, 255, 255, 0.24);
+  position: relative; width: 300px; margin: 10px 0 10px 10px; padding: 22px 12px 12px; border-radius: 34px; color: #fff;
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.1) 0%, rgba(0, 0, 0, 0.18) 38%, rgba(0, 0, 0, 0.5) 100%),
+    var(--pl-wallpaper) center / cover no-repeat;
+  box-shadow:
+    0 0 0 5px rgba(12, 12, 14, 0.92), 0 0 0 6px rgba(255, 255, 255, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 24px 50px -18px rgba(0, 0, 0, 0.6);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+/* The camera hole at the top of the screen. */
+.pl-side.has-wallpaper::before {
+  content: ""; position: absolute; top: 8px; left: 50%; width: 9px; height: 9px; margin-left: -4.5px; border-radius: 50%;
+  background: #050506; box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.06);
+}
+.pl-side.has-wallpaper .pl-nav { padding: 6px; border-radius: 22px; background: rgba(0, 0, 0, 0.26); -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4); box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.14); }
+.pl-side.has-wallpaper .pl-nav-item { border-radius: 14px; }
+.pl-side.has-wallpaper .pl-nav-item.active .icon { color: #fff; }
+.pl-side.has-wallpaper .pl-tray-button { border-radius: 16px; background: rgba(0, 0, 0, 0.26); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
+.pl-card.has-wallpaper {
+  min-height: 176px; color: #fff; background: none; box-shadow: none;
 }
 .pl-card.has-wallpaper .pl-card-top { margin-bottom: auto; }
 .pl-card.has-wallpaper .pl-card-device { background: rgba(255, 255, 255, 0.18); color: #fff; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
@@ -373,6 +406,31 @@
 .pl-file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-file-size, .pl-file-date { color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pl-file-size { text-align: right; }
+.pl-file-list { position: relative; }
+.pl-view-seg button { width: 30px; padding: 0; display: inline-grid; place-items: center; }
+.pl-selbar { display: flex; align-items: center; gap: 6px; min-height: 28px; }
+.pl-selbar[hidden] { display: none; }
+.pl-selbar-count { font-size: var(--text-sm); font-weight: 650; color: var(--accent); font-variant-numeric: tabular-nums; }
+.pl-file-check {
+  position: absolute; left: 12px; top: 50%; z-index: 1; display: none; place-items: center; width: 18px; height: 18px; margin-top: -9px;
+  border-radius: 5px; background: var(--control); color: transparent; box-shadow: inset 0 0 0 1.5px var(--line-strong);
+}
+.pl-file:hover .pl-file-check, .pl-file-list.has-sel .pl-file-check { display: grid; }
+.pl-file:hover .pl-file-icon:not(.dir), .pl-file-list.has-sel .pl-file-icon { visibility: hidden; }
+.pl-file.selected .pl-file-check { background: var(--accent); color: var(--accent-ink); box-shadow: none; }
+.pl-band { position: absolute; z-index: 3; pointer-events: none; border-radius: 3px; background: color-mix(in srgb, var(--accent) 18%, transparent); box-shadow: inset 0 0 0 1px var(--accent); }
+
+/* ---- grid: a tile per item, the icon big and the name under it */
+.pl-files.grid .pl-file-head { display: none; }
+.pl-files.grid .pl-file-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); grid-auto-rows: max-content; gap: 6px; align-content: start; padding: 10px 14px 24px; }
+.pl-files.grid .pl-file { display: flex; flex-direction: column; align-items: center; gap: 6px; height: auto; min-height: 112px; padding: 12px 6px 8px; text-align: center; }
+.pl-files.grid .pl-file-icon { position: static; visibility: visible !important; }
+.pl-files.grid .pl-file-check { left: 8px; top: 8px; margin-top: 0; }
+.pl-files.grid .pl-file-name {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; max-width: 100%; white-space: normal; overflow-wrap: anywhere;
+  font-size: var(--text-sm); line-height: 1.3;
+}
+.pl-files.grid .pl-file-size, .pl-files.grid .pl-file-date { display: none; }
 .pl-file-drop { display: none; flex: none; align-items: center; justify-content: center; gap: 8px; height: 34px; margin: 0 12px 12px; border-radius: var(--radius-md); color: var(--faint); font-size: var(--text-sm); box-shadow: inset 0 0 0 1px var(--line); }
 .pl-files.can-drop .pl-file-drop { display: flex; }
 
@@ -580,14 +638,18 @@ body.pl-in-call .workspace > .module { top: 72px; }
   .pl-ring-pulse::after, .pl-welcome-wave { animation: none; }
 }
 
-/* ---- compact: the sidebar folds to icons */
+/* ---- compact (a narrow window) or folded (the user's choice): the sidebar folds to icons */
 
-.phone-module.compact .pl-side { width: 64px; padding: 12px 8px; align-items: center; }
-.phone-module.compact .pl-card { padding: 6px; background: none; box-shadow: none; }
-.phone-module.compact .pl-card > :not(.pl-card-top), .phone-module.compact .pl-card-names, .phone-module.compact .pl-card-more { display: none; }
-.phone-module.compact .pl-nav-item { justify-content: center; width: 44px; padding: 0; position: relative; }
-.phone-module.compact .pl-nav-label { display: none; }
-.phone-module.compact .pl-nav-badge, .phone-module.compact .pl-tray-count { position: absolute; top: 0; right: -2px; min-width: 16px; height: 14px; padding: 0 4px; line-height: 14px; font-size: 9.5px; }
-.phone-module.compact .pl-tray-ring { position: absolute; bottom: 3px; right: 6px; width: 10px; height: 10px; }
+:is(.phone-module.compact, .phone-module.folded) .pl-side { width: 64px; padding: 12px 8px; align-items: center; }
+:is(.phone-module.compact, .phone-module.folded) .pl-side.has-wallpaper { width: 76px; margin: 8px 0 8px 8px; padding: 20px 8px 10px; border-radius: 26px; }
+:is(.phone-module.compact, .phone-module.folded) .pl-side.has-wallpaper .pl-nav { padding: 4px; }
+:is(.phone-module.compact, .phone-module.folded) .pl-card { padding: 6px; background: none; box-shadow: none; }
+:is(.phone-module.compact, .phone-module.folded) .pl-card > :not(.pl-card-top), :is(.phone-module.compact, .phone-module.folded) .pl-card-names, :is(.phone-module.compact, .phone-module.folded) .pl-card-more { display: none; }
+:is(.phone-module.compact, .phone-module.folded) .pl-nav-item { justify-content: center; width: 44px; padding: 0; position: relative; }
+:is(.phone-module.compact, .phone-module.folded) .pl-nav-label { display: none; }
+:is(.phone-module.compact, .phone-module.folded) .pl-nav-badge, :is(.phone-module.compact, .phone-module.folded) .pl-tray-count { position: absolute; top: 0; right: -2px; min-width: 16px; height: 14px; padding: 0 4px; line-height: 14px; font-size: 9.5px; }
+:is(.phone-module.compact, .phone-module.folded) .pl-tray-ring { position: absolute; bottom: 3px; right: 6px; width: 10px; height: 10px; }
 .phone-module.compact .pl-file-head, .phone-module.compact .pl-file { grid-template-columns: minmax(0, 1fr) 70px; }
 .phone-module.compact .pl-file-date, .phone-module.compact .pl-file-head span:last-child { display: none; }
+.phone-module.compact .pl-files.grid .pl-file-list { grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); padding: 8px; }
+.phone-module.compact .pl-files.grid .pl-file { min-height: 96px; }

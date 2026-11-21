@@ -49,6 +49,11 @@ class MainActivity : Activity() {
         private val RESTRICTED = setOf(
             Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS, Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_CALL_LOG,
         )
+        /**
+         * Prefs key prefix for "this permission's dialog was shown". "asked2_" because 0.4.0 also
+         * set "asked_" when restricted settings refused silently, which left texts stuck.
+         */
+        private const val ASKED = "asked2_"
         private val STORES = setOf("com.android.vending", "org.fdroid.fdroid", "com.xiaomi.market", "com.sec.android.app.samsungapps")
         /** `adb shell am start -n dev.soab.zazabor.cast/.MainActivity --es address 10.0.2.2:47212` */
         const val EXTRA_ADDRESS = "address"
@@ -182,7 +187,14 @@ class MainActivity : Activity() {
             val blocked = permissions.indices.any { i ->
                 grantResults.getOrNull(i) != PackageManager.PERMISSION_GRANTED && permissions[i] in RESTRICTED
             }
-            if (blocked && restrictedSettings()) explainRestricted()
+            if (blocked && restrictedSettings()) {
+                // Android refused without showing a dialog: that wasn't the user saying no, so the
+                // next tap asks again instead of sending them to App Info.
+                val prefs = getSharedPreferences("link", MODE_PRIVATE).edit()
+                permissions.filter { it in RESTRICTED }.forEach { prefs.remove(ASKED + it) }
+                prefs.apply()
+                explainRestricted()
+            }
             renderChecklist()
             if (LinkPrefs(this).paired) LinkService.refresh(this)
             return
@@ -789,7 +801,7 @@ class MainActivity : Activity() {
     /** One permission (or one dialog's group) at a time; after a "don't ask again", its settings page. */
     private fun requestOne(permissions: Array<String>) {
         val prefs = getSharedPreferences("link", MODE_PRIVATE)
-        val key = "asked_" + permissions[0]
+        val key = ASKED + permissions[0]
         if (prefs.getBoolean(key, false) && permissions.none { shouldShowRequestPermissionRationale(it) }) {
             Toast.makeText(this, "Allow it under Permissions", Toast.LENGTH_LONG).show()
             openAppSettings()
@@ -826,7 +838,14 @@ class MainActivity : Activity() {
             .setTitle("Android needs one more step")
             .setMessage(
                 "Android keeps texts, calls and notifications from apps installed from a browser.\n\n" +
-                    "On the next screen, tap ⋮ (top right) → Allow restricted settings, then come back and tap Allow again.",
+                    "On the next screen, tap ⋮ (top right) → Allow restricted settings, then come back and tap Allow again." +
+                    if (Build.MANUFACTURER.equals("Xiaomi", ignoreCase = true)) {
+                        "\n\nXiaomi: if there's no ⋮, open Settings → Apps → Manage apps → Zazabor Link and look for ⋮ there. " +
+                            "Or plug the phone into the PC with USB debugging on and run:\n" +
+                            "adb shell appops set $packageName ACCESS_RESTRICTED_SETTINGS allow"
+                    } else {
+                        ""
+                    },
             )
             .setPositiveButton("Open App Info") { _, _ -> openAppSettings() }
             .setNegativeButton("Not Now", null)

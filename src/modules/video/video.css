@@ -55,6 +55,14 @@
 .vp-alone-card[hidden] { display: none; }
 .vp-alone-title { max-width: 520px; overflow: hidden; color: rgba(255, 255, 255, 0.92); font-size: var(--text-lg); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .vp-alone-card p { max-width: 380px; margin: 0 0 6px; font-size: var(--text-md); line-height: 1.5; }
+/* A phone's screen in its own window: only the picture, with pin and close while the pointer is over it. */
+.vp.phone-screen .vp-rail, .vp.phone-screen .vp-top, .vp.phone-screen .vp-bar, .vp.phone-screen .vp-sidebar, .vp.phone-screen .vp-panel { display: none; }
+.vp-phone-tools {
+  position: absolute; top: 8px; right: 8px; z-index: 4; display: flex; gap: 4px; padding: 3px; border-radius: 999px;
+  background: rgba(20, 20, 24, 0.62); color: rgba(255, 255, 255, 0.9); opacity: 0; transition: opacity var(--dur-med) var(--ease-out);
+}
+.vp-stage:hover .vp-phone-tools { opacity: 1; }
+.vp-phone-tools .icon-btn.active { color: var(--accent); }
 .vp-sections { position: absolute; inset: 0; overflow-y: auto; }
 .vp.view-player .vp-sections { display: none; }
 

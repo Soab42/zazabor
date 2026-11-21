@@ -80,6 +80,8 @@ ammonia = "=4.2.5"
 socket2 = { version = "0.5", features = ["all"] }
 if-addrs = "0.13"
 mdns-sd = "0.13"
+# Meet (src/meet): the meeting page's signalling runs over WebSockets on a plain TcpListener.
+tungstenite = "0.30"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = { version = "2.0", features = ["v2_40"] }

@@ -193,6 +193,10 @@ export class Shell implements ShellContext {
     if (isMainWindow && this.config.features.phone) {
       void import("../modules/phone/global").then((m) => m.startPhoneService(this)).catch((err) => console.warn("Phone Link:", err));
     }
+    // Meet: a guest waiting in the lobby shows a toast over any section.
+    if (isMainWindow && this.config.features.meet) {
+      void import("../modules/meet/global").then((m) => m.startMeetService(this)).catch((err) => console.warn("Meet:", err));
+    }
     if (isMainWindow) void listen("notes-show-list", () => this.config.features.notes && this.showModule("notes"));
     // Zazabor launched again ("Open with" while it runs, or in the background): open what it was given.
     if (isMainWindow) void listen<string>("open-path", (e) => void this.openPath(e.payload, 1));

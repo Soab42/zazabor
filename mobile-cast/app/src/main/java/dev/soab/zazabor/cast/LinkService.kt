@@ -608,6 +608,7 @@ class LinkService : Service() {
                     msg.getString("key"), msg.getInt("action"), if (msg.isNull("text")) null else msg.optString("text"),
                 )
                 "photos.list" -> re.put("photos", PhotoLibrary.list(this, msg.optInt("offset", 0), msg.optInt("limit", 60)))
+                "photo.view" -> re.put("jpeg", PhotoLibrary.view(this, msg.getString("uri"), msg.optInt("max", 1600)) ?: JSONObject.NULL)
                 "files.list" -> re.put("entries", PhoneFiles.list(this, msg.optString("path", "")))
                 "files.get" -> {
                     val xfer = msg.getInt("xfer")

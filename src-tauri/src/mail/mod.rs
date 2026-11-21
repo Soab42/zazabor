@@ -896,6 +896,41 @@ pub async fn mail_send(out: send::Outgoing) -> Result<()> {
     .await
 }
 
+/// The name and address an account sends from (Meet's invitations are signed with it).
+pub(crate) fn account_address(account_id: &str) -> Result<(String, String)> {
+    with_db(|conn| db::account(conn, account_id)).map(|a| (a.name, a.email))
+}
+
+/// Sends one message from an account to one person, with files given as (name, MIME type, bytes);
+/// filed in Sent like the compose sheet's. Blocking.
+pub(crate) fn send_message(account_id: &str, to: (&str, &str), subject: &str, html: &str, text: &str, files: Vec<(String, String, Vec<u8>)>) -> Result<()> {
+    let account = with_db(|conn| db::account(conn, account_id))?;
+    let cred = cred(&account)?;
+    let out = send::Outgoing {
+        account_id: account_id.to_string(),
+        to: vec![Address { name: to.0.to_string(), addr: to.1.to_string() }],
+        cc: vec![],
+        bcc: vec![],
+        subject: subject.to_string(),
+        html: html.to_string(),
+        text: text.to_string(),
+        attachments: vec![],
+        reply_to: None,
+        draft_id: None,
+    };
+    let message = send::build(&account, &out, files, None)?;
+    let raw = send::send(&account, &cred, &message)?;
+    if send::files_sent_itself(&account) {
+        if let Some(sent) = with_db(|conn| db::folder_by_role(conn, &account.id, "sent"))? {
+            worker_send(&account.id, Cmd::Folder(sent.id));
+        }
+    } else {
+        worker_send(&account.id, Cmd::Append { role: "sent", raw });
+    }
+    changed(&account.id);
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn mail_drafts() -> Result<Vec<db::Draft>> {
     blocking(|| with_db(|conn| db::drafts(conn))).await

@@ -1,4 +1,5 @@
 import { open as openDialog } from "../../../shared/dialog";
+import type { Folder, Photo as GalleryPhoto } from "../../gallery/library/model";
 import { formatBytes, h } from "../../../ui/dom";
 import { icon } from "../../../ui/icons";
 import { showToast } from "../../files/ops/toast";
@@ -6,11 +7,18 @@ import { duration, errorText, hasCap, phoneApi, type Photo } from "../api";
 import type { PhoneCtx, PhoneView } from "../ctx";
 import { emptyState, loadingState } from "../ui";
 
-const PAGE = 60;
+/** 30 a page: the phone's thumbnails (360 px) for 30 fit one link frame comfortably. */
+const PAGE = 30;
+/** The viewer's picture, longest side; the phone keeps it under the link's 1 MiB frame. */
+const VIEW_PX = 1600;
+/** Sharp pictures kept for the viewer and slideshow (each is a few hundred KB). */
+const KEEP_SHARP = 24;
 
 /**
- * Photos: the phone's recent pictures and videos, newest first. Click opens a preview; Save (or
- * Save To…) copies the original to this PC. Ctrl-click and Shift-click pick several.
+ * Photos: the phone's recent pictures and videos, newest first. Click opens a preview (the sharp
+ * picture replaces the thumbnail as soon as the phone sends it); Save (or Save To…) copies the
+ * original to this PC. Ctrl-click and Shift-click pick several. Slideshow plays them with the
+ * Gallery's slideshow.
  */
 export function photosView(ctx: PhoneCtx): PhoneView {
   let photos: Photo[] = [];
@@ -29,6 +37,11 @@ export function photosView(ctx: PhoneCtx): PhoneView {
     drawSelection();
   });
   const refresh = h("button", { class: "icon-btn", type: "button", title: "Refresh", "aria-label": "Refresh" }, icon("refresh", 16));
+  const playAll = h("button", { class: "btn small", type: "button", title: "Play the photos as a slideshow (the selected ones, if any)" }, icon("play", 14), "Slideshow");
+  playAll.addEventListener("click", () => {
+    const chosen = selected.size ? photos.filter((p) => selected.has(p.id)) : photos;
+    slideshow(chosen, 0);
+  });
   refresh.addEventListener("click", () => void reload());
   const grid = h("div", { class: "pl-photo-grid" });
   const foot = h("div", { class: "pl-photo-foot" });
@@ -37,7 +50,7 @@ export function photosView(ctx: PhoneCtx): PhoneView {
     if (more && !loading && scroller.scrollTop + scroller.clientHeight > scroller.scrollHeight - 600) void loadMore();
   });
   const el = h("div", { class: "pl-pane pl-photos" },
-    h("header", { class: "pl-bar" }, h("div", { class: "pl-bar-row" }, h("h1", { class: "pl-title" }, "Photos"), count, h("span", { class: "spacer" }), clearSel, saveSelected, refresh)),
+    h("header", { class: "pl-bar" }, h("div", { class: "pl-bar-row" }, h("h1", { class: "pl-title" }, "Photos"), count, h("span", { class: "spacer" }), clearSel, saveSelected, playAll, refresh)),
     scroller);
 
   const phoneId = () => ctx.phone()?.phoneId ?? "";
@@ -63,6 +76,53 @@ export function photosView(ctx: PhoneCtx): PhoneView {
       loading = false;
       drawFoot();
     }
+    // A tall window shows the whole page without a scrollbar, and then no scroll would ever ask
+    // for the next one: keep going until the grid overflows.
+    if (more && !failed && id === phoneId() && scroller.clientHeight && scroller.scrollHeight - scroller.clientHeight < 600) void loadMore();
+  }
+
+  // ---- sharp pictures (the viewer and the slideshow)
+
+  const sharp = new Map<string, Promise<string | null>>();
+  /** The photo at up to `px`, from the phone; null when it can't send one (an older app). */
+  function sharpUrl(uri: string, px = VIEW_PX): Promise<string | null> {
+    const key = `${px}:${uri}`;
+    let got = sharp.get(key);
+    if (!got) {
+      got = phoneApi.photoView(phoneId(), uri, px).catch(() => null);
+      sharp.set(key, got);
+      got.then((url) => url ?? sharp.delete(key));
+      while (sharp.size > KEEP_SHARP) sharp.delete(sharp.keys().next().value!);
+    }
+    return got;
+  }
+
+  // ---- the slideshow (the Gallery's player, fed from the phone)
+
+  async function slideshow(list: Photo[], start: number) {
+    const pictures = list.filter((p) => !p.video);
+    if (!pictures.length) return showToast("There are no pictures to play.");
+    const first = Math.max(0, pictures.indexOf(list[start]));
+    const name = ctx.phone()?.name ?? "Phone";
+    const folder: Folder = { path: "phone:", name, label: name, source: "phone", photos: [], latest: 0, earliest: 0 };
+    const byPath = new Map<string, Photo>();
+    folder.photos = pictures.map((p): GalleryPhoto => {
+      byPath.set(p.uri, p);
+      return { path: p.uri, name: p.name, size: p.size, mtime: Math.round(p.at / 1000), width: p.width ?? 0, height: p.height ?? 0, folder };
+    });
+    folder.latest = Math.max(...folder.photos.map((p) => p.mtime));
+    folder.earliest = Math.min(...folder.photos.map((p) => p.mtime));
+    const shell = ctx.shell;
+    const { Player } = await import("../../gallery/slideshow/player");
+    const player = new Player({
+      scope: { label: "Phone photos", title: `${name} photos`, photos: folder.photos, start: first },
+      settings: shell.config.slideshow,
+      saveSettings: () => shell.saveConfig(),
+      onExit: () => undefined,
+      // The phone's own picture at the slideshow's size, or its thumbnail if it can't send one.
+      imageUrl: async (photo, size) => (await sharpUrl(photo.path, Math.min(2048, Math.max(VIEW_PX, size)))) ?? byPath.get(photo.path)?.thumb ?? "",
+    });
+    await player.start();
   }
 
   async function reload() {
@@ -150,12 +210,24 @@ export function photosView(ctx: PhoneCtx): PhoneView {
     const saveButton = h("button", { class: "btn primary small", type: "button" }, icon("download", 14), "Save");
     const saveAs = h("button", { class: "btn small", type: "button" }, "Save To…");
     const close = h("button", { class: "icon-btn", type: "button", title: "Close (Esc)", "aria-label": "Close" }, icon("close", 18));
+    const play = h("button", { class: "btn small", type: "button", title: "Play a slideshow from this photo" }, icon("play", 14), "Slideshow");
+    const sharpness = h("span", { class: "pl-preview-sharp" });
     const overlay = h("div", { class: "pl-preview", role: "dialog", "aria-modal": "true", "aria-label": "Photo", tabIndex: -1 },
-      h("header", { class: "pl-preview-bar glass" }, h("div", { class: "pl-preview-titles" }, title, info), h("span", { class: "spacer" }), saveAs, saveButton, close),
+      h("header", { class: "pl-preview-bar glass" }, h("div", { class: "pl-preview-titles" }, title, info), h("span", { class: "spacer" }), sharpness, play, saveAs, saveButton, close),
       h("div", { class: "pl-preview-stage" }, img, prev, next));
     const show = () => {
       const p = photos[index];
-      img.src = p.thumb;
+      // The thumbnail at once, then the sharp picture when the phone has sent it.
+      img.src = p.thumb ?? "";
+      sharpness.textContent = "Loading full picture…";
+      const shown = index;
+      void sharpUrl(p.uri).then((url) => {
+        if (shown !== index || !overlay.isConnected) return;
+        if (url) img.src = url;
+        sharpness.textContent = url ? "" : "Preview only: update Zazabor Link on the phone for full pictures";
+      });
+      // The neighbours too, so → and ← show sharp pictures straight away.
+      for (const d of [1, -1, 2]) if (photos[index + d]) void sharpUrl(photos[index + d].uri);
       img.alt = p.name;
       title.textContent = p.name;
       const bits = [new Date(p.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }), p.width && p.height ? `${p.width} × ${p.height}` : "", formatBytes(p.size), p.video && p.duration ? duration(p.duration) : ""];
@@ -187,6 +259,10 @@ export function photosView(ctx: PhoneCtx): PhoneView {
     prev.addEventListener("click", () => step(-1));
     next.addEventListener("click", () => step(1));
     close.addEventListener("click", done);
+    play.addEventListener("click", () => {
+      done();
+      void slideshow(photos, index);
+    });
     saveButton.addEventListener("click", () => void save([photos[index]]));
     saveAs.addEventListener("click", () => void save([photos[index]], true));
     overlay.addEventListener("pointerdown", (e) => {

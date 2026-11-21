@@ -59,6 +59,11 @@ export interface PlayerOptions {
   settings: SlideshowSettings;
   saveSettings(): void;
   onExit(photo: Photo | null): void;
+  /**
+   * Where a slide's picture comes from, for photos that aren't files on this PC (a linked phone's).
+   * Default: the photo's file through `previewUrl`.
+   */
+  imageUrl?(photo: Photo, size: number): Promise<string>;
 }
 
 type Next = { pos: number; slide: Slide } | "wait" | "end";
@@ -420,7 +425,10 @@ export class Player {
   private load(pos: number) {
     if (this.slides.has(pos)) return;
     const photo = this.photos[this.order[pos]];
-    const promise: Promise<Slide | null> = loadImage(previewUrl(photo.path, photo.mtime, this.renderSize()))
+    const size = this.renderSize();
+    const url = this.options.imageUrl ? this.options.imageUrl(photo, size) : Promise.resolve(previewUrl(photo.path, photo.mtime, size));
+    const promise: Promise<Slide | null> = url
+      .then(loadImage)
       .then((img) => {
         if (this.destroyed) return null;
         return {

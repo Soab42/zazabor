@@ -180,6 +180,11 @@ fn ask(provider: &Provider, form: &[(&str, &str)]) -> Result<TokenAnswer> {
     if !answer.error.is_empty() || answer.access_token.is_empty() {
         let why = answer.error_description.lines().next().unwrap_or("").trim().to_string();
         return Err(match answer.error.as_str() {
+            // Google ends every sign-in after 7 days while the Cloud project's consent screen is
+            // still "Testing"; publishing it ("In production") makes sign-ins last until revoked.
+            "invalid_grant" if provider.id == "google" => format!(
+                "Google wants you to sign in again. {why} If this happens about once a week, your Google Cloud app is still in Testing: open Google Auth Platform → Audience, tap Publish app, then sign in once more."
+            ),
             "invalid_grant" => format!("{} wants you to sign in again. {why}", provider.name),
             "invalid_client" | "unauthorized_client" => format!("{} doesn't accept the client ID. Check it in the account sheet. {why}", provider.name),
             _ => format!("{} refused: {}", provider.name, if why.is_empty() { answer.error.clone() } else { why }),

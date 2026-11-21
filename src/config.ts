@@ -94,6 +94,7 @@ export interface Config {
   apps: AppsSettings;
   mail: MailSettings;
   phone: PhoneSettings;
+  tv: TvSettings;
   studio: StudioSettings;
   guide: GuideSettings;
   updates: UpdateSettings;
@@ -160,6 +161,10 @@ export interface PhoneSettings {
   clip: boolean;
   /** The phone the section shows (its phoneId); empty: the first one. */
   active: string;
+  /** How the Files tab lays out a folder. */
+  filesView?: "list" | "grid";
+  /** The sidebar is folded to a slim strip of icons. */
+  sideFolded?: boolean;
 }
 
 function normalizePhone(raw: Partial<PhoneSettings> | undefined): PhoneSettings {
@@ -171,7 +176,36 @@ function normalizePhone(raw: Partial<PhoneSettings> | undefined): PhoneSettings 
     mirrorNotifs: raw?.mirrorNotifs !== false,
     clip: raw?.clip === true,
     active: typeof raw?.active === "string" && /^[0-9a-f]{0,64}$/i.test(raw.active) ? raw.active : "",
+    filesView: raw?.filesView === "grid" ? "grid" : "list",
+    sideFolded: raw?.sideFolded === true,
   };
+}
+
+/** The TV section (src/modules/tv): where the movie servers are, and the live playlists. */
+export interface TvSettings {
+  /** Front pages of DhakaFlix servers; their category links are found again whenever the address changes. */
+  sources: { id: string; url: string }[];
+  /** The user's on/off choice per category URL (the others follow the section's default). */
+  overrides: Record<string, boolean>;
+  /** M3U / M3U8 playlists for Live TV: a URL or a file path. Nothing is added until the user does so. */
+  playlists: { id: string; name: string; url: string }[];
+}
+
+export const DEFAULT_TV_SOURCE = "http://172.16.50.14";
+
+function normalizeTv(raw: Partial<TvSettings> | undefined): TvSettings {
+  const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+  const sources = Array.isArray(raw?.sources)
+    ? raw.sources.map((s) => ({ id: text(s?.id, 40), url: text(s?.url, 300) })).filter((s) => s.id && s.url).slice(0, 12)
+    : [{ id: "dhakaflix", url: DEFAULT_TV_SOURCE }];
+  const overrides: Record<string, boolean> = {};
+  if (raw?.overrides && typeof raw.overrides === "object") {
+    for (const [url, on] of Object.entries(raw.overrides)) if (typeof on === "boolean" && url.length < 400) overrides[url] = on;
+  }
+  const playlists = Array.isArray(raw?.playlists)
+    ? raw.playlists.map((p) => ({ id: text(p?.id, 40), name: text(p?.name, 80), url: text(p?.url, 4096) })).filter((p) => p.id && p.url).slice(0, 24)
+    : [];
+  return { sources, overrides, playlists };
 }
 
 /** The Apps section (src/modules/apps). */
@@ -407,6 +441,7 @@ const DEFAULTS: Config = {
   apps: normalizeApps(undefined),
   mail: normalizeMail(undefined),
   phone: normalizePhone(undefined),
+  tv: normalizeTv(undefined),
   studio: structuredClone(DEFAULT_STUDIO),
   guide: { last: null },
   updates: { auto: true, skipped: null },
@@ -449,6 +484,7 @@ export function parseConfig(raw: string): Config {
     apps: normalizeApps(parsed.apps),
     mail: normalizeMail(parsed.mail),
     phone: normalizePhone(parsed.phone),
+    tv: normalizeTv(parsed.tv),
     studio: normalizeStudio(parsed.studio),
     guide: normalizeGuide(parsed.guide),
     updates: normalizeUpdates(parsed.updates),

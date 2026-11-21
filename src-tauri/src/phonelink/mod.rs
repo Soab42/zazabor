@@ -714,6 +714,16 @@ impl Hub {
         Ok(photos)
     }
 
+    /// One photo (a video's frame for a video) at up to `max` px, as a `data:` URL, for the viewer
+    /// and the slideshow. None when the phone couldn't make one small enough.
+    pub fn photo_view(&self, phone_id: &str, uri: &str, max: u32) -> Result<Option<String>, String> {
+        if !uri.starts_with("content://media/") {
+            return Err("That isn't one of the phone's photos.".into());
+        }
+        let answer = self.need(phone_id)?.request(json!({"t": "photo.view", "uri": uri, "max": max.clamp(256, 2048)}), self.timing.request)?;
+        Ok(data_url("image/jpeg", answer.get("jpeg").and_then(Value::as_str)))
+    }
+
     pub fn files(&self, phone_id: &str, path: &str) -> Result<Vec<Value>, String> {
         let answer = self.need(phone_id)?.request(json!({"t": "files.list", "path": path}), self.timing.listing)?;
         Ok(answer.get("entries").and_then(Value::as_array).cloned().unwrap_or_default())
@@ -1164,6 +1174,11 @@ pub async fn phone_notif_action(phone_id: String, key: Value, action: u32, text:
 #[tauri::command]
 pub async fn phone_photos(phone_id: String, offset: u32, limit: u32) -> Result<Vec<Value>, String> {
     private(move |h| h.photos(&phone_id, offset, limit)).await
+}
+
+#[tauri::command]
+pub async fn phone_photo_view(phone_id: String, uri: String, max: u32) -> Result<Option<String>, String> {
+    private(move |h| h.photo_view(&phone_id, &uri, max)).await
 }
 
 #[tauri::command]

@@ -104,6 +104,18 @@ export const MODULES: Record<ModuleId, ModuleMeta> = {
     load: async () => (await import("../modules/phone")).createPhoneModule,
     status: watchPhoneStatus,
   },
+  meet: {
+    title: "Meet",
+    icon: "video",
+    blurb: "Voice and video calls and meetings hosted from this PC: guests join from a link in their browser, and meetings record themselves.",
+    load: async () => (await import("../modules/meet")).createMeetModule,
+  },
+  tv: {
+    title: "TV",
+    icon: "tv",
+    blurb: "Movies and series from the DhakaFlix servers on your network, plus live channels from your own playlists, in an Apple TV style.",
+    load: async () => (await import("../modules/tv")).createTvModule,
+  },
   apps: {
     title: "Apps",
     icon: "package",

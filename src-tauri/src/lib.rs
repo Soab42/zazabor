@@ -14,6 +14,7 @@ mod git;
 mod imaging;
 mod lock;
 mod mail;
+mod meet;
 mod migrate;
 mod music;
 mod notes;
@@ -29,6 +30,7 @@ mod signing;
 mod statements;
 mod term;
 mod time;
+mod tv;
 mod update;
 mod video;
 mod videoedit;
@@ -291,8 +293,10 @@ async fn open_window(
     module: String,
     path: Option<String>,
     siblings: Option<Vec<String>>,
+    shape: Option<String>,
+    title: Option<String>,
 ) -> Result<(), String> {
-    new_window(&app, &module, path, siblings)
+    new_window_shaped(&app, &module, path, siblings, shape.as_deref(), title)
 }
 
 /// See `open_window`.
@@ -302,14 +306,47 @@ pub(crate) fn new_window(
     path: Option<String>,
     siblings: Option<Vec<String>>,
 ) -> Result<(), String> {
+    new_window_shaped(app, module, path, siblings, None, None)
+}
+
+/// The size of a phone-screen window (`shape` "phone"): portrait, as tall as the monitor allows
+/// (at most 860), freely resizable down to a small one.
+fn phone_window_size(app: &tauri::AppHandle) -> (f64, f64) {
+    let monitor_height = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|m| m.size().height as f64 / m.scale_factor())
+        .unwrap_or(1080.0);
+    let height = (monitor_height * 0.82).clamp(420.0, 860.0).round();
+    ((height * 0.49).round().max(240.0), height)
+}
+
+/// `new_window` with a `shape`: "phone" is a small portrait window for a phone's screen (only the
+/// picture; the page sizes and keeps its shape). Anything else is the usual window. `title`
+/// replaces "Zazabor Home".
+pub(crate) fn new_window_shaped(
+    app: &tauri::AppHandle,
+    module: &str,
+    path: Option<String>,
+    siblings: Option<Vec<String>>,
+    shape: Option<&str>,
+    title: Option<String>,
+) -> Result<(), String> {
     static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(2);
     let label = format!("window-{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
-    let start = serde_json::json!({ "module": module, "path": path, "siblings": siblings });
+    let start = serde_json::json!({ "module": module, "path": path, "siblings": siblings, "shape": shape });
+    let phone = shape == Some("phone");
+    let ((width, height), (min_width, min_height)) = if phone {
+        (phone_window_size(app), (240.0, 420.0))
+    } else {
+        ((1280.0, 820.0), (860.0, 560.0))
+    };
     let window = tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::App("index.html".into()))
         .on_navigation(stays_in_app)
-        .title("Zazabor Home")
-        .inner_size(1280.0, 820.0)
-        .min_inner_size(860.0, 560.0)
+        .title(title.as_deref().unwrap_or("Zazabor Home"))
+        .inner_size(width, height)
+        .min_inner_size(min_width, min_height)
         .background_color(tauri::webview::Color(0x0e, 0x0f, 0x11, 0xff))
         .initialization_script(format!("window.__ZAZABOR_WINDOW__ = {start};"))
         .build()
@@ -389,6 +426,8 @@ pub fn run() {
             recorder::init(&app.path().app_data_dir()?);
             cast::init(app.handle().clone(), app.path().app_data_dir()?);
             phonelink::init(app.handle().clone(), app.path().app_data_dir()?);
+            meet::init(app.handle().clone(), app.path().app_data_dir()?);
+            tv::init(app.handle().clone(), app.path().app_data_dir()?, app.path().app_cache_dir()?);
             phonelink::hfp::init(app.handle().clone());
             // A quick note (`--new-note`) starts with only the note, the clipboard (`--clipboard`)
             // with only the Win+V popup, `--background` with no window at all; otherwise the main
@@ -786,6 +825,7 @@ pub fn run() {
             phonelink::phone_notif_dismiss,
             phonelink::phone_notif_action,
             phonelink::phone_photos,
+            phonelink::phone_photo_view,
             phonelink::phone_files,
             phonelink::phone_download,
             phonelink::phone_upload,
@@ -811,6 +851,35 @@ pub fn run() {
             phonelink::hfp::phone_call_audio,
             phonelink::hfp::phone_call_mute,
             phonelink::hfp::phone_call_volume,
+            meet::meet_state,
+            meet::meet_list,
+            meet::meet_create,
+            meet::meet_update,
+            meet::meet_delete,
+            meet::meet_join_url,
+            meet::meet_open,
+            meet::meet_invite,
+            meet::meet_end,
+            meet::meet_recordings,
+            meet::meet_recording_delete,
+            meet::meet_tunnel,
+            meet::meet_settings,
+            tv::tv_discover,
+            tv::tv_state,
+            tv::tv_start,
+            tv::tv_resolve,
+            tv::tv_episodes,
+            tv::tv_home,
+            tv::tv_items,
+            tv::tv_played,
+            tv::tv_cache_info,
+            tv::tv_clear_cache,
+            tv::tv_live_refresh,
+            tv::tv_live_channels,
+            tv::tv_live_fav,
+            tv::tv_live_watched,
+            tv::tv_live_logo,
+            tv::tv_live_probe,
             // file operations
             fs::fs_copy,
             fs::fs_move,

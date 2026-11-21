@@ -50,6 +50,7 @@ const paths = {
   drive: `<rect x="3.5" y="13" width="17" height="6.5" rx="1.6"/><path d="M5.5 13l2-7.5h9l2 7.5"/><circle cx="16.5" cy="16.25" r=".9" fill="currentColor"/>`,
   usb: `<path d="M9 3.5h6v5H9z"/><rect x="7" y="8.5" width="10" height="12" rx="2"/><path d="M10.5 5.5v1M13.5 5.5v1"/>`,
   phone: `<rect x="7" y="3" width="10" height="18" rx="2.2"/><path d="M11 17.5h2"/>`,
+  tv: `<rect x="3" y="5" width="18" height="12.5" rx="2.4"/><path d="M8.5 20.5h7M12 17.5v3"/>`,
   network: `<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.3 3.8 5.2 3.8 8.5s-1.3 6.2-3.8 8.5c-2.5-2.3-3.8-5.2-3.8-8.5S9.5 5.8 12 3.5z"/>`,
   server: `<rect x="4" y="4.5" width="16" height="6.5" rx="1.5"/><rect x="4" y="13" width="16" height="6.5" rx="1.5"/><path d="M7.5 7.75h.01M7.5 16.25h.01"/>`,
   eject: `<path d="M12 5l7 8H5z"/><path d="M5 18.5h14"/>`,

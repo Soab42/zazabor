@@ -26,8 +26,8 @@ android {
         applicationId = "dev.soab.zazabor.cast"
         minSdk = 29
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.4.0"
+        versionCode = 7
+        versionName = "0.4.2"
     }
 
     signingConfigs {

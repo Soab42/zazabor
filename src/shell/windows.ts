@@ -15,7 +15,7 @@ import type { ModuleId } from "./module";
  * `siblings` are the files a window for one file browses through, in order.
  */
 export type WindowStart =
-  | { module: ModuleId; path?: string | null; siblings?: string[] | null }
+  | { module: ModuleId; path?: string | null; siblings?: string[] | null; shape?: "phone" | null }
   | { module: "viewer"; path: string }
   /** A sticky note on the desktop; `path` is the note's id. */
   | { module: "note"; path: string }
@@ -45,6 +45,15 @@ export const closeThisWindow = () => void getCurrentWindow().close().catch(() =>
  */
 export function openWindow(module: ModuleId, path?: string, siblings?: string[]) {
   invoke("open_window", { module, path: path ?? null, siblings: siblings ?? null })
+    .catch((err) => console.warn("Could not open a window:", err));
+}
+
+/**
+ * Opens a phone's screen (a mirror's stream address) in its own window: portrait-shaped, only the
+ * picture, resizable. Closing the window stops the mirror.
+ */
+export function openPhoneScreenWindow(url: string, title: string) {
+  invoke("open_window", { module: "video", path: url, siblings: [url], shape: "phone", title })
     .catch((err) => console.warn("Could not open a window:", err));
 }
 

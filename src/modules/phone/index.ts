@@ -81,7 +81,22 @@ export const createPhoneModule: ModuleFactory = (shell) => {
     nav.append(button);
     navButtons.set(t.id, { button, badge });
   }
-  const side = h("aside", { class: "pl-side" }, card, nav, h("div", { class: "spacer" }), tray.button);
+  // The sidebar's title and its fold button: folded, it keeps only the phone's icon and the tabs.
+  const fold = h("button", { class: "icon-btn small pl-side-fold", type: "button" }, icon("sidebar", 16));
+  const sideHead = h("div", { class: "pl-side-head" }, h("span", { class: "pl-side-title" }, "Phone Link"), fold);
+  const side = h("aside", { class: "pl-side" }, sideHead, card, nav, h("div", { class: "spacer" }), tray.button);
+  function showFolded() {
+    const folded = shell.config.phone.sideFolded === true;
+    el.classList.toggle("folded", folded);
+    fold.title = folded ? "Show the sidebar" : "Fold the sidebar";
+    fold.setAttribute("aria-label", fold.title);
+    fold.setAttribute("aria-expanded", String(!folded));
+  }
+  fold.addEventListener("click", () => {
+    shell.config.phone.sideFolded = !shell.config.phone.sideFolded;
+    shell.saveConfig();
+    showFolded();
+  });
 
   const main = h("div", { class: "pl-main" }, ...Object.values(views).map((v) => v.el), tray.panel);
   for (const v of Object.values(views)) v.el.hidden = true;
@@ -93,6 +108,7 @@ export const createPhoneModule: ModuleFactory = (shell) => {
   // looks like the phone it's linked to.
   const backdrop = h("div", { class: "pl-wallpaper", "aria-hidden": "true" });
   const el = h("section", { class: "phone-module" }, backdrop, panes, welcome);
+  showFolded();
   new ResizeObserver(() => {
     el.classList.toggle("narrow", el.clientWidth < 980);
     el.classList.toggle("compact", el.clientWidth < 720);
@@ -125,9 +141,11 @@ export const createPhoneModule: ModuleFactory = (shell) => {
     const image = url ? `url("${url}")` : "";
     el.classList.toggle("has-wallpaper", !!url);
     backdrop.style.backgroundImage = image;
+    // With a wallpaper the sidebar becomes the phone: the picture fills it from top to bottom.
+    side.classList.toggle("has-wallpaper", !!url);
     card.classList.toggle("has-wallpaper", !!url);
-    if (url) card.style.setProperty("--pl-wallpaper", image);
-    else card.style.removeProperty("--pl-wallpaper");
+    if (url) side.style.setProperty("--pl-wallpaper", image);
+    else side.style.removeProperty("--pl-wallpaper");
   }
 
   // ---- the phone's card
